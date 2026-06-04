@@ -1,0 +1,31 @@
+{
+  "name": "ai-storm-frontend",
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "ng serve",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "deno test --allow-read src/app/core"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/common": "^22.0.0",
+    "@angular/compiler": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/platform-browser": "^22.0.0",
+    "@blocksuite/blocks": "0.19.5",
+    "@blocksuite/presets": "0.19.5",
+    "@blocksuite/store": "0.19.5",
+    "rxjs": "^7.8.1",
+    "tslib": "^2.6.2",
+    "y-indexeddb": "^9.0.12",
+    "yjs": "^13.6.18"
+  },
+  "devDependencies": {
+    "@angular/build": "^22.0.0",
+    "@angular/cli": "^22.0.0",
+    "@angular/compiler-cli": "^22.0.0",
+    "typescript": "~6.0.0"
+  }
+}
