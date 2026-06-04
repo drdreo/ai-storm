@@ -9,6 +9,9 @@
     "test": "deno test --allow-read src/app/core"
   },
   "private": true,
+  "overrides": {
+    "@blocksuite/icons": "2.1.75"
+  },
   "dependencies": {
     "@angular/common": "^22.0.0",
     "@angular/compiler": "^22.0.0",

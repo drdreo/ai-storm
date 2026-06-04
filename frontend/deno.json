@@ -1,0 +1,10 @@
+{
+  "//": "Used only to run the framework-agnostic ingestion engine unit tests in src/app/core. The Angular app is built with the npm toolchain (npm run build).",
+  "unstable": ["sloppy-imports"],
+  "lint": {
+    "exclude": ["node_modules", "dist", ".angular"]
+  },
+  "fmt": {
+    "exclude": ["node_modules", "dist", ".angular"]
+  }
+}
