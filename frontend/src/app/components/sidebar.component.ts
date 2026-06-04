@@ -11,7 +11,6 @@ import type { WorkspaceMeta } from '../core/models';
  */
 @Component({
   selector: 'as-sidebar',
-  standalone: true,
   imports: [Listbox, Option],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

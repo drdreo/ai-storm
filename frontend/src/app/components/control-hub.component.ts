@@ -21,7 +21,6 @@ import { BackendService } from '../core/backend.service';
  */
 @Component({
   selector: 'as-control-hub',
-  standalone: true,
   imports: [Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

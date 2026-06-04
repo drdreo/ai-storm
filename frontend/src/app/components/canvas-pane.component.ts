@@ -22,7 +22,6 @@ import type { CanvasMode } from '../core/models';
  */
 @Component({
   selector: 'as-canvas-pane',
-  standalone: true,
   imports: [Tabs, TabList, Tab, Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `

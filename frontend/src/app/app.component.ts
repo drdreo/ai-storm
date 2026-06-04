@@ -18,7 +18,6 @@ import { ControlHubComponent } from './components/control-hub.component';
  */
 @Component({
   selector: 'as-root',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [SidebarComponent, CanvasPaneComponent, ControlHubComponent],
   template: `
