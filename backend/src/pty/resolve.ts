@@ -9,6 +9,8 @@
  * command is returned unchanged.
  */
 
+import { log } from "../log.ts";
+
 export interface ResolvedLaunch {
   cmd: string;
   args: string[];
@@ -46,8 +48,12 @@ export async function resolveLaunch(
   // several candidates (e.g. a `.cmd` npm shim plus an extensionless Git-Bash
   // script); pick the one Windows can actually CreateProcess.
   const candidates = await whereExe(command);
+  log.debug("resolve.candidates", { command, candidates: candidates.join(" | ") });
   if (candidates.length === 0) throw new LaunchNotFoundError(command);
-  return wrapByExtension(chooseBest(candidates), args);
+  const chosen = chooseBest(candidates);
+  const wrapped = wrapByExtension(chosen, args);
+  log.debug("resolve.chosen", { command, chosen, launch: `${wrapped.cmd} ${wrapped.args.join(" ")}` });
+  return wrapped;
 }
 
 // Native binaries first, then batch shims, then PowerShell scripts. An

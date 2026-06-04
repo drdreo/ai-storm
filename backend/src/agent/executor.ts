@@ -8,6 +8,7 @@
  */
 
 import type { AgentStatusMessage } from "../protocol.ts";
+import { log } from "../log.ts";
 
 export type AgentEmitter = (msg: Omit<AgentStatusMessage, "type">) => void;
 
@@ -41,6 +42,11 @@ export function runAgent(
     });
     proc = command.spawn();
   } catch (err) {
+    log.error("agent.spawn_failed", {
+      workspace: workspaceId,
+      command: spec.command,
+      error: err instanceof Error ? err.message : String(err),
+    });
     emit({
       workspaceId,
       status: "error",
@@ -51,6 +57,7 @@ export function runAgent(
     return;
   }
 
+  log.info("agent.spawned", { workspace: workspaceId, command: spec.command, pid: proc.pid });
   emit({ workspaceId, status: "spawned", pid: proc.pid });
 
   const decoder = new TextDecoder();
@@ -81,8 +88,10 @@ export function runAgent(
   ]).then(async () => {
     try {
       const status = await proc.status;
+      log.info("agent.exit", { workspace: workspaceId, command: spec.command, code: status.code });
       emit({ workspaceId, status: "exit", code: status.code });
     } catch {
+      log.warn("agent.exit", { workspace: workspaceId, command: spec.command, code: -1 });
       emit({ workspaceId, status: "exit", code: -1 });
     }
   });

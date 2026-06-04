@@ -1,7 +1,11 @@
 {
+  "imports": {
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0"
+  },
   "tasks": {
     "dev": "deno run --watch --allow-net=127.0.0.1 --allow-run --allow-read --allow-env main.ts",
     "start": "deno run --allow-net=127.0.0.1 --allow-run --allow-read --allow-env main.ts",
+    "trace": "OTEL_DENO=1 deno run --allow-net=127.0.0.1 --allow-run --allow-read --allow-env main.ts",
     "test": "deno test --allow-run --allow-read --allow-env",
     "check": "deno check main.ts"
   },
