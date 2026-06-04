@@ -34,6 +34,18 @@ Pure, framework-agnostic TypeScript with full unit coverage (`deno test`):
 | `markdown-block-parser.ts` | Line → structural block descriptors | §3.3 block translation |
 | `render-scheduler.ts` | rAF double-buffer, throttled batched mutations | §5.1 framerate throttling |
 
+### The conversational session (PRD §2)
+
+A workspace session does **not** spawn a raw shell — it launches your configured
+**AI harness** (default `claude`), so prompts typed in the control hub are sent
+to that CLI's stdin and its streamed output is parsed onto the canvas. The
+harness command is editable per workspace in the control hub (e.g. `aider`, or a
+plain shell like `powershell` for running commands). On Windows the backend
+resolves npm `.cmd`/`.ps1` shims via `where.exe` and wraps them in the right
+interpreter, and input that races ahead of the spawning PTY is buffered until it
+is ready. If the harness isn't found, a clear message is streamed back instead
+of a silent failure.
+
 ### Persistence (PRD §3.5)
 
 All workspace canvas content lives in one BlockSuite `DocCollection` whose root

@@ -20,6 +20,13 @@ try {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.waitForSelector('affine-editor-container', { timeout: 20000 });
 
+  // The session defaults to launching the `claude` harness; for this pipeline
+  // test (no claude in CI) override the harness to a plain shell so we can emit
+  // a deterministic Markdown line through stdout.
+  const harness = page.locator('as-control-hub .harness');
+  await harness.fill('powershell');
+  await harness.press('Tab');
+
   // Type a command whose stdout is a clean Markdown heading, then submit.
   const composer = page.locator('as-control-hub textarea');
   await composer.click();

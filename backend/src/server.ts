@@ -75,16 +75,17 @@ function handleWebSocket(req: Request): Response {
     switch (msg.type) {
       case "attach": {
         const { workspaceId } = msg;
-        manager.attach(
-          workspaceId,
-          { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
-          (chunk) => send({ type: "data", workspaceId, chunk }),
-          (code) => send({ type: "exit", workspaceId, code }),
-        );
-        const session = manager.has(workspaceId);
-        if (session) {
-          send({ type: "ready", workspaceId, pid: -1 });
-        }
+        manager
+          .attach(
+            workspaceId,
+            { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
+            (chunk) => send({ type: "data", workspaceId, chunk }),
+            (code) => send({ type: "exit", workspaceId, code }),
+            (message) => send({ type: "error", workspaceId, message }),
+          )
+          .then((ok) => {
+            if (ok) send({ type: "ready", workspaceId, pid: -1 });
+          });
         break;
       }
       case "input":

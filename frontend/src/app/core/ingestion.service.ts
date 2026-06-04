@@ -81,12 +81,18 @@ export class IngestionService {
       unsubscribe,
     });
 
+    // The interactive session defaults to launching the configured AI harness
+    // (e.g. `claude`), so prompts typed in the control hub go to the agent —
+    // not to a raw shell. An explicit `shell` override takes precedence.
+    const harness = config.shell?.trim() || config.agentCommand?.trim() || 'claude';
+    const harnessArgs = config.shell ? config.args ?? [] : config.agentArgs ?? [];
+
     this.#backend.connect();
     this.#backend.send({
       type: 'attach',
       workspaceId,
-      shell: config.shell,
-      args: config.args,
+      shell: harness,
+      args: harnessArgs,
       cwd: config.cwd,
       cols,
       rows,

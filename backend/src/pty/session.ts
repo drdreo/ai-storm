@@ -56,6 +56,9 @@ export class PtySession {
     this.cols = opts.cols ?? 80;
     this.rows = opts.rows ?? 24;
 
+    // `shell`/`args` are expected to be already resolved by the PtyManager
+    // (PATHEXT/shim resolution happens there). Fall back to the platform shell
+    // only if nothing was provided.
     const fallback = defaultShell();
     const shell = opts.shell ?? fallback.shell;
     const args = opts.args ?? (opts.shell ? [] : fallback.args);
@@ -77,9 +80,22 @@ export class PtySession {
       stderr: "piped",
     });
 
-    this.#proc = command.spawn();
-    this.#stdin = this.#proc.stdin.getWriter();
+    try {
+      this.#proc = command.spawn();
+    } catch (err) {
+      // Surface the failure as data + a non-zero exit instead of crashing.
+      this.#closed = true;
+      const message =
+        `\r\n[ai-storm] failed to launch "${shell}": ` +
+        (err instanceof Error ? err.message : String(err)) + "\r\n";
+      queueMicrotask(() => {
+        this.#onData(message);
+        this.#onExit(127);
+      });
+      return;
+    }
 
+    this.#stdin = this.#proc.stdin.getWriter();
     this.#pump(this.#proc.stdout);
     this.#pump(this.#proc.stderr);
     this.#watchExit();
