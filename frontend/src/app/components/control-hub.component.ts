@@ -41,6 +41,20 @@ import { BackendService } from '../core/backend.service';
         </div>
       </header>
 
+      <div class="config">
+        <label>harness</label>
+        <input
+          class="harness"
+          [value]="ws.terminal.agentCommand || 'claude'"
+          [disabled]="ingestion.isAttached(ws.id)"
+          placeholder="claude"
+          spellcheck="false"
+          (change)="setHarness(ws.id, $event)"
+          title="The AI CLI launched for this workspace's session (PRD §2). Prompts are sent to its stdin."
+        />
+        <span class="hint">prompts go to this CLI's stdin</span>
+      </div>
+
       <section class="stream" #stream>
         @for (line of lines(); track $index) {
           <div class="line">{{ line }}</div>
@@ -116,6 +130,37 @@ import { BackendService } from '../core/backend.service';
       }
       .sep {
         opacity: 0.4;
+      }
+      .config {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.75rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.72rem;
+        color: var(--text-dim);
+      }
+      .config label {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .harness {
+        flex: 0 0 auto;
+        width: 180px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--input-bg);
+        color: var(--text);
+        padding: 0.28rem 0.5rem;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+      }
+      .harness:disabled {
+        opacity: 0.55;
+      }
+      .config .hint {
+        opacity: 0.6;
+        font-style: italic;
       }
       .session {
         display: flex;
@@ -269,6 +314,11 @@ export class ControlHubComponent {
     });
   }
 
+  setHarness(id: string, event: Event): void {
+    const value = (event.target as HTMLInputElement).value.trim();
+    this.workspaces.patchTerminal(id, { agentCommand: value || 'claude' });
+  }
+
   start(id: string): void {
     const ws = this.workspaces.active();
     if (ws) this.ingestion.attach(id, ws.terminal);
@@ -289,7 +339,9 @@ export class ControlHubComponent {
     const value = input.value;
     if (!value.trim()) return;
     if (!this.ingestion.isAttached(id)) this.start(id);
-    this.ingestion.sendInput(id, value + '\r');
+    // The backend uses piped stdio (not a raw TTY), so the child's line reader
+    // terminates on '\n'. A bare '\r' would never submit the line.
+    this.ingestion.sendInput(id, value + '\n');
     input.value = '';
   }
 }
