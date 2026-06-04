@@ -78,6 +78,27 @@ Deno.test("SlicingBuffer flush emits trailing unterminated line", () => {
   assertEquals(buf.flush(), ["partial line no newline"]);
 });
 
+Deno.test("SlicingBuffer handles CRLF split across two push() calls", () => {
+  // Regression: \r at end of first chunk, \n at start of next — must yield
+  // exactly one completed line ("alpha"), not a spurious empty line.
+  const buf = new SlicingBuffer();
+  const r1 = buf.push("alpha\r");
+  assertEquals(r1.lines, [], "no lines yet — CR is held back");
+  const r2 = buf.push("\nbeta\n");
+  assertEquals(r2.lines, ["alpha", "beta"]);
+});
+
+Deno.test("SlicingBuffer treats lone \\r at end of chunk as rewrite when next chunk has no \\n", () => {
+  // A spinner frame ends a chunk with \r; the rewrite text arrives in the next chunk.
+  const buf = new SlicingBuffer();
+  const r1 = buf.push("Loading |\r");
+  assertEquals(r1.lines, [], "no lines yet — CR is held back");
+  const r2 = buf.push("Loading /\r");
+  assertEquals(r2.lines, [], "still a rewrite in progress");
+  const r3 = buf.push("Done!\n");
+  assertEquals(r3.lines, ["Done!"]);
+});
+
 Deno.test("MarkdownBlockParser detects headings", () => {
   const p = new MarkdownBlockParser();
   assertEquals(p.translate("## Title here"), {
@@ -191,4 +212,35 @@ Deno.test("RenderScheduler flushNow drains synchronously", () => {
   scheduler.enqueueAll([1, 2, 3]);
   scheduler.flushNow();
   assertEquals(batches, [[1, 2, 3]]);
+});
+
+Deno.test("RenderScheduler flushNow leaves no dangling frame after overflow drain", () => {
+  // With maxPerFrame=2, draining [1,2,3,4,5] via flushNow must not leave a
+  // scheduled frame handle behind once the loop completes.
+  const cancelledHandles: number[] = [];
+  let nextHandle = 1;
+  const scheduler = new RenderScheduler<number>({
+    sink: () => {},
+    requestFrame: (cb) => {
+      // Capture cb so we can verify it is never called spontaneously; just
+      // return an incrementing handle so we can track cancel calls.
+      void cb;
+      return nextHandle++;
+    },
+    cancelFrame: (h) => cancelledHandles.push(h),
+    maxPerFrame: 2,
+  });
+
+  scheduler.enqueueAll([1, 2, 3, 4, 5]);
+  // flushNow must cancel the initial frame AND any frames scheduled during
+  // the overflow drain, so pending drops to 0 with no live handle.
+  scheduler.flushNow();
+  assertEquals(scheduler.pending, 0);
+  // The last handle assigned is the one that must have been cancelled.
+  const lastHandle = nextHandle - 1;
+  assertEquals(
+    cancelledHandles.includes(lastHandle),
+    true,
+    "dangling frame scheduled during drain must be cancelled",
+  );
 });
