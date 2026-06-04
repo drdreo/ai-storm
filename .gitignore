@@ -1,6 +1,7 @@
 node_modules/
 frontend/dist/
 frontend/.angular/
+frontend/test-results/
 *.log
 .DS_Store
 Thumbs.db
