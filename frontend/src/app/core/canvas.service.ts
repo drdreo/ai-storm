@@ -75,19 +75,21 @@ export class CanvasService {
    * paragraph) on first use. Idempotent and safe after a storage rehydrate.
    */
   ensureDoc(workspaceId: string): Doc {
-    let doc = this.#collection.getDoc(workspaceId);
-    if (!doc) {
-      doc = this.#collection.createDoc({ id: workspaceId });
-    }
-    doc.load();
-    if (!doc.root) {
-      // Seed an empty document so both page and edgeless modes render.
+    const doc = this.#collection.getDoc(workspaceId) ??
+      this.#collection.createDoc({ id: workspaceId });
+
+    // load() runs the init callback exactly once (the first time the doc is
+    // loaded). We seed page/surface/note/paragraph only when the doc is empty —
+    // a doc rehydrated from IndexedDB already has its root, so we leave it be.
+    if (!doc.ready) {
       doc.load(() => {
-        const pageId = doc!.addBlock('affine:page', {});
-        doc!.addBlock('affine:surface', {}, pageId);
-        const noteId = doc!.addBlock('affine:note', {}, pageId);
-        doc!.addBlock('affine:paragraph', {}, noteId);
-        this.#noteIds.set(workspaceId, noteId);
+        if (!doc.root) {
+          const pageId = doc.addBlock('affine:page', {});
+          doc.addBlock('affine:surface', {}, pageId);
+          const noteId = doc.addBlock('affine:note', {}, pageId);
+          doc.addBlock('affine:paragraph', {}, noteId);
+          this.#noteIds.set(workspaceId, noteId);
+        }
       });
     }
     if (!this.#noteIds.has(workspaceId)) {

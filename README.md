@@ -48,6 +48,12 @@ A **single** `AffineEditorContainer` instance is reused across all workspaces an
 simply rebound to a different `Doc` on switch — sub-100ms, one heavy object in
 memory. Detaching a workspace tears down its pipeline, render scheduler, and PTY.
 
+## Requirements
+
+- **Deno** ≥ 2.x (backend + engine tests)
+- **Node.js** ≥ 24.15 (Angular 22 CLI engine gate) and npm
+- A modern Chromium-based browser
+
 ## Running
 
 Two processes. **Backend** (Deno, least-privilege permissions):
@@ -75,9 +81,30 @@ cd ../backend && deno task start -- --static ../frontend/dist/browser
 ## Tests
 
 ```sh
-cd frontend && deno test --allow-read src/app/core   # ingestion engine (19 tests)
-cd backend  && deno task check                       # type-check daemon
+# Unit — framework-agnostic ingestion engine (19 tests, no browser needed)
+cd frontend && deno test --allow-read src/app/core
+
+# Type-check the daemon
+cd backend && deno task check
+
+# Integration — against a running backend (deno task start first)
+cd backend && deno run --allow-net=127.0.0.1 smoke_test.ts
+
+# Browser E2E — against the built app served by the backend on :8790
+#   (boot, BlockSuite mount, IndexedDB stores, mode toggle, <100ms hot-switch)
+cd frontend && node e2e/smoke.mjs http://127.0.0.1:8790
+#   Full PTY → buffer → parser → scheduler → BlockSuite pipeline
+cd frontend && node e2e/pipeline.mjs http://127.0.0.1:8790
 ```
+
+### Verification status
+
+All layers are verified on Windows 11: 19/19 engine unit tests pass; the daemon
+type-checks; the WebSocket PTY round-trip, input echo, agent hook, and static
+serving pass the integration smoke test; and the browser E2E confirms the editor
+mounts, both CRDT IndexedDB stores are created, the doc/edgeless toggle works,
+hot-switching is ~8ms, and real streamed terminal output renders as canvas
+blocks — with no console errors.
 
 ## Security model (PRD §4.2)
 
