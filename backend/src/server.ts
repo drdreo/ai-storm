@@ -8,10 +8,13 @@
 
 import { PtyManager } from "./pty/manager.ts";
 import { runAgent } from "./agent/executor.ts";
+import { log } from "./log.ts";
 import {
   parseClientMessage,
   type ServerMessage,
 } from "./protocol.ts";
+
+let connectionSeq = 0;
 
 export interface ServerConfig {
   hostname: string;
@@ -56,6 +59,8 @@ function handleWebSocket(req: Request): Response {
 
   const { socket, response } = Deno.upgradeWebSocket(req);
   const manager = new PtyManager();
+  const conn = `conn-${++connectionSeq}`;
+  log.info("ws.open", { conn });
 
   const send = (msg: ServerMessage) => {
     if (socket.readyState === WebSocket.OPEN) {
@@ -68,6 +73,7 @@ function handleWebSocket(req: Request): Response {
     try {
       msg = parseClientMessage(String(event.data));
     } catch (err) {
+      log.warn("ws.bad_message", { conn, error: err instanceof Error ? err.message : String(err) });
       send({ type: "error", message: err instanceof Error ? err.message : String(err) });
       return;
     }
@@ -75,34 +81,67 @@ function handleWebSocket(req: Request): Response {
     switch (msg.type) {
       case "attach": {
         const { workspaceId } = msg;
+        log.info("attach.request", {
+          conn,
+          workspace: workspaceId,
+          shell: msg.shell,
+          args: (msg.args ?? []).join(" "),
+          cwd: msg.cwd,
+        });
+        let bytesOut = 0;
         manager
           .attach(
             workspaceId,
             { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
-            (chunk) => send({ type: "data", workspaceId, chunk }),
-            (code) => send({ type: "exit", workspaceId, code }),
-            (message) => send({ type: "error", workspaceId, message }),
+            (chunk) => {
+              bytesOut += chunk.length;
+              log.debug("pty.data", { workspace: workspaceId, bytes: chunk.length, totalOut: bytesOut });
+              send({ type: "data", workspaceId, chunk });
+            },
+            (code) => {
+              log.info("pty.exit", { workspace: workspaceId, code, totalOut: bytesOut });
+              send({ type: "exit", workspaceId, code });
+            },
+            (message) => {
+              log.error("attach.error", { workspace: workspaceId, message });
+              send({ type: "error", workspaceId, message });
+            },
           )
           .then((ok) => {
-            if (ok) send({ type: "ready", workspaceId, pid: -1 });
+            if (ok) {
+              log.info("attach.ready", { workspace: workspaceId });
+              send({ type: "ready", workspaceId, pid: -1 });
+            }
           });
         break;
       }
       case "input":
-        manager.write(msg.workspaceId, msg.data);
+        log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
+        if (!manager.write(msg.workspaceId, msg.data)) {
+          log.warn("input.dropped", { workspace: msg.workspaceId, reason: "no live session" });
+        }
         break;
       case "resize":
+        log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
         manager.resize(msg.workspaceId, msg.cols, msg.rows);
         break;
       case "detach":
+        log.info("detach", { workspace: msg.workspaceId });
         void manager.detach(msg.workspaceId);
         break;
       case "context":
         // Inject serialized canvas as contextual memory (PRD §3.2): write the
         // document to the PTY stdin so the agent loop sees the whiteboard state.
+        log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
         manager.write(msg.workspaceId, msg.document);
         break;
       case "agent":
+        log.info("agent.dispatch", {
+          workspace: msg.workspaceId,
+          command: msg.command,
+          args: (msg.args ?? []).join(" "),
+          payloadBytes: msg.payload.length,
+        });
         runAgent(
           msg.workspaceId,
           { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
@@ -113,9 +152,11 @@ function handleWebSocket(req: Request): Response {
   };
 
   socket.onclose = () => {
+    log.info("ws.close", { conn, liveSessions: manager.size });
     void manager.detachAll();
   };
   socket.onerror = () => {
+    log.warn("ws.error", { conn });
     void manager.detachAll();
   };
 

@@ -118,6 +118,27 @@ mounts, both CRDT IndexedDB stores are created, the doc/edgeless toggle works,
 hot-switching is ~8ms, and real streamed terminal output renders as canvas
 blocks — with no console errors.
 
+## Logging & tracing
+
+The backend emits structured flow logs wired to Deno's built-in OpenTelemetry:
+
+```sh
+# Human-readable structured logs (level via AI_STORM_LOG=debug|info|warn|error)
+cd backend && AI_STORM_LOG=debug deno task start
+
+# Export logs + traces over OTLP (auto-instruments Deno.serve and our spans)
+cd backend && deno task trace                      # sets OTEL_DENO=1
+#   point at a collector:
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 deno task trace
+```
+
+Key events you can trace per workspace: `ws.open/close`, `attach.request`,
+`resolve.candidates`/`resolve.chosen` (exactly what the harness resolves to and
+the launch command), `pty.spawned` (pid), `attach.ready`, `input`
+(+`input.flush_buffered`, `input.dropped`), `pty.data` (byte counts),
+`pty.exit`, `agent.dispatch/spawned/exit`, and `attach.error`. With `OTEL_DENO=1`
+the `pty.attach` flow also exports as spans nested under the request trace.
+
 ## Security model (PRD §4.2)
 
 The daemon binds only to `127.0.0.1` and runs with explicit Deno grants:
