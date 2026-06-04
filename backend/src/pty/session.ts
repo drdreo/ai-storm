@@ -1,14 +1,18 @@
 /**
- * PTY session abstraction (PRD §4.2).
+ * Real pseudo-terminal session backed by node-pty (PRD §4.2).
  *
- * The backend spawns local terminal binaries / running system sessions and
- * streams their raw stdout to the client. Deno has no built-in PTY, so the
- * default implementation uses `Deno.Command` with piped stdio. This produces
- * a real child process whose stdout (including ANSI sequences from most CLI
- * tools) is forwarded verbatim; the client owns all sanitising/parsing per
- * PRD §3.3. The abstraction is intentionally narrow so a true conpty/openpty
- * backend (e.g. npm:node-pty) can be substituted without touching callers.
+ * Unlike piped stdio, this allocates a genuine PTY — ConPTY on Windows, a
+ * forkpty on POSIX — so interactive CLIs (Claude Code, aider, a shell) run in a
+ * true TTY: full-screen TUIs render, raw-mode key handling works, and the
+ * program emits ANSI exactly as it would in a real terminal. The client owns
+ * all sanitising/parsing of that stream (PRD §3.3).
  */
+
+import ptyDefault from "@lydell/node-pty";
+import type { IPty } from "@lydell/node-pty";
+
+// node-pty ships as CommonJS; the default import is its module.exports.
+const pty = ptyDefault as unknown as typeof import("@lydell/node-pty");
 
 export interface PtyOptions {
   /** Binary to spawn. Defaults to the platform interactive shell. */
@@ -25,21 +29,15 @@ export type PtyExitHandler = (code: number) => void;
 
 /** Resolve the default interactive shell for the current platform. */
 export function defaultShell(): { shell: string; args: string[] } {
-  if (Deno.build.os === "windows") {
-    return { shell: "powershell.exe", args: ["-NoLogo", "-NoExit"] };
+  if (process.platform === "win32") {
+    return { shell: "powershell.exe", args: [] };
   }
-  const shell = Deno.env.get("SHELL") ?? "/bin/bash";
-  return { shell, args: ["-i"] };
+  return { shell: process.env.SHELL ?? "/bin/bash", args: ["-i"] };
 }
 
 export class PtySession {
   readonly workspaceId: string;
-  #proc: Deno.ChildProcess | null = null;
-  #stdin: WritableStreamDefaultWriter<Uint8Array> | null = null;
-  #encoder = new TextEncoder();
-  #decoder = new TextDecoder();
-  #onData: PtyDataHandler;
-  #onExit: PtyExitHandler;
+  #term: IPty | null = null;
   #closed = false;
   cols: number;
   rows: number;
@@ -51,122 +49,84 @@ export class PtySession {
     onExit: PtyExitHandler,
   ) {
     this.workspaceId = workspaceId;
-    this.#onData = onData;
-    this.#onExit = onExit;
-    this.cols = opts.cols ?? 80;
-    this.rows = opts.rows ?? 24;
+    this.cols = opts.cols ?? 120;
+    this.rows = opts.rows ?? 30;
 
-    // `shell`/`args` are expected to be already resolved by the PtyManager
-    // (PATHEXT/shim resolution happens there). Fall back to the platform shell
-    // only if nothing was provided.
     const fallback = defaultShell();
     const shell = opts.shell ?? fallback.shell;
     const args = opts.args ?? (opts.shell ? [] : fallback.args);
 
-    const command = new Deno.Command(shell, {
-      args,
-      cwd: opts.cwd,
-      env: {
-        ...opts.env,
-        // Many CLIs colorize only when they detect a TTY; nudge them to emit
-        // ANSI anyway so the client's sanitiser (PRD §3.3) is exercised.
-        TERM: opts.env?.TERM ?? "xterm-256color",
-        FORCE_COLOR: opts.env?.FORCE_COLOR ?? "1",
-        COLUMNS: String(this.cols),
-        LINES: String(this.rows),
-      },
-      stdin: "piped",
-      stdout: "piped",
-      stderr: "piped",
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (typeof v === "string") env[k] = v;
+    }
+    Object.assign(env, opts.env, {
+      TERM: opts.env?.TERM ?? "xterm-256color",
+      COLORTERM: "truecolor",
+      FORCE_COLOR: opts.env?.FORCE_COLOR ?? "1",
     });
 
     try {
-      this.#proc = command.spawn();
+      this.#term = pty.spawn(shell, args, {
+        name: "xterm-256color",
+        cols: this.cols,
+        rows: this.rows,
+        cwd: opts.cwd ?? process.cwd(),
+        env,
+      });
     } catch (err) {
-      // Surface the failure as data + a non-zero exit instead of crashing.
       this.#closed = true;
-      const message =
-        `\r\n[ai-storm] failed to launch "${shell}": ` +
+      const message = `\r\n[ai-storm] failed to launch "${shell}": ` +
         (err instanceof Error ? err.message : String(err)) + "\r\n";
       queueMicrotask(() => {
-        this.#onData(message);
-        this.#onExit(127);
+        onData(message);
+        onExit(127);
       });
       return;
     }
 
-    this.#stdin = this.#proc.stdin.getWriter();
-    this.#pump(this.#proc.stdout);
-    this.#pump(this.#proc.stderr);
-    this.#watchExit();
+    this.#term.onData((data) => {
+      if (!this.#closed) onData(data);
+    });
+    this.#term.onExit(({ exitCode }) => {
+      if (this.#closed) return;
+      this.#closed = true;
+      onExit(exitCode);
+    });
   }
 
   get pid(): number {
-    return this.#proc?.pid ?? -1;
+    return this.#term?.pid ?? -1;
   }
 
-  /** Drain a readable byte stream into the data handler. */
-  async #pump(stream: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = stream.getReader();
+  write(data: string): void {
+    if (this.#closed || !this.#term) return;
     try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value && value.length > 0 && !this.#closed) {
-          this.#onData(this.#decoder.decode(value, { stream: true }));
-        }
-      }
+      this.#term.write(data);
     } catch {
-      // Stream closed during teardown — exit is handled by #watchExit.
-    } finally {
-      reader.releaseLock();
+      // terminal torn down; exit handler reports termination.
     }
   }
 
-  async #watchExit(): Promise<void> {
-    if (!this.#proc) return;
-    try {
-      const status = await this.#proc.status;
-      if (!this.#closed) {
-        this.#closed = true;
-        this.#onExit(status.code);
-      }
-    } catch {
-      if (!this.#closed) {
-        this.#closed = true;
-        this.#onExit(-1);
-      }
-    }
-  }
-
-  /** Forward text to the child's stdin. */
-  async write(data: string): Promise<void> {
-    if (this.#closed || !this.#stdin) return;
-    try {
-      await this.#stdin.write(this.#encoder.encode(data));
-    } catch {
-      // stdin closed; the exit watcher will report termination.
-    }
-  }
-
-  /**
-   * Record a resize. The piped-stdio backend cannot signal SIGWINCH, so this
-   * stores the dimensions and updates the COLUMNS/LINES the child reads on
-   * next query. A true PTY backend would forward this to the kernel.
-   */
+  /** Forward a viewport resize to the kernel PTY (real SIGWINCH). */
   resize(cols: number, rows: number): void {
     this.cols = cols;
     this.rows = rows;
+    if (this.#closed || !this.#term) return;
+    try {
+      this.#term.resize(cols, rows);
+    } catch {
+      // ignore resize on a dead terminal
+    }
   }
 
-  async kill(): Promise<void> {
+  kill(): void {
     if (this.#closed) return;
     this.#closed = true;
     try {
-      await this.#stdin?.close();
-    } catch { /* already closed */ }
-    try {
-      this.#proc?.kill("SIGTERM");
-    } catch { /* already dead */ }
+      this.#term?.kill();
+    } catch {
+      // already dead
+    }
   }
 }

@@ -1,10 +1,10 @@
 # ai-storm (v3.0)
 
-A local-first collaborative product-brainstorming canvas. A Deno daemon streams
-local pseudo-terminal output into a BlockSuite canvas through a stateful parsing
-buffer, across multiple isolated workspaces — with no external AI APIs, no
-subscriptions, and no cloud keys. It reuses the CLI tools already running on
-your machine.
+A local-first collaborative product-brainstorming canvas. A Node.js daemon runs
+your local AI CLI in a **real pseudo-terminal** and streams its output into a
+BlockSuite canvas through a stateful parsing buffer, across multiple isolated
+workspaces — with no external AI APIs, no subscriptions, and no cloud keys. It
+reuses the CLI tools already running on your machine.
 
 ## Architecture
 
@@ -18,8 +18,8 @@ your machine.
 └────────────────────────┴───────────────────────────────────┴──────────────────────────────────────┘
                                           │  WebSocket /pty (JSON, multiplexed by workspaceId)
 ┌─────────────────────────────────────────▼─────────────────────────────────────────────────────────┐
-│  Deno daemon (127.0.0.1)   PtyManager → PtySession (spawn shell/CLI)   AgentExecutor (subprocess)   │
-│  PRD §4.2                  PRD §3.3 source                              PRD §3.6                     │
+│  Node + Hono daemon (127.0.0.1)   PtyManager → PtySession (node-pty, real ConPTY/forkpty)           │
+│  PRD §4.2                         PRD §3.3 source                       AgentExecutor (subprocess)  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -37,14 +37,15 @@ Pure, framework-agnostic TypeScript with full unit coverage (`deno test`):
 ### The conversational session (PRD §2)
 
 A workspace session does **not** spawn a raw shell — it launches your configured
-**AI harness** (default `claude`), so prompts typed in the control hub are sent
-to that CLI's stdin and its streamed output is parsed onto the canvas. The
-harness command is editable per workspace in the control hub (e.g. `aider`, or a
-plain shell like `powershell` for running commands). On Windows the backend
-resolves npm `.cmd`/`.ps1` shims via `where.exe` and wraps them in the right
-interpreter, and input that races ahead of the spawning PTY is buffered until it
-is ready. If the harness isn't found, a clear message is streamed back instead
-of a silent failure.
+**AI harness** (default `claude`) inside a **real pseudo-terminal** (ConPTY on
+Windows, forkpty on POSIX) via `node-pty`. Because it's a genuine TTY, the CLI
+runs fully interactively — its TUI renders, raw-mode keys work — exactly as in a
+normal terminal; the keystrokes you type in the control hub go to the PTY and
+its output is sanitised and parsed onto the canvas. The harness is editable per
+workspace (e.g. `aider`, or a plain shell like `powershell`). On Windows the
+backend resolves npm `.cmd`/`.ps1` shims via `where.exe`, input that races ahead
+of the spawning PTY is buffered until ready, and a missing harness streams a
+clear message instead of failing silently.
 
 ### Persistence (PRD §3.5)
 
@@ -62,32 +63,36 @@ memory. Detaching a workspace tears down its pipeline, render scheduler, and PTY
 
 ## Requirements
 
-- **Deno** ≥ 2.x (backend + engine tests)
-- **Node.js** ≥ 24.15 (Angular 22 CLI engine gate) and npm
+- **Node.js** ≥ 24.15 (backend runtime — uses native TS type-stripping — and the
+  Angular 22 CLI engine gate)
+- **pnpm** (via `corepack pnpm`, bundled with Node)
 - A modern Chromium-based browser
+- **Deno** ≥ 2.x — optional, only to run the ingestion-engine unit tests
 
 ## Running
 
-Two processes. **Backend** (Deno, least-privilege permissions):
+Two processes. **Backend** (Node + Hono + node-pty):
 
 ```sh
 cd backend
-deno task start        # ws://127.0.0.1:8787/pty
+corepack pnpm install
+corepack pnpm start    # ws://127.0.0.1:8787/pty
 ```
 
 **Frontend** (Angular dev server, proxies /pty → backend):
 
 ```sh
 cd frontend
-npm install
-npm start              # http://localhost:4200
+corepack pnpm install
+corepack pnpm start    # http://localhost:4200  (ng serve)
 ```
 
-For a single-process production deploy, build the client and let Deno serve it:
+For a single-process production deploy, build the client and let the backend
+serve it:
 
 ```sh
-cd frontend && npm run build
-cd ../backend && deno task start -- --static ../frontend/dist/browser
+cd frontend && corepack pnpm build
+cd ../backend && corepack pnpm start -- --static ../frontend/dist/browser
 ```
 
 ## Tests
@@ -96,11 +101,8 @@ cd ../backend && deno task start -- --static ../frontend/dist/browser
 # Unit — framework-agnostic ingestion engine (19 tests, no browser needed)
 cd frontend && deno test --allow-read src/app/core
 
-# Type-check the daemon
-cd backend && deno task check
-
-# Integration — against a running backend (deno task start first)
-cd backend && deno run --allow-net=127.0.0.1 smoke_test.ts
+# Integration — against a running backend (corepack pnpm start first)
+cd backend && node smoke_test.ts
 
 # Browser E2E — against the built app served by the backend on :8790
 #   (boot, BlockSuite mount, IndexedDB stores, mode toggle, <100ms hot-switch)
@@ -120,27 +122,31 @@ blocks — with no console errors.
 
 ## Logging & tracing
 
-The backend emits structured flow logs wired to Deno's built-in OpenTelemetry:
+The backend emits structured flow logs and OpenTelemetry spans:
 
 ```sh
 # Human-readable structured logs (level via AI_STORM_LOG=debug|info|warn|error)
-cd backend && AI_STORM_LOG=debug deno task start
+cd backend && AI_STORM_LOG=debug corepack pnpm start
 
-# Export logs + traces over OTLP (auto-instruments Deno.serve and our spans)
-cd backend && deno task trace                      # sets OTEL_DENO=1
+# Export spans over OTLP (starts the OTel Node SDK via --import ./src/otel.ts)
+cd backend && corepack pnpm trace
 #   point at a collector:
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 deno task trace
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 corepack pnpm trace
 ```
 
 Key events you can trace per workspace: `ws.open/close`, `attach.request`,
 `resolve.candidates`/`resolve.chosen` (exactly what the harness resolves to and
 the launch command), `pty.spawned` (pid), `attach.ready`, `input`
 (+`input.flush_buffered`, `input.dropped`), `pty.data` (byte counts),
-`pty.exit`, `agent.dispatch/spawned/exit`, and `attach.error`. With `OTEL_DENO=1`
-the `pty.attach` flow also exports as spans nested under the request trace.
+`pty.exit`, `agent.dispatch/spawned/exit`, and `attach.error`. The `pty.attach`
+flow is also emitted as an OTel span (via `@opentelemetry/api`); `pnpm trace`
+registers the exporter, otherwise the spans are no-ops.
 
 ## Security model (PRD §4.2)
 
-The daemon binds only to `127.0.0.1` and runs with explicit Deno grants:
-`--allow-net=127.0.0.1 --allow-run --allow-read --allow-env`. No other
-filesystem or network capability is granted.
+The daemon binds only to `127.0.0.1`, so the loop never leaves the local
+machine, and static serving is path-traversal guarded. Note a deliberate
+trade-off from the original spec: moving the daemon to Node.js (required for a
+real ConPTY via `node-pty`) gives up Deno's OS-enforced `--allow-*` sandbox over
+file-system and subprocess access. For stricter confinement, run the daemon
+under an OS-level sandbox (e.g. a restricted user/container).

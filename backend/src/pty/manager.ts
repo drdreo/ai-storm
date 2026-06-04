@@ -12,7 +12,7 @@ import { addEvent, log, withSpan } from "../log.ts";
 
 export class PtyManager {
   #sessions = new Map<string, PtySession>();
-  /** Workspaces whose async attach (launch resolution) is still in flight. */
+  /** Workspaces whose attach is still in flight (launch resolution). */
   #attaching = new Set<string>();
   /** Input that arrived before the PTY existed, flushed once it spawns. */
   #pendingInput = new Map<string, string[]>();
@@ -33,7 +33,7 @@ export class PtyManager {
     onExit: (code: number) => void,
     onError: (message: string) => void,
   ): Promise<boolean> {
-    await this.detach(workspaceId);
+    this.detach(workspaceId);
     this.#attaching.add(workspaceId);
 
     const requestedCmd = opts.shell ?? defaultShell().shell;
@@ -42,10 +42,10 @@ export class PtyManager {
     return await withSpan(
       "pty.attach",
       { workspace: workspaceId, "requested.command": requestedCmd },
-      async (span) => {
+      (span) => {
         let launch;
         try {
-          launch = await resolveLaunch(requestedCmd, requestedArgs);
+          launch = resolveLaunch(requestedCmd, requestedArgs);
           log.info("attach.resolved", {
             workspace: workspaceId,
             requested: requestedCmd,
@@ -80,18 +80,13 @@ export class PtyManager {
         log.info("pty.spawned", { workspace: workspaceId, pid: session.pid, command: launch.cmd });
         span.setAttribute("pid", session.pid);
 
-        // Flush any input that arrived while the launch was being resolved.
         const queued = this.#pendingInput.get(workspaceId);
         if (queued) {
           this.#pendingInput.delete(workspaceId);
           const bytes = queued.reduce((n, d) => n + d.length, 0);
-          log.info("input.flush_buffered", {
-            workspace: workspaceId,
-            messages: queued.length,
-            bytes,
-          });
+          log.info("input.flush_buffered", { workspace: workspaceId, messages: queued.length, bytes });
           addEvent("flush_buffered_input", { messages: queued.length, bytes });
-          for (const data of queued) void session.write(data);
+          for (const data of queued) session.write(data);
         }
         return true;
       },
@@ -101,11 +96,10 @@ export class PtyManager {
   write(workspaceId: string, data: string): boolean {
     const session = this.#sessions.get(workspaceId);
     if (session) {
-      void session.write(data);
+      session.write(data);
       return true;
     }
-    // Buffer input that races ahead of an in-flight attach; it is flushed when
-    // the session spawns. Input with no attach pending is dropped.
+    // Buffer input that races ahead of an in-flight attach; flushed on spawn.
     if (this.#attaching.has(workspaceId)) {
       const queue = this.#pendingInput.get(workspaceId) ?? [];
       queue.push(data);
@@ -122,19 +116,17 @@ export class PtyManager {
     return true;
   }
 
-  async detach(workspaceId: string): Promise<void> {
+  detach(workspaceId: string): void {
     this.#attaching.delete(workspaceId);
     this.#pendingInput.delete(workspaceId);
     const session = this.#sessions.get(workspaceId);
     if (!session) return;
     this.#sessions.delete(workspaceId);
-    await session.kill();
+    session.kill();
   }
 
-  /** Tear down every session (connection close / shutdown). */
-  async detachAll(): Promise<void> {
-    const ids = [...this.#sessions.keys()];
-    await Promise.all(ids.map((id) => this.detach(id)));
+  detachAll(): void {
+    for (const id of [...this.#sessions.keys()]) this.detach(id);
   }
 
   get size(): number {

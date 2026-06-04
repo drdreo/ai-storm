@@ -339,9 +339,9 @@ export class ControlHubComponent {
     const value = input.value;
     if (!value.trim()) return;
     if (!this.ingestion.isAttached(id)) this.start(id);
-    // The backend uses piped stdio (not a raw TTY), so the child's line reader
-    // terminates on '\n'. A bare '\r' would never submit the line.
-    this.ingestion.sendInput(id, value + '\n');
+    // Real PTY (ConPTY/forkpty): the Enter key is a carriage return; the
+    // terminal's line discipline turns it into a submitted line.
+    this.ingestion.sendInput(id, value + '\r');
     input.value = '';
   }
 }

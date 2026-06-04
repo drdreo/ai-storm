@@ -1,14 +1,14 @@
 /**
  * Cross-platform launch resolution.
  *
- * The interactive session defaults to the user's AI harness (e.g. `claude`),
- * which on Windows is almost always an npm `.cmd`/`.ps1` shim rather than a PE
- * executable. `Deno.Command` cannot spawn those directly and does not apply
- * PATHEXT, so we resolve the real target via `where.exe` and wrap script shims
- * in their interpreter. On POSIX the kernel resolves PATH for us, so the
- * command is returned unchanged.
+ * node-pty/ConPTY ultimately calls CreateProcess on Windows, which can run
+ * `.exe` binaries and (with PATH search) extensionless names, but NOT npm
+ * `.cmd`/`.ps1` shims directly. We resolve the real target via `where.exe`
+ * and wrap script shims in their interpreter. On POSIX the kernel resolves
+ * PATH, so the command is returned unchanged.
  */
 
+import { spawnSync } from "node:child_process";
 import { log } from "../log.ts";
 
 export interface ResolvedLaunch {
@@ -17,12 +17,14 @@ export interface ResolvedLaunch {
 }
 
 export class LaunchNotFoundError extends Error {
-  constructor(public command: string) {
+  command: string;
+  constructor(command: string) {
     super(
       `Could not find "${command}" on PATH. Is your AI harness installed and ` +
         `on PATH? You can change the harness command in the workspace settings.`,
     );
     this.name = "LaunchNotFoundError";
+    this.command = command;
   }
 }
 
@@ -30,29 +32,25 @@ function hasPathSeparator(s: string): boolean {
   return s.includes("/") || s.includes("\\");
 }
 
-/** Resolve a command + args into something `Deno.Command` can actually spawn. */
-export async function resolveLaunch(
-  command: string,
-  args: string[],
-): Promise<ResolvedLaunch> {
-  if (Deno.build.os !== "windows") {
+export function resolveLaunch(command: string, args: string[]): ResolvedLaunch {
+  if (process.platform !== "win32") {
     return { cmd: command, args };
   }
-
-  // An explicit path is used as-is (caller knows what they want).
   if (hasPathSeparator(command)) {
     return wrapByExtension(command, args);
   }
 
-  // Resolve via `where.exe`, which honours PATH + PATHEXT. It can return
-  // several candidates (e.g. a `.cmd` npm shim plus an extensionless Git-Bash
-  // script); pick the one Windows can actually CreateProcess.
-  const candidates = await whereExe(command);
+  const candidates = whereExe(command);
   log.debug("resolve.candidates", { command, candidates: candidates.join(" | ") });
   if (candidates.length === 0) throw new LaunchNotFoundError(command);
+
   const chosen = chooseBest(candidates);
   const wrapped = wrapByExtension(chosen, args);
-  log.debug("resolve.chosen", { command, chosen, launch: `${wrapped.cmd} ${wrapped.args.join(" ")}` });
+  log.debug("resolve.chosen", {
+    command,
+    chosen,
+    launch: `${wrapped.cmd} ${wrapped.args.join(" ")}`,
+  });
   return wrapped;
 }
 
@@ -68,16 +66,11 @@ function chooseBest(candidates: string[]): string {
   return candidates[0];
 }
 
-async function whereExe(command: string): Promise<string[]> {
+function whereExe(command: string): string[] {
   try {
-    const out = await new Deno.Command("where.exe", {
-      args: [command],
-      stdout: "piped",
-      stderr: "null",
-    }).output();
-    if (!out.success) return [];
-    return new TextDecoder()
-      .decode(out.stdout)
+    const out = spawnSync("where.exe", [command], { encoding: "utf8" });
+    if (out.status !== 0 || !out.stdout) return [];
+    return out.stdout
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean);
@@ -89,7 +82,6 @@ async function whereExe(command: string): Promise<string[]> {
 function wrapByExtension(target: string, args: string[]): ResolvedLaunch {
   const lower = target.toLowerCase();
   if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
-    // Batch shims must run through cmd.exe.
     return { cmd: "cmd.exe", args: ["/d", "/s", "/c", target, ...args] };
   }
   if (lower.endsWith(".ps1")) {
@@ -98,6 +90,5 @@ function wrapByExtension(target: string, args: string[]): ResolvedLaunch {
       args: ["-NoLogo", "-ExecutionPolicy", "Bypass", "-File", target, ...args],
     };
   }
-  // .exe / .com / extensionless native binary.
   return { cmd: target, args };
 }
