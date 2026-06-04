@@ -28,12 +28,17 @@
         "npm:@blocksuite/blocks@0.19.5",
         "npm:@blocksuite/presets@0.19.5",
         "npm:@blocksuite/store@0.19.5",
+        "npm:@toeverything/theme@^1.1.1",
+        "npm:playwright@^1.60.0",
         "npm:rxjs@^7.8.1",
         "npm:tslib@^2.6.2",
         "npm:typescript@6.0",
         "npm:y-indexeddb@^9.0.12",
         "npm:yjs@^13.6.18"
-      ]
+      ],
+      "overrides": {
+        "@blocksuite/icons": "2.1.75"
+      }
     }
   }
 }

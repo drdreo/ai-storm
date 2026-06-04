@@ -12,6 +12,11 @@
   "overrides": {
     "@blocksuite/icons": "2.1.75"
   },
+  "pnpm": {
+    "overrides": {
+      "@blocksuite/icons": "2.1.75"
+    }
+  },
   "dependencies": {
     "@angular/common": "^22.0.0",
     "@angular/compiler": "^22.0.0",
@@ -20,6 +25,7 @@
     "@blocksuite/blocks": "0.19.5",
     "@blocksuite/presets": "0.19.5",
     "@blocksuite/store": "0.19.5",
+    "@toeverything/theme": "^1.1.1",
     "rxjs": "^7.8.1",
     "tslib": "^2.6.2",
     "y-indexeddb": "^9.0.12",

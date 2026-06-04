@@ -1,167 +1,21 @@
 /**
- * Local-only HTTP + WebSocket server (PRD §4.2).
+ * Local-only HTTP + WebSocket server (PRD §4.2), built on Hono.
  *
  * Serves the built Angular client (when present) and exposes a single
  * WebSocket endpoint at `/pty` that multiplexes all workspaces for one client.
  * Bound to 127.0.0.1 so the loop never leaves the local sandbox.
  */
 
+import { Hono } from "hono";
+import { createNodeWebSocket } from "@hono/node-ws";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
 import { PtyManager } from "./pty/manager.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import {
-  parseClientMessage,
-  type ServerMessage,
-} from "./protocol.ts";
+import { parseClientMessage, type ServerMessage } from "./protocol.ts";
 
 let connectionSeq = 0;
-
-export interface ServerConfig {
-  hostname: string;
-  port: number;
-  /** Absolute path to the built Angular client (dist) for static serving. */
-  staticDir?: string;
-}
-
-export function createServer(config: ServerConfig): Deno.HttpServer {
-  return Deno.serve(
-    { hostname: config.hostname, port: config.port },
-    (req) => handleRequest(req, config),
-  );
-}
-
-function handleRequest(req: Request, config: ServerConfig): Response | Promise<Response> {
-  const url = new URL(req.url);
-
-  if (url.pathname === "/pty") {
-    return handleWebSocket(req);
-  }
-
-  if (url.pathname === "/health") {
-    return new Response(JSON.stringify({ status: "ok", os: Deno.build.os }), {
-      headers: { "content-type": "application/json" },
-    });
-  }
-
-  if (config.staticDir) {
-    return serveStatic(url.pathname, config.staticDir);
-  }
-
-  return new Response("ai-storm backend running. Connect via /pty.", {
-    headers: { "content-type": "text/plain" },
-  });
-}
-
-function handleWebSocket(req: Request): Response {
-  if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-    return new Response("Expected WebSocket upgrade", { status: 426 });
-  }
-
-  const { socket, response } = Deno.upgradeWebSocket(req);
-  const manager = new PtyManager();
-  const conn = `conn-${++connectionSeq}`;
-  log.info("ws.open", { conn });
-
-  const send = (msg: ServerMessage) => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(msg));
-    }
-  };
-
-  socket.onmessage = (event) => {
-    let msg;
-    try {
-      msg = parseClientMessage(String(event.data));
-    } catch (err) {
-      log.warn("ws.bad_message", { conn, error: err instanceof Error ? err.message : String(err) });
-      send({ type: "error", message: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-
-    switch (msg.type) {
-      case "attach": {
-        const { workspaceId } = msg;
-        log.info("attach.request", {
-          conn,
-          workspace: workspaceId,
-          shell: msg.shell,
-          args: (msg.args ?? []).join(" "),
-          cwd: msg.cwd,
-        });
-        let bytesOut = 0;
-        manager
-          .attach(
-            workspaceId,
-            { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
-            (chunk) => {
-              bytesOut += chunk.length;
-              log.debug("pty.data", { workspace: workspaceId, bytes: chunk.length, totalOut: bytesOut });
-              send({ type: "data", workspaceId, chunk });
-            },
-            (code) => {
-              log.info("pty.exit", { workspace: workspaceId, code, totalOut: bytesOut });
-              send({ type: "exit", workspaceId, code });
-            },
-            (message) => {
-              log.error("attach.error", { workspace: workspaceId, message });
-              send({ type: "error", workspaceId, message });
-            },
-          )
-          .then((ok) => {
-            if (ok) {
-              log.info("attach.ready", { workspace: workspaceId });
-              send({ type: "ready", workspaceId, pid: -1 });
-            }
-          });
-        break;
-      }
-      case "input":
-        log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
-        if (!manager.write(msg.workspaceId, msg.data)) {
-          log.warn("input.dropped", { workspace: msg.workspaceId, reason: "no live session" });
-        }
-        break;
-      case "resize":
-        log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
-        manager.resize(msg.workspaceId, msg.cols, msg.rows);
-        break;
-      case "detach":
-        log.info("detach", { workspace: msg.workspaceId });
-        void manager.detach(msg.workspaceId);
-        break;
-      case "context":
-        // Inject serialized canvas as contextual memory (PRD §3.2): write the
-        // document to the PTY stdin so the agent loop sees the whiteboard state.
-        log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
-        manager.write(msg.workspaceId, msg.document);
-        break;
-      case "agent":
-        log.info("agent.dispatch", {
-          workspace: msg.workspaceId,
-          command: msg.command,
-          args: (msg.args ?? []).join(" "),
-          payloadBytes: msg.payload.length,
-        });
-        runAgent(
-          msg.workspaceId,
-          { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
-          (status) => send({ type: "agent-status", ...status }),
-        );
-        break;
-    }
-  };
-
-  socket.onclose = () => {
-    log.info("ws.close", { conn, liveSessions: manager.size });
-    void manager.detachAll();
-  };
-  socket.onerror = () => {
-    log.warn("ws.error", { conn });
-    void manager.detachAll();
-  };
-
-  return response;
-}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -175,26 +29,172 @@ const MIME: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-async function serveStatic(pathname: string, staticDir: string): Promise<Response> {
+export interface ServerConfig {
+  hostname: string;
+  port: number;
+  /** Absolute path to the built Angular client (dist/browser). */
+  staticDir?: string;
+}
+
+export function buildApp(config: ServerConfig) {
+  const app = new Hono();
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+
+  app.get("/health", (c) => c.json({ status: "ok", os: process.platform }));
+
+  app.get(
+    "/pty",
+    upgradeWebSocket(() => {
+      const manager = new PtyManager();
+      const conn = `conn-${++connectionSeq}`;
+
+      // `socket` is captured on open so message handlers can push to the client.
+      let socket: { send: (data: string) => void; readyState: number } | null = null;
+      const send = (msg: ServerMessage) => {
+        if (socket && socket.readyState === 1) socket.send(JSON.stringify(msg));
+      };
+
+      return {
+        onOpen(_evt, ws) {
+          socket = ws as unknown as typeof socket;
+          log.info("ws.open", { conn });
+        },
+        onMessage(evt) {
+          let msg;
+          try {
+            msg = parseClientMessage(String(evt.data));
+          } catch (err) {
+            const m = err instanceof Error ? err.message : String(err);
+            log.warn("ws.bad_message", { conn, error: m });
+            send({ type: "error", message: m });
+            return;
+          }
+          dispatch(msg, manager, conn, send);
+        },
+        onClose() {
+          log.info("ws.close", { conn, liveSessions: manager.size });
+          manager.detachAll();
+        },
+        onError() {
+          log.warn("ws.error", { conn });
+          manager.detachAll();
+        },
+      };
+    }),
+  );
+
+  if (config.staticDir) {
+    const root = config.staticDir;
+    app.get("/*", async (c) => {
+      const res = await serveStatic(c.req.path, root);
+      return res ?? c.text("Not found", 404);
+    });
+  } else {
+    app.get("/", (c) => c.text("ai-storm backend running. Connect via /pty."));
+  }
+
+  return { app, injectWebSocket };
+}
+
+function dispatch(
+  msg: ReturnType<typeof parseClientMessage>,
+  manager: PtyManager,
+  conn: string,
+  send: (msg: ServerMessage) => void,
+): void {
+  switch (msg.type) {
+    case "attach": {
+      const { workspaceId } = msg;
+      log.info("attach.request", {
+        conn,
+        workspace: workspaceId,
+        shell: msg.shell,
+        args: (msg.args ?? []).join(" "),
+        cwd: msg.cwd,
+      });
+      let bytesOut = 0;
+      manager
+        .attach(
+          workspaceId,
+          { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
+          (chunk) => {
+            bytesOut += chunk.length;
+            log.debug("pty.data", { workspace: workspaceId, bytes: chunk.length, totalOut: bytesOut });
+            send({ type: "data", workspaceId, chunk });
+          },
+          (code) => {
+            log.info("pty.exit", { workspace: workspaceId, code, totalOut: bytesOut });
+            send({ type: "exit", workspaceId, code });
+          },
+          (message) => {
+            log.error("attach.error", { workspace: workspaceId, message });
+            send({ type: "error", workspaceId, message });
+          },
+        )
+        .then((ok) => {
+          if (ok) {
+            log.info("attach.ready", { workspace: workspaceId });
+            send({ type: "ready", workspaceId, pid: -1 });
+          }
+        });
+      break;
+    }
+    case "input":
+      log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
+      if (!manager.write(msg.workspaceId, msg.data)) {
+        log.warn("input.dropped", { workspace: msg.workspaceId, reason: "no live session" });
+      }
+      break;
+    case "resize":
+      log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
+      manager.resize(msg.workspaceId, msg.cols, msg.rows);
+      break;
+    case "detach":
+      log.info("detach", { workspace: msg.workspaceId });
+      manager.detach(msg.workspaceId);
+      break;
+    case "context":
+      log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
+      manager.write(msg.workspaceId, msg.document);
+      break;
+    case "agent":
+      log.info("agent.dispatch", {
+        workspace: msg.workspaceId,
+        command: msg.command,
+        args: (msg.args ?? []).join(" "),
+        payloadBytes: msg.payload.length,
+      });
+      runAgent(
+        msg.workspaceId,
+        { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
+        (status) => send({ type: "agent-status", ...status }),
+      );
+      break;
+  }
+}
+
+async function serveStatic(pathname: string, staticDir: string): Promise<Response | null> {
   let rel = decodeURIComponent(pathname);
   if (rel === "/" || rel === "") rel = "/index.html";
-  // Block path traversal.
-  if (rel.includes("..")) return new Response("Forbidden", { status: 403 });
+  // Resolve within the static root and block traversal.
+  const filePath = normalize(join(staticDir, rel));
+  if (!filePath.startsWith(normalize(staticDir))) {
+    return new Response("Forbidden", { status: 403 });
+  }
 
-  const filePath = `${staticDir}${rel}`;
   try {
-    const file = await Deno.readFile(filePath);
-    const ext = rel.slice(rel.lastIndexOf("."));
-    return new Response(file, {
+    const file = await readFile(filePath);
+    const ext = extname(filePath).toLowerCase();
+    return new Response(new Uint8Array(file), {
       headers: { "content-type": MIME[ext] ?? "application/octet-stream" },
     });
   } catch {
     // SPA fallback — let the Angular router resolve client-side routes.
     try {
-      const index = await Deno.readFile(`${staticDir}/index.html`);
-      return new Response(index, { headers: { "content-type": MIME[".html"] } });
+      const index = await readFile(join(staticDir, "index.html"));
+      return new Response(new Uint8Array(index), { headers: { "content-type": MIME[".html"] } });
     } catch {
-      return new Response("Not found", { status: 404 });
+      return null;
     }
   }
 }

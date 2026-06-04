@@ -5,9 +5,12 @@
  * sends an `agent` message. The backend spawns an asynchronous local subprocess
  * invoking the orchestrator command with the extracted plain text passed as a
  * functional argument, and streams the subprocess lifecycle back to the client.
+ * Runs detached from any PTY (one-shot, captured stdio).
  */
 
+import { spawn } from "node:child_process";
 import type { AgentStatusMessage } from "../protocol.ts";
+import { resolveLaunch } from "../pty/resolve.ts";
 import { log } from "../log.ts";
 
 export type AgentEmitter = (msg: Omit<AgentStatusMessage, "type">) => void;
@@ -19,80 +22,45 @@ export interface AgentSpec {
   cwd?: string;
 }
 
-/**
- * Spawn the agent orchestrator. The payload is appended as the final argument
- * (the "clear functional argument" of PRD §3.6). stdout/stderr are streamed
- * line-buffered back to the caller; the process runs detached from any PTY.
- */
-export function runAgent(
-  workspaceId: string,
-  spec: AgentSpec,
-  emit: AgentEmitter,
-): void {
-  const args = [...(spec.args ?? []), spec.payload];
+export function runAgent(workspaceId: string, spec: AgentSpec, emit: AgentEmitter): void {
+  const requestedArgs = [...(spec.args ?? []), spec.payload];
 
-  let proc: Deno.ChildProcess;
+  let launch;
   try {
-    const command = new Deno.Command(spec.command, {
-      args,
-      cwd: spec.cwd,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    });
-    proc = command.spawn();
+    launch = resolveLaunch(spec.command, requestedArgs);
   } catch (err) {
-    log.error("agent.spawn_failed", {
+    log.error("agent.resolve_failed", {
       workspace: workspaceId,
       command: spec.command,
       error: err instanceof Error ? err.message : String(err),
     });
-    emit({
-      workspaceId,
-      status: "error",
-      data: `Failed to spawn "${spec.command}": ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    });
+    emit({ workspaceId, status: "error", data: (err instanceof Error ? err.message : String(err)) });
     return;
   }
 
-  log.info("agent.spawned", { workspace: workspaceId, command: spec.command, pid: proc.pid });
-  emit({ workspaceId, status: "spawned", pid: proc.pid });
+  const child = spawn(launch.cmd, launch.args, {
+    cwd: spec.cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
 
-  const decoder = new TextDecoder();
+  child.on("error", (err) => {
+    log.error("agent.spawn_failed", { workspace: workspaceId, command: spec.command, error: err.message });
+    emit({ workspaceId, status: "error", data: `Failed to spawn "${spec.command}": ${err.message}` });
+  });
 
-  const stream = async (
-    src: ReadableStream<Uint8Array>,
-    status: "stdout" | "stderr",
-  ) => {
-    const reader = src.getReader();
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value && value.length > 0) {
-          emit({ workspaceId, status, data: decoder.decode(value) });
-        }
-      }
-    } catch {
-      // stream torn down with the process
-    } finally {
-      reader.releaseLock();
-    }
-  };
+  child.on("spawn", () => {
+    log.info("agent.spawned", { workspace: workspaceId, command: spec.command, pid: child.pid ?? -1 });
+    emit({ workspaceId, status: "spawned", pid: child.pid ?? -1 });
+  });
 
-  void Promise.all([
-    stream(proc.stdout, "stdout"),
-    stream(proc.stderr, "stderr"),
-  ]).then(async () => {
-    try {
-      const status = await proc.status;
-      log.info("agent.exit", { workspace: workspaceId, command: spec.command, code: status.code });
-      emit({ workspaceId, status: "exit", code: status.code });
-    } catch {
-      log.warn("agent.exit", { workspace: workspaceId, command: spec.command, code: -1 });
-      emit({ workspaceId, status: "exit", code: -1 });
-    }
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (d: string) => emit({ workspaceId, status: "stdout", data: d }));
+  child.stderr?.on("data", (d: string) => emit({ workspaceId, status: "stderr", data: d }));
+
+  child.on("close", (code) => {
+    log.info("agent.exit", { workspace: workspaceId, command: spec.command, code: code ?? -1 });
+    emit({ workspaceId, status: "exit", code: code ?? -1 });
   });
 }

@@ -1,0 +1,25 @@
+{
+  "name": "ai-storm-backend",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "dev": "node --watch src/main.ts",
+    "trace": "node --import ./src/otel.ts src/main.ts",
+    "smoke": "node smoke_test.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "@hono/node-ws": "^1.0.4",
+    "@lydell/node-pty": "^1.1.0",
+    "@opentelemetry/api": "^1.9.0",
+    "hono": "^4.6.14"
+  },
+  "optionalDependencies": {
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/semantic-conventions": "^1.28.0"
+  }
+}

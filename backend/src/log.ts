@@ -1,19 +1,13 @@
 /**
  * Structured logging + tracing for the backend flow.
  *
- * Two layers, both wired to Deno's built-in OpenTelemetry:
- *   1. `log.{debug,info,warn,error}` — structured records. When the process is
- *      started with `OTEL_DENO=1`, Deno automatically captures `console.*`
- *      output as OTel log records and ships them over OTLP; otherwise they are
- *      printed as human-readable lines. Level is controlled by `AI_STORM_LOG`
- *      (debug|info|warn|error, default info).
- *   2. `withSpan` / `addEvent` — real OTel spans via `@opentelemetry/api`. With
- *      `OTEL_DENO=1` these export as a trace tree (and nest under the automatic
- *      `Deno.serve` request spans); without it the API is a no-op, so there is
- *      zero overhead when tracing is off.
- *
- * Run with tracing:  deno task trace   (or set OTEL_DENO=1 yourself)
- * Point at a collector:  OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+ *   1. `log.{debug,info,warn,error}` — structured records, level via
+ *      `AI_STORM_LOG` (debug|info|warn|error, default info). Printed as
+ *      human-readable lines; also attached as events to the active OTel span.
+ *   2. `withSpan` / `addEvent` — real OTel spans via `@opentelemetry/api`. The
+ *      API is a no-op unless a tracer provider is registered, so there is zero
+ *      overhead when tracing is off. Run `pnpm trace` (or `node --import
+ *      ./src/otel.ts ...`) to register the OTLP exporter (see otel.ts).
  */
 
 import { type Span, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -23,7 +17,7 @@ type Attrs = Record<string, AttrValue | undefined>;
 type Level = "debug" | "info" | "warn" | "error";
 
 const LEVELS: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
-const THRESHOLD = LEVELS[(Deno.env.get("AI_STORM_LOG") as Level) ?? "info"] ?? LEVELS.info;
+const THRESHOLD = LEVELS[(process.env.AI_STORM_LOG as Level) ?? "info"] ?? LEVELS.info;
 
 const tracer = trace.getTracer("ai-storm-backend", "3.0.0");
 
@@ -40,8 +34,6 @@ function emit(level: Level, event: string, attrs?: Attrs): void {
   if (LEVELS[level] < THRESHOLD) return;
   const a = clean(attrs);
 
-  // Attach the message to the current span (if any) so logs correlate to the
-  // trace tree when OTEL_DENO is enabled.
   const active = trace.getActiveSpan();
   if (active) active.addEvent(event, a);
 
