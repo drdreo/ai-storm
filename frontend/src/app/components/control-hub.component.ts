@@ -8,6 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { IngestionService } from '../core/ingestion.service';
 import { AgentService } from '../core/agent.service';
@@ -21,6 +22,7 @@ import { BackendService } from '../core/backend.service';
 @Component({
   selector: 'as-control-hub',
   standalone: true,
+  imports: [Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (workspaces.active(); as ws) {
@@ -31,13 +33,17 @@ import { BackendService } from '../core/backend.service';
           <span class="sep">·</span>
           <span>{{ ws.status }}</span>
         </div>
-        <div class="session">
+        <div class="session" ngToolbar orientation="horizontal" aria-label="Session controls">
           @if (ingestion.isAttached(ws.id)) {
-            <button class="stop" (click)="stop(ws.id)">Stop</button>
+            <button ngToolbarWidget value="stop" class="stop" (click)="stop(ws.id)">Stop</button>
           } @else {
-            <button class="start" (click)="start(ws.id)">Start session</button>
+            <button ngToolbarWidget value="start" class="start" (click)="start(ws.id)">
+              Start session
+            </button>
           }
-          <button class="ghost" (click)="ingestion.clearScrollback(ws.id)">Clear</button>
+          <button ngToolbarWidget value="clear" class="ghost" (click)="ingestion.clearScrollback(ws.id)">
+            Clear
+          </button>
         </div>
       </header>
 
@@ -55,7 +61,7 @@ import { BackendService } from '../core/backend.service';
         <span class="hint">prompts go to this CLI's stdin</span>
       </div>
 
-      <section class="stream" #stream>
+      <section class="stream" #stream role="log" aria-live="polite" aria-label="Terminal output">
         @for (line of lines(); track $index) {
           <div class="line">{{ line }}</div>
         }
@@ -179,6 +185,10 @@ import { BackendService } from '../core/backend.service';
       .session button:hover {
         background: var(--btn-hover);
         color: var(--text);
+      }
+      .session:focus,
+      .session:focus-visible {
+        outline: none;
       }
       .start {
         color: #36c275 !important;

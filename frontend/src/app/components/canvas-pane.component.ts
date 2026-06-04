@@ -2,10 +2,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  computed,
   effect,
   inject,
   viewChild,
 } from '@angular/core';
+import { Tab, TabList, Tabs } from '@angular/aria/tabs';
+import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
@@ -20,28 +23,43 @@ import type { CanvasMode } from '../core/models';
 @Component({
   selector: 'as-canvas-pane',
   standalone: true,
+  imports: [Tabs, TabList, Tab, Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="toolbar">
-      <div class="modes">
-        <button
-          [class.on]="(workspaces.active()?.mode ?? 'page') === 'page'"
-          (click)="setMode('page')"
-        >
+    <div class="toolbar" ngTabs>
+      <div
+        class="modes"
+        ngTabList
+        orientation="horizontal"
+        selectionMode="follow"
+        [selectedTab]="activeMode()"
+        (selectedTabChange)="onModeChange($event)"
+        aria-label="Canvas view mode"
+      >
+        <button ngTab value="page" [class.on]="activeMode() === 'page'">
           Document
         </button>
-        <button
-          [class.on]="workspaces.active()?.mode === 'edgeless'"
-          (click)="setMode('edgeless')"
-        >
+        <button ngTab value="edgeless" [class.on]="activeMode() === 'edgeless'">
           Canvas
         </button>
       </div>
-      <div class="actions">
-        <button class="ghost" (click)="injectContext()" title="Serialize canvas into the terminal loop (PRD 3.2)">
+      <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
+        <button
+          ngToolbarWidget
+          value="inject-context"
+          class="ghost"
+          (click)="injectContext()"
+          title="Serialize canvas into the terminal loop (PRD 3.2)"
+        >
           Inject context
         </button>
-        <button class="accent" (click)="dispatchSelection()" title="Send selection to the local agent (PRD 3.6)">
+        <button
+          ngToolbarWidget
+          value="send-to-agent"
+          class="accent"
+          (click)="dispatchSelection()"
+          title="Send selection to the local agent (PRD 3.6)"
+        >
           Send to agent ▸
         </button>
       </div>
@@ -82,6 +100,12 @@ import type { CanvasMode } from '../core/models';
       .modes button.on {
         background: var(--accent-soft);
         color: var(--text);
+      }
+      .modes:focus,
+      .modes:focus-visible,
+      .actions:focus,
+      .actions:focus-visible {
+        outline: none;
       }
       .actions {
         display: flex;
@@ -139,6 +163,14 @@ export class CanvasPaneComponent {
       if (!active) return;
       this.#canvas.mount(hostEl, active.id, active.mode);
     });
+  }
+
+  /** The active workspace's current canvas mode, defaulting to 'page'. */
+  readonly activeMode = computed<CanvasMode>(() => this.workspaces.active()?.mode ?? 'page');
+
+  /** React to the tablist selection (Document/Canvas) changing. */
+  onModeChange(value: string | undefined): void {
+    if (value === 'page' || value === 'edgeless') this.setMode(value);
   }
 
   setMode(mode: CanvasMode): void {
