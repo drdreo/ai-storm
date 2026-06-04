@@ -42,9 +42,17 @@ export class AgentService {
    * otherwise the current editor selection is used.
    */
   dispatch(workspaceId: string, config: TerminalConfig, payloadOverride?: string): void {
-    const payload = (payloadOverride ?? this.#canvas.getSelectedText()).trim();
-    if (!payload) return;
+    const selection = (payloadOverride ?? this.#canvas.getSelectedText()).trim();
+    if (!selection) return;
     const command = config.agentCommand?.trim() || 'claude';
+
+    // PRD §3.2 — automatically inject the serialized canvas as structural
+    // memory so the agent receives the full whiteboard context, not just the
+    // selected blocks. The selection is called out as the active focus.
+    const context = this.#canvas.serializeToText(workspaceId);
+    const payload = context
+      ? `# Workspace context\n\n${context}\n\n# Selected focus\n\n${selection}`
+      : selection;
 
     this.#ensureSubscription(workspaceId);
     this.#run(workspaceId).set({ status: 'spawned', output: '' });
