@@ -4,10 +4,10 @@
  */
 
 import { assertEquals } from "jsr:@std/assert@1";
-import { sanitize, stripAnsi, endsWithPartialEscape } from "./ansi.ts";
-import { SlicingBuffer } from "./slicing-buffer.ts";
-import { MarkdownBlockParser } from "./markdown-block-parser.ts";
-import { RenderScheduler } from "./render-scheduler.ts";
+import { sanitize, stripAnsi, endsWithPartialEscape } from "./ansi";
+import { SlicingBuffer } from "./slicing-buffer";
+import { MarkdownBlockParser } from "./markdown-block-parser";
+import { RenderScheduler } from "./render-scheduler";
 
 const ESC = String.fromCharCode(0x1B);
 

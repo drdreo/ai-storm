@@ -12,7 +12,7 @@
  * view of the still-pending partial line so the UI can show in-progress text.
  */
 
-import { sanitize, endsWithPartialEscape } from "./ansi.ts";
+import { sanitize, endsWithPartialEscape } from "./ansi";
 
 export interface SliceResult {
   /** Lines whose terminating newline has been confirmed, fully sanitised. */
