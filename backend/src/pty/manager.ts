@@ -25,6 +25,9 @@ export class PtyManager {
    * Create a session, replacing any existing one for the workspace. The launch
    * target (the AI harness or an explicit shell) is resolved for the platform
    * first; resolution failures are reported via `onError` rather than thrown.
+   *
+   * Resolves with the spawned PTY's pid on success, or `null` if resolution
+   * failed (in which case `onError` has already been invoked).
    */
   async attach(
     workspaceId: string,
@@ -32,7 +35,7 @@ export class PtyManager {
     onData: (chunk: string) => void,
     onExit: (code: number) => void,
     onError: (message: string) => void,
-  ): Promise<boolean> {
+  ): Promise<number | null> {
     this.detach(workspaceId);
     this.#attaching.add(workspaceId);
 
@@ -63,7 +66,7 @@ export class PtyManager {
               : `Failed to resolve "${requestedCmd}": ` +
                 (err instanceof Error ? err.message : String(err)),
           );
-          return false;
+          return null;
         }
 
         const session = new PtySession(
@@ -88,7 +91,7 @@ export class PtyManager {
           addEvent("flush_buffered_input", { messages: queued.length, bytes });
           for (const data of queued) session.write(data);
         }
-        return true;
+        return session.pid;
       },
     );
   }

@@ -8,14 +8,34 @@
 
 import { Hono } from "hono";
 import { createNodeWebSocket } from "@hono/node-ws";
+import type { ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, sep } from "node:path";
 import { PtyManager } from "./pty/manager.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, type ServerMessage } from "./protocol.ts";
 
 let connectionSeq = 0;
+
+/**
+ * A browser-originated cross-site WebSocket connection could spawn arbitrary
+ * local processes via `attach`/`agent`, so the `/pty` upgrade only accepts
+ * connections whose `Origin` is a loopback host (or absent — non-browser
+ * clients such as the smoke test and CLI tools send no Origin header).
+ */
+function isOriginAllowed(origin: string | undefined): boolean {
+  // Non-browser clients (node WebSocket, CLI tools) send no Origin header.
+  if (!origin) return true;
+  let host: string;
+  try {
+    host = new URL(origin).hostname;
+  } catch {
+    return false;
+  }
+  // `new URL` strips the brackets from an IPv6 host, leaving the bare address.
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -44,9 +64,15 @@ export function buildApp(config: ServerConfig) {
 
   app.get(
     "/pty",
-    upgradeWebSocket(() => {
+    upgradeWebSocket((c) => {
       const manager = new PtyManager();
       const conn = `conn-${++connectionSeq}`;
+      const origin = c.req.header("origin");
+      const originOk = isOriginAllowed(origin);
+
+      // Agent subprocesses spawned by this connection, tracked so a client
+      // disconnect tears them down instead of orphaning them.
+      const agents = new Set<ChildProcess>();
 
       // `socket` is captured on open so message handlers can push to the client.
       let socket: { send: (data: string) => void; readyState: number } | null = null;
@@ -54,12 +80,35 @@ export function buildApp(config: ServerConfig) {
         if (socket && socket.readyState === 1) socket.send(JSON.stringify(msg));
       };
 
+      const cleanup = () => {
+        manager.detachAll();
+        for (const child of agents) {
+          try {
+            child.kill();
+          } catch {
+            // already exited
+          }
+        }
+        agents.clear();
+      };
+
       return {
         onOpen(_evt, ws) {
           socket = ws as unknown as typeof socket;
+          if (!originOk) {
+            log.warn("ws.rejected_origin", { conn, origin });
+            try {
+              ws.close(1008, "origin not allowed");
+            } catch {
+              // socket already closing
+            }
+            socket = null;
+            return;
+          }
           log.info("ws.open", { conn });
         },
         onMessage(evt) {
+          if (!originOk) return;
           let msg;
           try {
             msg = parseClientMessage(String(evt.data));
@@ -69,15 +118,15 @@ export function buildApp(config: ServerConfig) {
             send({ type: "error", message: m });
             return;
           }
-          dispatch(msg, manager, conn, send);
+          dispatch(msg, manager, conn, send, agents);
         },
         onClose() {
-          log.info("ws.close", { conn, liveSessions: manager.size });
-          manager.detachAll();
+          log.info("ws.close", { conn, liveSessions: manager.size, liveAgents: agents.size });
+          cleanup();
         },
         onError() {
           log.warn("ws.error", { conn });
-          manager.detachAll();
+          cleanup();
         },
       };
     }),
@@ -101,6 +150,7 @@ function dispatch(
   manager: PtyManager,
   conn: string,
   send: (msg: ServerMessage) => void,
+  agents: Set<ChildProcess>,
 ): void {
   switch (msg.type) {
     case "attach": {
@@ -131,10 +181,10 @@ function dispatch(
             send({ type: "error", workspaceId, message });
           },
         )
-        .then((ok) => {
-          if (ok) {
-            log.info("attach.ready", { workspace: workspaceId });
-            send({ type: "ready", workspaceId, pid: -1 });
+        .then((pid) => {
+          if (pid !== null) {
+            log.info("attach.ready", { workspace: workspaceId, pid });
+            send({ type: "ready", workspaceId, pid });
           }
         });
       break;
@@ -164,11 +214,18 @@ function dispatch(
         args: (msg.args ?? []).join(" "),
         payloadBytes: msg.payload.length,
       });
-      runAgent(
-        msg.workspaceId,
-        { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
-        (status) => send({ type: "agent-status", ...status }),
-      );
+      {
+        const child = runAgent(
+          msg.workspaceId,
+          { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
+          (status) => send({ type: "agent-status", ...status }),
+        );
+        // Track for connection-scoped teardown; drop once it exits on its own.
+        if (child) {
+          agents.add(child);
+          child.once("close", () => agents.delete(child));
+        }
+      }
       break;
   }
 }
@@ -176,9 +233,12 @@ function dispatch(
 async function serveStatic(pathname: string, staticDir: string): Promise<Response | null> {
   let rel = decodeURIComponent(pathname);
   if (rel === "/" || rel === "") rel = "/index.html";
-  // Resolve within the static root and block traversal.
+  // Resolve within the static root and block traversal. Compare against the
+  // root with a trailing separator so a sibling like `…/dist-secret` cannot
+  // satisfy a bare `startsWith(…/dist)` check; allow the exact root itself.
+  const root = normalize(staticDir);
   const filePath = normalize(join(staticDir, rel));
-  if (!filePath.startsWith(normalize(staticDir))) {
+  if (filePath !== root && !filePath.startsWith(root + sep)) {
     return new Response("Forbidden", { status: 403 });
   }
 

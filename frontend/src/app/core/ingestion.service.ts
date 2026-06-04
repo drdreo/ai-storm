@@ -49,7 +49,9 @@ export class IngestionService {
   /** Spawn the PTY and start ingesting its stream into the workspace. */
   attach(workspaceId: string, config: TerminalConfig, cols = 120, rows = 32): void {
     if (this.#active.has(workspaceId)) return;
-    const view = this.#view(workspaceId);
+    // Pre-create the view signal so terminalLines/terminalPending are
+    // immediately available even before the first data chunk arrives.
+    this.#view(workspaceId);
 
     const scheduler = new RenderScheduler<BlockDescriptor>({
       sink: (batch) => this.#canvas.applyBlocks(workspaceId, batch),

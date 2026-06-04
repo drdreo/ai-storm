@@ -120,6 +120,12 @@ export class RenderScheduler<T> {
       this.#frame = null;
     }
     while (this.#back.length > 0) this.#drain();
+    // #drain() may have re-scheduled a frame for overflow items, but since we
+    // just synchronously drained everything, cancel that dangling handle.
+    if (this.#frame !== null) {
+      this.#cancelFrame(this.#frame);
+      this.#frame = null;
+    }
   }
 
   /** Tear down: cancel pending frame and drop buffered items (PRD §5.2). */

@@ -29,6 +29,11 @@ export class SlicingBuffer {
    * rewrite this in place rather than appending, mirroring a real terminal.
    */
   #line = "";
+  /**
+   * True when the last character of the previous chunk was a lone `\r` whose
+   * CRLF-vs-rewrite meaning cannot be determined until the next chunk arrives.
+   */
+  #pendingCR = false;
 
   /**
    * Push a raw fragment from the stream and return any newly completed lines.
@@ -53,6 +58,22 @@ export class SlicingBuffer {
     this.#raw = carry;
 
     const completed: string[] = [];
+
+    // Resolve a CR that was held back from the previous chunk now that we can
+    // see the character that follows it.
+    if (this.#pendingCR) {
+      this.#pendingCR = false;
+      if (workable.length > 0 && workable[0] === "\n") {
+        // CRLF across chunks: emit the buffered line and skip the leading \n.
+        completed.push(sanitize(this.#line));
+        this.#line = "";
+        workable = workable.slice(1);
+      } else {
+        // Bare CR at end of previous chunk: in-place rewrite (spinner frame).
+        this.#line = "";
+      }
+    }
+
     // Walk the workable text character by character, resolving \r and \n.
     for (let i = 0; i < workable.length; i++) {
       const ch = workable[i];
@@ -60,12 +81,17 @@ export class SlicingBuffer {
         completed.push(sanitize(this.#line));
         this.#line = "";
       } else if (ch === "\r") {
-        // Carriage return: if followed by \n it's a CRLF newline (handled by
-        // the \n branch on the next iteration); otherwise it rewinds the line.
-        if (workable[i + 1] === "\n") {
+        if (i === workable.length - 1) {
+          // Trailing lone \r — defer the CR/LF-vs-rewrite decision until the
+          // next chunk arrives so a CRLF split across chunks is not lost.
+          this.#pendingCR = true;
+        } else if (workable[i + 1] === "\n") {
+          // Carriage return: if followed by \n it's a CRLF newline (handled by
+          // the \n branch on the next iteration).
           continue; // let the \n complete the line
+        } else {
+          this.#line = ""; // in-place rewrite (spinner/progress frame)
         }
-        this.#line = ""; // in-place rewrite (spinner/progress frame)
       } else {
         this.#line += ch;
       }
@@ -85,6 +111,10 @@ export class SlicingBuffer {
    */
   flush(): string[] {
     const out: string[] = [];
+    // A held-back CR at end-of-stream acts as a plain rewrite: the current
+    // line is already in #line (the CR cleared nothing yet), so we just clear
+    // the flag; the content in #line will be emitted below if non-empty.
+    this.#pendingCR = false;
     // Sanitise any carried raw bytes even if they were a dangling escape.
     const tail = sanitize(this.#line + this.#raw);
     if (tail.length > 0) out.push(tail);
@@ -96,5 +126,6 @@ export class SlicingBuffer {
   reset(): void {
     this.#raw = "";
     this.#line = "";
+    this.#pendingCR = false;
   }
 }
