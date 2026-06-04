@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Listbox, Option } from '@angular/aria/listbox';
 import { WorkspaceService } from '../core/workspace.service';
 import { IngestionService } from '../core/ingestion.service';
 import type { WorkspaceMeta } from '../core/models';
@@ -11,25 +12,36 @@ import type { WorkspaceMeta } from '../core/models';
 @Component({
   selector: 'as-sidebar',
   standalone: true,
+  imports: [Listbox, Option],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="head">
       <span class="brand">ai-storm</span>
       <button class="add" title="New workspace" (click)="add()">+</button>
     </header>
-    <nav class="list">
+    <ul
+      class="list"
+      ngListbox
+      orientation="vertical"
+      selectionMode="follow"
+      [value]="selectedValues()"
+      (valueChange)="onSelect($event)"
+      aria-label="Workspaces"
+    >
       @for (ws of workspaces.workspaces(); track ws.id) {
-        <button
+        <li
+          ngOption
           class="item"
+          [value]="ws.id"
+          [label]="ws.title"
           [class.active]="ws.id === workspaces.activeId()"
-          (click)="select(ws.id)"
         >
           <span class="dot" [attr.data-status]="ws.status"></span>
           <span class="title" [title]="ws.title">{{ ws.title }}</span>
           <span class="status">{{ ws.status }}</span>
-        </button>
+        </li>
       }
-    </nav>
+    </ul>
     @if (workspaces.active(); as active) {
       <footer class="foot">
         <button class="rename" (click)="rename(active)">Rename</button>
@@ -77,9 +89,17 @@ import type { WorkspaceMeta } from '../core/models';
         flex: 1;
         overflow-y: auto;
         padding: 0.5rem;
+        margin: 0;
+        list-style: none;
         display: flex;
         flex-direction: column;
         gap: 2px;
+      }
+      .list:focus,
+      .list:focus-visible,
+      .item:focus,
+      .item:focus-visible {
+        outline: none;
       }
       .item {
         display: grid;
@@ -166,13 +186,25 @@ export class SidebarComponent {
   readonly workspaces = inject(WorkspaceService);
   readonly #ingestion = inject(IngestionService);
 
+  /**
+   * The listbox `[(value)]` model is an array of selected option values. For our
+   * single-select navigation we mirror the active workspace id as a one-element
+   * array (empty when nothing is active).
+   */
+  readonly selectedValues = computed<string[]>(() => {
+    const id = this.workspaces.activeId();
+    return id ? [id] : [];
+  });
+
   add(): void {
     const id = this.workspaces.create('Untitled Project');
     this.workspaces.setActive(id);
   }
 
-  select(id: string): void {
-    this.workspaces.setActive(id);
+  /** React to listbox selection changes — drive the sub-100ms hot-switch. */
+  onSelect(values: readonly string[]): void {
+    const id = values[0];
+    if (id) this.workspaces.setActive(id);
   }
 
   rename(ws: WorkspaceMeta): void {

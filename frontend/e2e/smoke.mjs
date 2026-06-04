@@ -58,13 +58,15 @@ try {
   check('registry IndexedDB store created', dbs.includes('ai-storm-registry'));
 
   // Mode toggle: Document -> Canvas -> Document (PRD §3.1).
-  await page.getByRole('button', { name: 'Canvas' }).click();
+  // The mode switch is now an @angular/aria tablist, so the controls expose
+  // role="tab" (not role="button").
+  await page.getByRole('tab', { name: 'Canvas' }).click();
   await page.waitForTimeout(400);
   const edgeless = await page.evaluate(
     () => document.querySelector('affine-editor-container')?.mode,
   );
   check('toggled to edgeless mode', edgeless === 'edgeless');
-  await page.getByRole('button', { name: 'Document' }).click();
+  await page.getByRole('tab', { name: 'Document' }).click();
   await page.waitForTimeout(300);
   const pageMode = await page.evaluate(
     () => document.querySelector('affine-editor-container')?.mode,
