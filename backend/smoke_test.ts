@@ -39,7 +39,9 @@ await new Promise<void>((resolve, reject) => {
     const msg = JSON.parse(String(ev.data));
     if (msg.type === "session-status" && msg.status === "attached") attached = true;
     if (msg.type === "response") {
-      responseLines.push(...msg.lines);
+      // The response is pre-split (extraction-contract §6): bash has no idea
+      // contract, so the echoed marker arrives as conversational `chat`.
+      responseLines.push(...msg.chat);
       if (responseLines.join("\n").includes("SMOKE_MARKER_123")) {
         clearTimeout(timer);
         resolve();

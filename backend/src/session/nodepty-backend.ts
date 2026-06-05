@@ -22,7 +22,7 @@ import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError } from "../pty/resolve.ts";
 import { SlicingBuffer } from "./line-buffer.ts";
-import { ResponseExtractor, getProfile } from "./extraction.ts";
+import { ResponseExtractor, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
 import type { ResponseChunk, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
@@ -30,11 +30,14 @@ const pty = ptyDefault as unknown as typeof import("@lydell/node-pty");
 
 /** Pane goes quiet for this long mid-response ⇒ response complete (design §4.3.2). */
 const IDLE_COMPLETE_MS = 500;
+/** Fallback delay before priming if the readiness marker never appears (§4.3). */
+const PRIME_FALLBACK_MS = 3_000;
 
 interface Session {
   term: IPty | null;
   buffer: SlicingBuffer;
   extractor: ResponseExtractor;
+  profile: HarnessProfile;
   /** Running transcript of completed logical lines (the "pane" we extract from). */
   transcript: string[];
   onChunk: ((chunk: ResponseChunk) => void) | null;
@@ -43,6 +46,9 @@ interface Session {
   closed: boolean;
   cols: number;
   rows: number;
+  /** Priming instruction awaiting harness readiness (§4); cleared once sent. */
+  pendingPrime: string | null;
+  primeFallback: NodeJS.Timeout | null;
 }
 
 function defaultShell(): { shell: string; args: string[] } {
@@ -54,6 +60,12 @@ export class NodePtySessionBackend implements SessionBackend {
   readonly runtime = "process" as const;
 
   #sessions = new Map<string, Session>();
+  /**
+   * Workspaces already primed this process lifetime (extraction-contract §4.4).
+   * In-memory is sufficient on Windows: a node-pty dies with the process, so
+   * there is no reattach-after-restart case to defend against (§10.4).
+   */
+  #primed = new Set<string>();
 
   async preflight(): Promise<void> {
     // node-pty is a hard dependency that is already loaded above; nothing to probe.
@@ -110,15 +122,25 @@ export class NodePtySessionBackend implements SessionBackend {
       env,
     });
 
+    // Select the harness profile (extraction-contract §7.2): explicit spec wins,
+    // else derive from the command basename ("claude" → CLAUDE_PROFILE).
+    const profile = getProfile(spec.harnessProfile ?? commandProfileName(requested), (m) =>
+      log.warn("extract.profile", { workspace: workspaceId, message: m }),
+    );
+
+    // Prime once per process lifetime when the profile supports the contract.
+    const shouldPrime = !!spec.prime && profile.supportsIdeaContract && !this.#primed.has(workspaceId);
+    if (shouldPrime) this.#primed.add(workspaceId);
+
     const session: Session = {
       term,
       buffer: new SlicingBuffer(),
-      extractor: new ResponseExtractor(
-        getProfile(spec.harnessProfile, (m) =>
-          log.warn("extract.profile", { workspace: workspaceId, message: m }),
-        ),
-        (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
-      ),
+      extractor: new ResponseExtractor(profile, {
+        onWarn: (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
+        onHeuristic: (count) => log.info("extract.heuristic", { workspace: workspaceId, count }),
+        paneWidth: cols,
+      }),
+      profile,
       transcript: [],
       onChunk: null,
       onError: null,
@@ -126,17 +148,45 @@ export class NodePtySessionBackend implements SessionBackend {
       closed: false,
       cols,
       rows,
+      pendingPrime: shouldPrime ? spec.prime! : null,
+      primeFallback: null,
     };
     this.#sessions.set(workspaceId, session);
 
     term.onData((chunk) => this.#onData(workspaceId, chunk));
     term.onExit(({ exitCode }) => {
       session.closed = true;
+      if (session.primeFallback) clearTimeout(session.primeFallback);
       log.info("session.pty_exit", { workspace: workspaceId, code: exitCode });
     });
 
+    // Priming (§4.5): if the readiness marker never lands, prime on a fallback
+    // timer. Written raw (no beginResponse), so the READY ack never becomes a
+    // response — it stays in scrollback above the first real prompt's baseline.
+    if (shouldPrime) {
+      session.primeFallback = setTimeout(() => this.#sendPrime(workspaceId), PRIME_FALLBACK_MS);
+    }
+
     log.info("session.created", { workspace: workspaceId, command: launch.cmd, pid: term.pid });
     return { workspaceId, sessionId: `pty-${workspaceId}` };
+  }
+
+  /** Write the pending priming instruction once, raw (no echo-skip baseline). */
+  #sendPrime(workspaceId: string): void {
+    const session = this.#sessions.get(workspaceId);
+    if (!session || session.closed || !session.term || !session.pendingPrime) return;
+    const prime = session.pendingPrime;
+    session.pendingPrime = null;
+    if (session.primeFallback) {
+      clearTimeout(session.primeFallback);
+      session.primeFallback = null;
+    }
+    try {
+      session.term.write(/[\r\n]$/.test(prime) ? prime : prime + "\r");
+      log.info("session.primed", { workspace: workspaceId });
+    } catch {
+      // Terminal torn down; exit handler reports termination.
+    }
   }
 
   async attach(
@@ -160,11 +210,22 @@ export class NodePtySessionBackend implements SessionBackend {
     if (!session) return;
     const { lines } = session.buffer.push(chunk);
     if (lines.length > 0) session.transcript.push(...lines);
+
+    // Priming readiness probe (§4.3): once the harness input box appears, send
+    // the pending instruction. Done before extraction so the READY ack — which
+    // arrives while not `responding` — is never forwarded as a response (§4.5).
+    if (session.pendingPrime && session.profile.readyMarker) {
+      const marker = session.profile.readyMarker;
+      if (lines.some((l) => marker.test(l)) || marker.test(session.buffer.pending)) {
+        this.#sendPrime(workspaceId);
+      }
+    }
+
     // Feed the running transcript (+ live partial line) as the current capture.
     const capture = [...session.transcript, session.buffer.pending].join("\n");
     const result = session.extractor.ingest(capture);
-    if ((result.lines.length > 0 || result.complete) && session.onChunk) {
-      session.onChunk({ workspaceId, lines: result.lines, complete: result.complete });
+    if ((result.chat.length > 0 || result.ideas.length > 0 || result.complete) && session.onChunk) {
+      session.onChunk({ workspaceId, chat: result.chat, ideas: result.ideas, complete: result.complete });
     }
     this.#armIdleTimer(workspaceId);
   }
@@ -177,8 +238,8 @@ export class NodePtySessionBackend implements SessionBackend {
     session.idleTimer = setTimeout(() => {
       if (!session.extractor.responding) return;
       const fin = session.extractor.finalize();
-      if ((fin.lines.length > 0 || fin.complete) && session.onChunk) {
-        session.onChunk({ workspaceId, lines: fin.lines, complete: fin.complete });
+      if ((fin.chat.length > 0 || fin.ideas.length > 0 || fin.complete) && session.onChunk) {
+        session.onChunk({ workspaceId, chat: fin.chat, ideas: fin.ideas, complete: fin.complete });
       }
     }, IDLE_COMPLETE_MS);
   }
@@ -230,12 +291,14 @@ export class NodePtySessionBackend implements SessionBackend {
     if (!session) return;
     session.closed = true;
     if (session.idleTimer) clearTimeout(session.idleTimer);
+    if (session.primeFallback) clearTimeout(session.primeFallback);
     try {
       session.term?.kill();
     } catch {
       // already dead
     }
     this.#sessions.delete(workspaceId);
+    this.#primed.delete(workspaceId);
     log.info("session.killed", { workspace: workspaceId });
   }
 }

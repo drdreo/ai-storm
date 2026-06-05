@@ -18,11 +18,50 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { getRuntime } from "./session/runtime.ts";
 import type { SessionBackend } from "./session/types.ts";
+import { commandProfileName, getProfile } from "./session/extraction.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, type ServerMessage } from "@ai-storm/shared";
 
 let connectionSeq = 0;
+
+/**
+ * The §4.1 session-priming instruction. Sent once as the first message into a
+ * freshly-created idea-contract-aware session (e.g. claude). It defines the
+ * single-line `«IDEA»` marker the backend extracts into canvas ideas; the
+ * trailing `READY` ack is deterministic and droppable (suppressed, §4.5).
+ */
+const PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply to me normally in conversation.
+
+Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, emit it on its OWN line in exactly this format, then continue talking normally:
+
+  «IDEA» <short title> :: <one-line description>
+
+Optionally tag the kind: «IDEA:risk», «IDEA:feature», «IDEA:question», «IDEA:decision».
+For an idea that truly needs several lines, use a fenced block instead:
+
+  \`\`\`idea kind=<kind>
+  title: <short title>
+  body: <as many lines as you need>
+  \`\`\`
+
+Rules:
+- One idea per «IDEA» line. Put each «IDEA» line on its own line.
+- Use «IDEA» ONLY for real ideas, never for chitchat, status, or questions to me.
+- Everything you write that is NOT an «IDEA» line is treated as ordinary chat.
+
+Acknowledge with the single word READY and nothing else.`;
+
+/**
+ * Derive the harness profile name + priming text from the harness command. A
+ * contract-aware harness (claude) is primed; anything else gets no prime so a
+ * bare shell never has the instruction echoed at it (extraction-contract §4.6).
+ */
+function harnessSetup(command: string): { harnessProfile?: string; prime?: string } {
+  const harnessProfile = commandProfileName(command);
+  const supportsContract = getProfile(harnessProfile).supportsIdeaContract;
+  return { harnessProfile, prime: supportsContract ? PRIME_INSTRUCTION : undefined };
+}
 
 /**
  * A browser-originated cross-site WebSocket connection could spawn arbitrary
@@ -176,6 +215,7 @@ async function dispatch(
         // Idempotent: create the named session if absent (else reuse), then
         // (re)attach the response stream. Decoupled from input readiness —
         // the session always exists by the time `input` is processed (§3.3).
+        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "");
         await backend.create({
           workspaceId,
           command: msg.shell ?? "",
@@ -183,13 +223,20 @@ async function dispatch(
           cwd: msg.cwd,
           cols: msg.cols,
           rows: msg.rows,
+          harnessProfile,
+          prime,
         });
         send({ type: "session-status", workspaceId, status: "created" });
         await backend.attach(
           workspaceId,
           (chunk) => {
-            log.debug("response", { workspace: workspaceId, lines: chunk.lines.length, complete: chunk.complete });
-            send({ type: "response", workspaceId, lines: chunk.lines, complete: chunk.complete });
+            log.debug("response", {
+              workspace: workspaceId,
+              chat: chunk.chat.length,
+              ideas: chunk.ideas.length,
+              complete: chunk.complete,
+            });
+            send({ type: "response", workspaceId, chat: chunk.chat, ideas: chunk.ideas, complete: chunk.complete });
           },
           (message) => {
             log.warn("session.error", { workspace: workspaceId, message });

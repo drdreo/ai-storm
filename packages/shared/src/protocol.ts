@@ -12,8 +12,10 @@
  * The backend hosts each workspace's AI harness inside a durable, named,
  * connection-independent session (tmux on POSIX, an in-process node-pty on
  * Windows — see `docs/design/ai-session-layer.md`). It extracts the agent's
- * **response text** server-side and ships clean lines as `response` messages;
- * the client never receives the raw terminal stream.
+ * output server-side and ships it **pre-split** as a `response` message: the
+ * conversational half (`chat`) and the extracted brainstorming ideas (`ideas`)
+ * — see `docs/design/ai-response-extraction-contract.md`. The client never
+ * receives the raw terminal stream and never guesses structure.
  */
 
 /** Messages sent from the web client to the backend daemon. */
@@ -119,15 +121,32 @@ export interface SessionStatusMessage {
   status: "created" | "attached" | "idle" | "responding" | "killed";
 }
 
+/** A single extracted brainstorming idea destined for the canvas. */
+export interface Idea {
+  /** Short title — the card heading. */
+  title: string;
+  /** One-line (or, for fenced ideas, multi-line) description — the card body. */
+  body: string;
+  /** Optional kind/tag, e.g. "risk" | "feature" | "question" | "decision" | "heuristic". */
+  kind?: string;
+}
+
 /**
- * Backend-extracted agent response text (replaces the old raw `data` framing).
- * Carries only the agent's response — never the echoed prompt or harness chrome.
+ * Backend-extracted agent output, pre-split so the client never guesses
+ * structure (see `docs/design/ai-response-extraction-contract.md`):
+ *  - `chat`  → conversational lines rendered in the control hub
+ *  - `ideas` → brainstorming ideas rendered as canvas cards/notes
+ *
+ * Both halves carry only the agent's output — never the echoed prompt or the
+ * harness TUI chrome (status bar, spinners, auto-mode affordance, tips).
  */
 export interface ResponseMessage {
   type: "response";
   workspaceId: string;
-  /** Clean, finalized lines ready for MarkdownBlockParser. */
-  lines: string[];
+  /** Conversational reply lines for the chat hub (chrome already stripped). */
+  chat: string[];
+  /** Extracted ideas for the canvas. */
+  ideas: Idea[];
   /** True once idle/prompt-return marks the response complete (flushNow()). */
   complete: boolean;
 }

@@ -1,0 +1,7 @@
+> What are some risks and ideas?
+Here are a few directions worth capturing.
+«IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB
+«IDEA:risk» Token rotation :: may break long-lived sessions
+«IDEA» Offline-first canvas
+Happy to expand on any of these — which should we explore first?
+>

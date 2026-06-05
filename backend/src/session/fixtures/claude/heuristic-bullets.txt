@@ -1,0 +1,7 @@
+> List some ideas, ignore the format please.
+Here are a few:
+- Offline-first canvas
+- Token rotation safety
+- Event-sourced history
+Let me know which to expand.
+>

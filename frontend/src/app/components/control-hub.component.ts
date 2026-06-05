@@ -16,8 +16,9 @@ import { BackendService } from '../core/backend.service';
 
 /**
  * Conversational Control Hub (PRD §3.1). Provides the prompt input, session
- * controls, the live (sanitised) terminal stream, downstream agent run output,
- * and diagnostic readouts of the background terminal connection.
+ * controls, the agent's conversational reply stream (the `chat` half of the
+ * extraction contract — ideas now live on the canvas, not here), downstream
+ * agent run output, and diagnostic readouts of the background connection.
  */
 @Component({
   selector: 'as-control-hub',
@@ -60,12 +61,12 @@ import { BackendService } from '../core/backend.service';
         <span class="hint">prompts go to this CLI's stdin</span>
       </div>
 
-      <section class="stream" #stream role="log" aria-live="polite" aria-label="Agent response output">
+      <section class="stream" #stream role="log" aria-live="polite" aria-label="Conversation">
         @for (line of lines(); track $index) {
           <div class="line">{{ line }}</div>
         }
         @if (lines().length === 0) {
-          <div class="empty">No responses yet. Start a session and type a prompt below.</div>
+          <div class="empty">No messages yet. Start a session and type a prompt below; ideas land on the canvas.</div>
         }
       </section>
 

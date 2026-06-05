@@ -7,6 +7,10 @@
  * expose the raw terminal — callers receive `ResponseChunk`s, not bytes.
  */
 
+import type { Idea } from "@ai-storm/shared";
+
+export type { Idea };
+
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
   workspaceId: string;
@@ -23,15 +27,30 @@ export interface SessionSpec {
   env?: Record<string, string>;
   cols?: number;
   rows?: number;
-  /** Optional harness profile name selecting prompt/chrome rules (design §4.3). */
+  /**
+   * Optional harness profile name selecting prompt/chrome rules + the idea
+   * contract (extraction-contract §5). E.g. "claude" → the claude profile.
+   */
   harnessProfile?: string;
+  /**
+   * Optional session-priming instruction sent once as the first message when a
+   * session is freshly created (extraction-contract §4). Absent for harnesses
+   * that don't support the idea contract (a bare shell is never primed).
+   */
+  prime?: string;
 }
 
-/** A single extracted response chunk (clean text), backend-produced. */
+/**
+ * A single extracted response chunk, backend-produced and pre-split
+ * (extraction-contract §6): conversational `chat` lines for the hub and
+ * `ideas` for the canvas. Never carries the echoed prompt or harness chrome.
+ */
 export interface ResponseChunk {
   workspaceId: string;
-  /** Newly-finalized clean lines, ready for MarkdownBlockParser. */
-  lines: string[];
+  /** Newly-finalized conversational lines for the chat hub. */
+  chat: string[];
+  /** Newly-finalized extracted ideas for the canvas. */
+  ideas: Idea[];
   /** True once idle/prompt-return marks this response complete. */
   complete: boolean;
 }
