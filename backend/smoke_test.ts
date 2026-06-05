@@ -24,7 +24,9 @@ let ready = false;
 await new Promise<void>((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error("timeout waiting for PTY data")), 15000);
   socket.onopen = () => {
-    socket.send(JSON.stringify({ type: "attach", workspaceId: "smoke", shell: "powershell.exe" }));
+    // Omit `shell` so the server resolves an OS-appropriate default
+    // (powershell.exe on Windows for ConPTY, $SHELL/bash on POSIX).
+    socket.send(JSON.stringify({ type: "attach", workspaceId: "smoke" }));
     setTimeout(() => {
       socket.send(JSON.stringify({ type: "input", workspaceId: "smoke", data: "echo SMOKE_MARKER_123\r" }));
     }, 900);
