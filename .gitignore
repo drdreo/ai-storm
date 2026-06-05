@@ -6,3 +6,6 @@ frontend/test-results/
 *.log
 .DS_Store
 Thumbs.db
+.idea
+.vscode
+agent-orchestrator.yaml

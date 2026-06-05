@@ -159,6 +159,7 @@ export function buildApp(config: ServerConfig) {
           if (!originOk) return;
           let msg;
           try {
+            log.debug("ws.message", { conn, message: String(evt.data).slice(0, 100) });
             msg = parseClientMessage(String(evt.data));
           } catch (err) {
             const m = err instanceof Error ? err.message : String(err);
@@ -216,6 +217,7 @@ async function dispatch(
         // (re)attach the response stream. Decoupled from input readiness —
         // the session always exists by the time `input` is processed (§3.3).
         const { harnessProfile, prime } = harnessSetup(msg.shell ?? "");
+        log.debug("attach.setup", { workspace: workspaceId, harnessProfile, prime });
         await backend.create({
           workspaceId,
           command: msg.shell ?? "",
