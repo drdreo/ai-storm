@@ -1,5 +1,5 @@
 /**
- * Wire protocol shared with the Deno backend (mirror of backend/src/protocol.ts).
+ * Wire protocol shared with the Node backend (mirror of backend/src/protocol.ts).
  * Kept as a standalone copy so the frontend build has no cross-package import.
  */
 

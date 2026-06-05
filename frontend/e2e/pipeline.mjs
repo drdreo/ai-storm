@@ -1,6 +1,6 @@
 /**
  * End-to-end pipeline test (PRD §3.3): drives the REAL browser app against the
- * REAL Deno backend, spawning a REAL local PTY, and asserts that streamed
+ * REAL Node backend, spawning a REAL local PTY, and asserts that streamed
  * terminal text is parsed and materialised as BlockSuite blocks on the canvas.
  *
  * Usage: node e2e/pipeline.mjs [baseURL]

@@ -6,7 +6,7 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "deno test --allow-read src/app/core"
+    "test": "node --import ./tools/ts-resolve-hook.mjs --test \"src/app/core/**/*.test.ts\""
   },
   "private": true,
   "dependencies": {
