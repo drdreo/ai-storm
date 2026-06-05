@@ -31,6 +31,10 @@ importers:
       hono:
         specifier: ^4.6.14
         version: 4.12.23
+    devDependencies:
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@25.9.1)(vite@7.3.2(@types/node@25.9.1)(sass@1.99.0))
     optionalDependencies:
       '@opentelemetry/exporter-trace-otlp-http':
         specifier: ^0.57.0

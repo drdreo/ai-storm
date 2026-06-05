@@ -1,7 +1,8 @@
 /**
  * Structural Block Translation (PRD §3.3).
  *
- * Scans completed logical lines (from the SlicingBuffer) for Markdown
+ * Scans completed logical lines (clean `response` lines extracted backend-side)
+ * for Markdown
  * structural indicators at the *start* of a line and emits framework-agnostic
  * block descriptors. The BlockSuite layer consumes these to declare block
  * boundaries — initialising headings, bullets, checkbox task targets, or notes.

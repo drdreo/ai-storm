@@ -1,11 +1,17 @@
 /**
  * End-to-end smoke test against a RUNNING backend (pnpm start first).
- * Verifies: /health, real PTY attach + stream, input echo, agent execution.
+ * Verifies: /health, durable session attach, response extraction round-trip.
  * Run: node smoke_test.ts   (uses Node's global fetch + WebSocket)
+ *
+ * Drives a deterministic interactive REPL (bash) rather than a real AI harness:
+ * we attach a `bash` session, send `echo SMOKE_MARKER_123`, and assert the
+ * extracted RESPONSE carries the marker — while the echoed command line and the
+ * shell prompt chrome do NOT reach us as raw bytes (there is no `data` frame).
  */
 
 const BASE = "http://127.0.0.1:8787";
 const WS = "ws://127.0.0.1:8787/pty";
+const WORKSPACE = "smoke";
 
 function assert(cond: unknown, msg: string): void {
   if (!cond) throw new Error("FAIL: " + msg);
@@ -16,27 +22,25 @@ function assert(cond: unknown, msg: string): void {
 const health = await (await fetch(`${BASE}/health`)).json();
 assert(health.status === "ok", "/health returns ok");
 
-// 2) WebSocket PTY round-trip (real ConPTY / forkpty).
+// 2) WebSocket session round-trip via the response extractor.
 const socket = new WebSocket(WS);
-const got: string[] = [];
-let ready = false;
+const responseLines: string[] = [];
+let attached = false;
 
 await new Promise<void>((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error("timeout waiting for PTY data")), 15000);
+  const timer = setTimeout(() => reject(new Error("timeout waiting for response")), 20000);
   socket.onopen = () => {
-    // Omit `shell` so the server resolves an OS-appropriate default
-    // (powershell.exe on Windows for ConPTY, $SHELL/bash on POSIX).
-    socket.send(JSON.stringify({ type: "attach", workspaceId: "smoke" }));
+    socket.send(JSON.stringify({ type: "attach", workspaceId: WORKSPACE, shell: "bash" }));
     setTimeout(() => {
-      socket.send(JSON.stringify({ type: "input", workspaceId: "smoke", data: "echo SMOKE_MARKER_123\r" }));
-    }, 900);
+      socket.send(JSON.stringify({ type: "input", workspaceId: WORKSPACE, data: "echo SMOKE_MARKER_123\r" }));
+    }, 1200);
   };
   socket.onmessage = (ev) => {
     const msg = JSON.parse(String(ev.data));
-    if (msg.type === "ready") ready = true;
-    if (msg.type === "data") {
-      got.push(msg.chunk);
-      if (got.join("").includes("SMOKE_MARKER_123")) {
+    if (msg.type === "session-status" && msg.status === "attached") attached = true;
+    if (msg.type === "response") {
+      responseLines.push(...msg.lines);
+      if (responseLines.join("\n").includes("SMOKE_MARKER_123")) {
         clearTimeout(timer);
         resolve();
       }
@@ -45,10 +49,16 @@ await new Promise<void>((resolve, reject) => {
   socket.onerror = () => reject(new Error("socket error"));
 });
 
-assert(ready, "received ready for attached PTY");
-assert(got.join("").includes("SMOKE_MARKER_123"), "PTY streamed back echoed marker");
+assert(attached, "received session-status attached");
+assert(responseLines.join("\n").includes("SMOKE_MARKER_123"), "extracted response carried the marker");
+assert(
+  !responseLines.some((l) => l.includes("echo SMOKE_MARKER_123")),
+  "echoed command line was NOT emitted as a response",
+);
 
-socket.send(JSON.stringify({ type: "detach", workspaceId: "smoke" }));
+// Tear the durable session down so the smoke run leaves nothing behind.
+socket.send(JSON.stringify({ type: "kill", workspaceId: WORKSPACE }));
+await new Promise((r) => setTimeout(r, 300));
 socket.close();
 
 console.log("\nALL SMOKE CHECKS PASSED");

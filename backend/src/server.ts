@@ -4,6 +4,11 @@
  * Serves the built Angular client (when present) and exposes a single
  * WebSocket endpoint at `/pty` that multiplexes all workspaces for one client.
  * Bound to 127.0.0.1 so the loop never leaves the local sandbox.
+ *
+ * Sessions are owned by a process-wide `SessionBackend` (tmux on POSIX, node-pty
+ * on Windows), NOT by the WebSocket connection. A client disconnect *detaches*
+ * the response stream but leaves the durable session alive (PRD §3.5); explicit
+ * teardown happens via a `kill` message.
  */
 
 import { Hono } from "hono";
@@ -11,7 +16,8 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import type { ChildProcess } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
-import { PtyManager } from "./pty/manager.ts";
+import { getRuntime } from "./session/runtime.ts";
+import type { SessionBackend } from "./session/types.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, type ServerMessage } from "@ai-storm/shared";
@@ -59,19 +65,20 @@ export interface ServerConfig {
 export function buildApp(config: ServerConfig) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+  const backend = getRuntime();
 
-  app.get("/health", (c) => c.json({ status: "ok", os: process.platform }));
+  app.get("/health", (c) => c.json({ status: "ok", os: process.platform, runtime: backend.runtime }));
 
   app.get(
     "/pty",
     upgradeWebSocket((c) => {
-      const manager = new PtyManager();
       const conn = `conn-${++connectionSeq}`;
       const origin = c.req.header("origin");
       const originOk = isOriginAllowed(origin);
 
-      // Agent subprocesses spawned by this connection, tracked so a client
-      // disconnect tears them down instead of orphaning them.
+      // Workspaces this connection attached to — detached (not killed) on close.
+      const attached = new Set<string>();
+      // Agent subprocesses spawned by this connection, torn down on disconnect.
       const agents = new Set<ChildProcess>();
 
       // `socket` is captured on open so message handlers can push to the client.
@@ -81,7 +88,9 @@ export function buildApp(config: ServerConfig) {
       };
 
       const cleanup = () => {
-        manager.detachAll();
+        // Detach (NOT kill) so durable sessions survive the disconnect (§3.5).
+        for (const id of attached) backend.detach(id);
+        attached.clear();
         for (const child of agents) {
           try {
             child.kill();
@@ -118,10 +127,10 @@ export function buildApp(config: ServerConfig) {
             send({ type: "error", message: m });
             return;
           }
-          dispatch(msg, manager, conn, send, agents);
+          void dispatch(msg, backend, conn, send, attached, agents);
         },
         onClose() {
-          log.info("ws.close", { conn, liveSessions: manager.size, liveAgents: agents.size });
+          log.info("ws.close", { conn, attached: attached.size, liveAgents: agents.size });
           cleanup();
         },
         onError() {
@@ -145,13 +154,14 @@ export function buildApp(config: ServerConfig) {
   return { app, injectWebSocket };
 }
 
-function dispatch(
+async function dispatch(
   msg: ReturnType<typeof parseClientMessage>,
-  manager: PtyManager,
+  backend: SessionBackend,
   conn: string,
   send: (msg: ServerMessage) => void,
+  attached: Set<string>,
   agents: Set<ChildProcess>,
-): void {
+): Promise<void> {
   switch (msg.type) {
     case "attach": {
       const { workspaceId } = msg;
@@ -162,50 +172,72 @@ function dispatch(
         args: (msg.args ?? []).join(" "),
         cwd: msg.cwd,
       });
-      let bytesOut = 0;
-      manager
-        .attach(
+      try {
+        // Idempotent: create the named session if absent (else reuse), then
+        // (re)attach the response stream. Decoupled from input readiness —
+        // the session always exists by the time `input` is processed (§3.3).
+        await backend.create({
           workspaceId,
-          { shell: msg.shell, args: msg.args, cwd: msg.cwd, cols: msg.cols, rows: msg.rows },
+          command: msg.shell ?? "",
+          args: msg.args,
+          cwd: msg.cwd,
+          cols: msg.cols,
+          rows: msg.rows,
+        });
+        send({ type: "session-status", workspaceId, status: "created" });
+        await backend.attach(
+          workspaceId,
           (chunk) => {
-            bytesOut += chunk.length;
-            log.debug("pty.data", { workspace: workspaceId, bytes: chunk.length, totalOut: bytesOut });
-            send({ type: "data", workspaceId, chunk });
-          },
-          (code) => {
-            log.info("pty.exit", { workspace: workspaceId, code, totalOut: bytesOut });
-            send({ type: "exit", workspaceId, code });
+            log.debug("response", { workspace: workspaceId, lines: chunk.lines.length, complete: chunk.complete });
+            send({ type: "response", workspaceId, lines: chunk.lines, complete: chunk.complete });
           },
           (message) => {
-            log.error("attach.error", { workspace: workspaceId, message });
+            log.warn("session.error", { workspace: workspaceId, message });
             send({ type: "error", workspaceId, message });
           },
-        )
-        .then((pid) => {
-          if (pid !== null) {
-            log.info("attach.ready", { workspace: workspaceId, pid });
-            send({ type: "ready", workspaceId, pid });
-          }
-        });
+        );
+        attached.add(workspaceId);
+        send({ type: "session-status", workspaceId, status: "attached" });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error("attach.error", { workspace: workspaceId, message });
+        send({ type: "error", workspaceId, message });
+      }
       break;
     }
     case "input":
       log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
-      if (!manager.write(msg.workspaceId, msg.data)) {
-        log.warn("input.dropped", { workspace: msg.workspaceId, reason: "no live session" });
+      send({ type: "session-status", workspaceId: msg.workspaceId, status: "responding" });
+      try {
+        await backend.sendInput(msg.workspaceId, msg.data);
+      } catch (err) {
+        send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
       }
       break;
     case "resize":
       log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
-      manager.resize(msg.workspaceId, msg.cols, msg.rows);
+      await backend.resize(msg.workspaceId, msg.cols, msg.rows);
       break;
     case "detach":
       log.info("detach", { workspace: msg.workspaceId });
-      manager.detach(msg.workspaceId);
+      backend.detach(msg.workspaceId);
+      attached.delete(msg.workspaceId);
+      break;
+    case "kill":
+      log.info("kill", { workspace: msg.workspaceId });
+      await backend.kill(msg.workspaceId);
+      attached.delete(msg.workspaceId);
+      send({ type: "session-status", workspaceId: msg.workspaceId, status: "killed" });
       break;
     case "context":
+      // Inject the serialized canvas as contextual memory (PRD §3.2): delivered
+      // to the harness as a prompt through the same input path.
       log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
-      manager.write(msg.workspaceId, msg.document);
+      try {
+        await backend.sendInput(msg.workspaceId, msg.document);
+      } catch (err) {
+        send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
+      }
       break;
     case "agent":
       log.info("agent.dispatch", {

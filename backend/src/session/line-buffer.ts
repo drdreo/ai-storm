@@ -1,18 +1,24 @@
 /**
  * The Slicing & Chunking Buffer (PRD §3.3).
  *
- * A stateful text accumulator that ingests raw fragments arriving from the PTY
- * stream. It makes NO assumption that lines or delimiters arrive cleanly: bytes
- * are buffered until a structural boundary (newline) can be verified at the
- * character level. Carriage returns are resolved as in-place line rewrites
+ * A stateful text accumulator that ingests raw fragments arriving from a PTY
+ * byte stream. It makes NO assumption that lines or delimiters arrive cleanly:
+ * bytes are buffered until a structural boundary (newline) can be verified at
+ * the character level. Carriage returns are resolved as in-place line rewrites
  * (the mechanism behind spinners / progress bars), and a trailing fragment that
  * would split an ANSI escape is held back until the rest of the sequence lands.
  *
+ * On POSIX the tmux backend gets pre-flattened text from `capture-pane`, so it
+ * does not need this. On Windows the node-pty backend feeds the raw PTY stream
+ * through this buffer to reconstruct logical lines + a live pending line, then
+ * hands them to the shared response extractor (design §5.2). It moved here from
+ * the client (`frontend/src/app/core/slicing-buffer.ts`) along with `ansi.ts`.
+ *
  * Output is a sequence of *completed logical lines* (sanitised), plus a live
- * view of the still-pending partial line so the UI can show in-progress text.
+ * view of the still-pending partial line.
  */
 
-import { sanitize, endsWithPartialEscape } from "./ansi";
+import { sanitize, endsWithPartialEscape } from "./ansi.ts";
 
 export interface SliceResult {
   /** Lines whose terminating newline has been confirmed, fully sanitised. */
@@ -49,8 +55,8 @@ export class SlicingBuffer {
     let carry = "";
     if (endsWithPartialEscape(workable)) {
       const escIdx = Math.max(
-        workable.lastIndexOf(String.fromCharCode(0x1B)),
-        workable.lastIndexOf(String.fromCharCode(0x9B)),
+        workable.lastIndexOf(String.fromCharCode(0x1b)),
+        workable.lastIndexOf(String.fromCharCode(0x9b)),
       );
       carry = workable.slice(escIdx);
       workable = workable.slice(0, escIdx);

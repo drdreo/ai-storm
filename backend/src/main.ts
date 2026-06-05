@@ -8,6 +8,7 @@
 
 import { serve } from "@hono/node-server";
 import { buildApp, type ServerConfig } from "./server.ts";
+import { getRuntime } from "./session/runtime.ts";
 import { log } from "./log.ts";
 
 function parseArgs(): ServerConfig {
@@ -26,11 +27,30 @@ function parseArgs(): ServerConfig {
 }
 
 const config = parseArgs();
+
+// Probe the session runtime up front so a missing prerequisite (e.g. tmux on
+// POSIX) surfaces a clear error at startup rather than on first attach (§9).
+const backend = getRuntime();
+try {
+  await backend.preflight();
+} catch (err) {
+  log.error("backend.preflight_failed", { message: err instanceof Error ? err.message : String(err) });
+  process.exit(1);
+}
+
+// Boot reconciliation (PRD §3.5): re-expose durable sessions that outlived a
+// previous backend process so a workspace `attach` resumes without respawning.
+const survivors = await backend.reconcile();
+if (survivors.length > 0) {
+  log.info("backend.sessions_recovered", { count: survivors.length });
+}
+
 const { app, injectWebSocket } = buildApp(config);
 
 const server = serve({ fetch: app.fetch, hostname: config.hostname, port: config.port }, () => {
   log.info("backend.listening", {
     url: `ws://${config.hostname}:${config.port}/pty`,
+    runtime: backend.runtime,
     static: config.staticDir,
   });
 });
