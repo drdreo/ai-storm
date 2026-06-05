@@ -15,7 +15,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import type { AgentStatusMessage } from "../protocol.ts";
+import type { AgentStatusMessage } from "@ai-storm/shared";
 import { resolveLaunch } from "../pty/resolve.ts";
 import { log } from "../log.ts";
 

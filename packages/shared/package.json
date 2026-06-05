@@ -1,0 +1,23 @@
+{
+  "name": "@ai-storm/shared",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/protocol.js",
+  "types": "./dist/protocol.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.0"
+  }
+}

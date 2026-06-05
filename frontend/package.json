@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "ng serve",
+    "dev": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "vitest run",
@@ -11,6 +12,7 @@
   },
   "private": true,
   "dependencies": {
+    "@ai-storm/shared": "workspace:*",
     "@angular/aria": "^22.0.0",
     "@angular/cdk": "^22.0.0",
     "@angular/common": "^22.0.0",
