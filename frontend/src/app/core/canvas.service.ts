@@ -5,8 +5,12 @@ import { AffineEditorContainer } from '@blocksuite/presets';
 import { effects as blocksEffects } from '@blocksuite/blocks/effects';
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
+import type { Idea } from '@ai-storm/shared';
 import type { BlockDescriptor } from './markdown-block-parser';
+import { ideaToDescriptors } from './idea-descriptors';
 import type { CanvasMode } from './models';
+
+export { ideaToDescriptors } from './idea-descriptors';
 
 let effectsRegistered = false;
 /** Register BlockSuite's Lit custom elements exactly once (framework-agnostic). */
@@ -41,6 +45,8 @@ export class CanvasService {
   #mountedHost: HTMLElement | null = null;
   /** Cached note-block id per workspace doc, the append target for §3.3. */
   #noteIds = new Map<string, string>();
+  /** Count of idea cards created per workspace, for non-overlapping tiling. */
+  #noteCounts = new Map<string, number>();
 
   async init(): Promise<void> {
     if (this.ready()) return;
@@ -144,6 +150,33 @@ export class CanvasService {
     doc.transact(() => {
       for (const d of descriptors) {
         this.#appendDescriptor(doc, noteId, d);
+      }
+    });
+  }
+
+  /**
+   * Extracted-idea target (extraction-contract §8.2, recommended path): create
+   * ONE edgeless `affine:note` per idea — a card — seeded with the idea's
+   * heading + body, rather than appending paragraphs to the shared note. Notes
+   * are tiled left-to-right so freshly-created cards don't overlap. Runs in a
+   * single transaction so the CRDT store records one batched mutation (§5.1).
+   */
+  applyIdeas(workspaceId: string, ideas: Idea[]): void {
+    if (ideas.length === 0) return;
+    const doc = this.ensureDoc(workspaceId);
+    const pageId = doc.root?.id;
+    if (!pageId) return;
+
+    doc.transact(() => {
+      for (const idea of ideas) {
+        const index = this.#noteCounts.get(workspaceId) ?? 0;
+        this.#noteCounts.set(workspaceId, index + 1);
+        // Tile cards in a simple grid on the edgeless surface.
+        const col = index % 4;
+        const row = Math.floor(index / 4);
+        const xywh: `[${number},${number},${number},${number}]` = `[${col * 360},${row * 280},320,240]`;
+        const noteId = doc.addBlock('affine:note', { xywh }, pageId);
+        for (const d of ideaToDescriptors(idea)) this.#appendDescriptor(doc, noteId, d);
       }
     });
   }
@@ -258,6 +291,7 @@ export class CanvasService {
   /** Tear down per-workspace canvas state when a workspace is deleted. */
   removeWorkspace(workspaceId: string): void {
     this.#noteIds.delete(workspaceId);
+    this.#noteCounts.delete(workspaceId);
     if (this.#collection.getDoc(workspaceId)) {
       this.#collection.removeDoc(workspaceId);
     }

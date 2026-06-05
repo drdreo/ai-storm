@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
-import { ResponseExtractor, getProfile } from "./extraction.ts";
+import { ResponseExtractor, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
 import type { ResponseChunk, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -45,6 +45,15 @@ const ACTIVE_POLL_MS = 100;
 const IDLE_POLL_MS = 600;
 /** Pane byte-identical for this long while responding ⇒ response complete. */
 const IDLE_COMPLETE_MS = 500;
+
+/** Durable tmux option stamping that a session was successfully primed (§4.4). */
+const PRIMED_OPTION = "@ai_storm_primed";
+/** Poll interval while waiting for harness readiness / the priming ack (§4.3). */
+const PRIME_POLL_MS = 150;
+/** Bounded wait for the harness input box to appear before priming (§4.3). */
+const PRIME_READY_TIMEOUT_MS = 10_000;
+/** Bounded wait for the priming `READY` ack before giving up (§4.5). */
+const PRIME_ACK_TIMEOUT_MS = 8_000;
 
 /** Only safe characters in workspace IDs — the injection guard (design §9). */
 const SAFE_WORKSPACE_ID = /^[a-zA-Z0-9_-]+$/;
@@ -90,7 +99,7 @@ interface Poller {
 }
 
 /** Run a tmux command, returning trimmed stdout. Uses execFile (no shell). */
-async function tmux(...args: string[]): Promise<string> {
+async function defaultTmux(...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, {
     timeout: TMUX_TIMEOUT_MS,
     windowsHide: true,
@@ -98,10 +107,35 @@ async function tmux(...args: string[]): Promise<string> {
   return stdout.trimEnd();
 }
 
+/** Per-session config captured at `create()` and read back at `attach()`. */
+interface SessionConfig {
+  profile: HarnessProfile;
+  cols: number;
+}
+
+/**
+ * Injectable seams for testing. The real backend shells out to `tmux` and uses
+ * a wall-clock sleep; the priming idempotency tests substitute a fake tmux + an
+ * instant sleep so the §9 case-8 matrix runs without a tmux server (and fast).
+ */
+export interface TmuxBackendOptions {
+  tmux?: (...args: string[]) => Promise<string>;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export class TmuxSessionBackend implements SessionBackend {
   readonly runtime = "tmux" as const;
 
   #pollers = new Map<string, Poller>();
+  /** Profile + pane width per workspace, set at `create()`, used by `attach()`. */
+  #configs = new Map<string, SessionConfig>();
+  readonly #tmux: (...args: string[]) => Promise<string>;
+  readonly #sleep: (ms: number) => Promise<void>;
+
+  constructor(opts: TmuxBackendOptions = {}) {
+    this.#tmux = opts.tmux ?? defaultTmux;
+    this.#sleep = opts.sleep ?? ((ms) => sleep(ms));
+  }
 
   #sessionName(workspaceId: string): string {
     return `${SESSION_PREFIX}${workspaceId}`;
@@ -133,7 +167,7 @@ export class TmuxSessionBackend implements SessionBackend {
   async reconcile(): Promise<string[]> {
     let out: string;
     try {
-      out = await tmux("list-sessions", "-F", "#{session_name}");
+      out = await this.#tmux("list-sessions", "-F", "#{session_name}");
     } catch {
       return []; // no tmux server / no sessions
     }
@@ -151,7 +185,7 @@ export class TmuxSessionBackend implements SessionBackend {
   async hasSession(workspaceId: string): Promise<boolean> {
     assertValidWorkspaceId(workspaceId);
     try {
-      await tmux("has-session", "-t", this.#target(workspaceId));
+      await this.#tmux("has-session", "-t", this.#target(workspaceId));
       return true;
     } catch {
       return false;
@@ -163,13 +197,25 @@ export class TmuxSessionBackend implements SessionBackend {
     assertValidWorkspaceId(workspaceId);
     const sessionName = this.#sessionName(workspaceId);
 
+    const command = (spec.command ?? "").trim();
+    // Select the harness profile from the command basename (e.g. "claude" →
+    // CLAUDE_PROFILE), stored so `attach()` builds the extractor with it (§7.2).
+    const profileName = spec.harnessProfile ?? commandProfileName(command);
+    const profile = getProfile(profileName, (m) =>
+      log.warn("extract.profile", { workspace: workspaceId, message: m }),
+    );
+    const cols = spec.cols ?? 120;
+    this.#configs.set(workspaceId, { profile, cols });
+
     if (await this.hasSession(workspaceId)) {
       // Idempotent: an existing durable session is reused as-is (design §3.3).
       log.info("session.reuse", { workspace: workspaceId, session: sessionName });
+      // Crash-safe priming (§4.4): if the durable primed-flag is absent (the
+      // backend died between new-session and the priming Enter), (re)prime now.
+      await this.#ensurePrimed(workspaceId, profile, spec.prime);
       return { workspaceId, sessionId: sessionName };
     }
 
-    const command = (spec.command ?? "").trim();
     const args = spec.args ?? [];
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
@@ -184,10 +230,9 @@ export class TmuxSessionBackend implements SessionBackend {
       envArgs.push("-e", `${key}=${value}`);
     }
 
-    const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;
 
-    await tmux(
+    await this.#tmux(
       "new-session",
       "-d",
       "-s",
@@ -205,10 +250,10 @@ export class TmuxSessionBackend implements SessionBackend {
     // Hide the status bar so the green footer isn't mistaken for content.
     // Kill the session on failure so we never orphan a half-configured one.
     try {
-      await tmux("set-option", "-t", this.#target(workspaceId), "status", "off");
+      await this.#tmux("set-option", "-t", this.#target(workspaceId), "status", "off");
     } catch (err) {
       try {
-        await tmux("kill-session", "-t", this.#target(workspaceId));
+        await this.#tmux("kill-session", "-t", this.#target(workspaceId));
       } catch {
         // best-effort cleanup
       }
@@ -217,7 +262,98 @@ export class TmuxSessionBackend implements SessionBackend {
     }
 
     log.info("session.created", { workspace: workspaceId, session: sessionName, command: command || "(shell)" });
+
+    // Prime the freshly-created session (§4): wait for harness readiness, send
+    // the instruction, suppress the READY ack, and stamp the durable flag.
+    await this.#ensurePrimed(workspaceId, profile, spec.prime);
+
     return { workspaceId, sessionId: sessionName };
+  }
+
+  /**
+   * Idempotent session priming (extraction-contract §4). Sends the harness the
+   * one-time idea-contract instruction exactly once per durable session, even
+   * across backend restarts / reattaches, gated on a durable tmux option.
+   *
+   * No-op unless the profile supports the contract AND a prime text was given.
+   * If the durable `@ai_storm_primed` flag is already set we skip (this is a
+   * reattach/restart). Otherwise we run the §4.3 readiness probe, send the
+   * instruction, run the §4.5 suppression window (the `READY` ack is consumed,
+   * never forwarded), then stamp the flag so a future restart won't re-prime.
+   */
+  async #ensurePrimed(workspaceId: string, profile: HarnessProfile, prime: string | undefined): Promise<void> {
+    if (!prime || !profile.supportsIdeaContract) return;
+    if (await this.#isPrimed(workspaceId)) {
+      log.info("prime.skip", { workspace: workspaceId, reason: "already-primed" });
+      return;
+    }
+    // Stop any prior poller so the priming turn (incl. the READY ack) is never
+    // forwarded as a response (§4.5); the server re-attaches right after create.
+    this.detach(workspaceId);
+
+    await this.#awaitReady(workspaceId, profile);
+    await this.sendInput(workspaceId, prime);
+    const acked = await this.#awaitPrimeAck(workspaceId);
+    if (!acked) log.warn("prime.no-ack", { workspace: workspaceId });
+
+    try {
+      await this.#tmux("set-option", "-t", this.#target(workspaceId), PRIMED_OPTION, "1");
+    } catch (err) {
+      // Non-fatal: an unstamped session just gets re-primed next create (§4.4).
+      log.warn("prime.stamp-failed", { workspace: workspaceId, message: err instanceof Error ? err.message : String(err) });
+    }
+    log.info("session.primed", { workspace: workspaceId, acked });
+  }
+
+  /** Read the durable primed-flag back (§4.4). Absent / error ⇒ not primed. */
+  async #isPrimed(workspaceId: string): Promise<boolean> {
+    try {
+      const v = await this.#tmux("show-options", "-v", "-t", this.#target(workspaceId), PRIMED_OPTION);
+      return v.trim() === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  /** Poll the pane until the harness input box appears or a timeout (§4.3). */
+  async #awaitReady(workspaceId: string, profile: HarnessProfile): Promise<void> {
+    const marker = profile.readyMarker;
+    if (!marker) return;
+    const deadline = Date.now() + PRIME_READY_TIMEOUT_MS;
+    for (;;) {
+      try {
+        const capture = await this.#capture(workspaceId);
+        if (capture.split("\n").some((line) => marker.test(line))) return;
+      } catch {
+        // Session not capturable yet; keep waiting until the deadline.
+      }
+      if (Date.now() >= deadline) {
+        log.warn("prime.no-ready", { workspace: workspaceId });
+        return;
+      }
+      await this.#sleep(PRIME_POLL_MS);
+    }
+  }
+
+  /**
+   * Suppression window (§4.5): wait for the priming `READY` ack to appear in the
+   * pane, discarding everything. Returns whether the ack was observed. Output is
+   * never forwarded — the poller is detached for the whole window.
+   */
+  async #awaitPrimeAck(workspaceId: string): Promise<boolean> {
+    const deadline = Date.now() + PRIME_ACK_TIMEOUT_MS;
+    // claude prefixes its reply with a "● " bullet, so accept "● READY" too.
+    const ack = /^\s*●?\s*READY\s*$/u;
+    for (;;) {
+      try {
+        const capture = await this.#capture(workspaceId);
+        if (capture.split("\n").some((line) => ack.test(line))) return true;
+      } catch {
+        // ignore transient capture failures
+      }
+      if (Date.now() >= deadline) return false;
+      await this.#sleep(PRIME_POLL_MS);
+    }
   }
 
   async attach(
@@ -229,10 +365,21 @@ export class TmuxSessionBackend implements SessionBackend {
     // Idempotent reattach: stop any prior poller for this workspace first.
     this.detach(workspaceId);
 
-    const extractor = new ResponseExtractor(
-      getProfile(undefined, (m) => log.warn("extract.profile", { workspace: workspaceId, message: m })),
-      (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
-    );
+    // Use the profile + pane width recorded at create() (§7.2). If attach is
+    // somehow reached without a create (e.g. reconcile-then-attach), fall back
+    // to the default profile so extraction still runs.
+    const config = this.#configs.get(workspaceId);
+    const profile = config?.profile ?? getProfile(undefined);
+    const extractor = new ResponseExtractor(profile, {
+      onWarn: (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
+      onHeuristic: (count) => log.info("extract.heuristic", { workspace: workspaceId, count }),
+      // A near-miss (the agent attempted but mangled the «IDEA» marker) is worth
+      // a warning; an ordinary chat-only reply is debug-level noise.
+      onDebug: (event, data) => {
+        const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
+        log[level](event, { workspace: workspaceId, ...data });
+      },
+    });
     const poller: Poller = {
       extractor,
       onChunk,
@@ -288,8 +435,8 @@ export class TmuxSessionBackend implements SessionBackend {
     poller.lastCapture = capture;
 
     const result = poller.extractor.ingest(capture);
-    if (result.lines.length > 0 || result.complete) {
-      poller.onChunk({ workspaceId, lines: result.lines, complete: result.complete });
+    if (result.chat.length > 0 || result.ideas.length > 0 || result.complete) {
+      poller.onChunk({ workspaceId, chat: result.chat, ideas: result.ideas, complete: result.complete });
     }
 
     // Idle-timeout completion: pane unchanged for IDLE_COMPLETE_MS mid-response.
@@ -305,8 +452,8 @@ export class TmuxSessionBackend implements SessionBackend {
       now - poller.idleSince >= IDLE_COMPLETE_MS
     ) {
       const fin = poller.extractor.finalize();
-      if (fin.lines.length > 0 || fin.complete) {
-        poller.onChunk({ workspaceId, lines: fin.lines, complete: fin.complete });
+      if (fin.chat.length > 0 || fin.ideas.length > 0 || fin.complete) {
+        poller.onChunk({ workspaceId, chat: fin.chat, ideas: fin.ideas, complete: fin.complete });
       }
     }
 
@@ -314,9 +461,19 @@ export class TmuxSessionBackend implements SessionBackend {
   }
 
   /** `capture-pane -p` already flattens the screen and drops escapes; sanitize
-   *  removes any residual control bytes (design §4.3 step 3). */
+   *  removes any residual control bytes (design §4.3 step 3). `-J` joins
+   *  reflow-wrapped lines back into one logical line so a wrapped «IDEA» is a
+   *  single line for the contract parser (extraction-contract §5.4). */
   async #capture(workspaceId: string): Promise<string> {
-    const raw = await tmux("capture-pane", "-t", this.#target(workspaceId), "-p", "-S", `-${CAPTURE_LINES}`);
+    const raw = await this.#tmux(
+      "capture-pane",
+      "-t",
+      this.#target(workspaceId),
+      "-p",
+      "-J",
+      "-S",
+      `-${CAPTURE_LINES}`,
+    );
     return sanitize(raw);
   }
 
@@ -347,8 +504,8 @@ export class TmuxSessionBackend implements SessionBackend {
     //    within readline's ~500ms keyseq-timeout, swallows the literal text we
     //    send next — verified to drop input on tmux 3.6b. `C-u` clears the line
     //    without that side effect.
-    await tmux("send-keys", "-t", target, "C-u");
-    await sleep(100);
+    await this.#tmux("send-keys", "-t", target, "C-u");
+    await this.#sleep(100);
 
     const heavy = text.includes("\n") || text.length > 200;
     if (heavy) {
@@ -358,8 +515,8 @@ export class TmuxSessionBackend implements SessionBackend {
       const tmpPath = join(tmpdir(), `ai-storm-send-${bufferName}.txt`);
       writeFileSync(tmpPath, text, { encoding: "utf-8", mode: 0o600 });
       try {
-        await tmux("load-buffer", "-b", bufferName, tmpPath);
-        await tmux("paste-buffer", "-b", bufferName, "-t", target, "-d");
+        await this.#tmux("load-buffer", "-b", bufferName, tmpPath);
+        await this.#tmux("paste-buffer", "-b", bufferName, "-t", target, "-d");
       } finally {
         try {
           unlinkSync(tmpPath);
@@ -370,24 +527,26 @@ export class TmuxSessionBackend implements SessionBackend {
     } else if (text.length > 0) {
       // 3) Short single-line → literal send (-l stops tmux interpreting words
       //    like "Enter"/"C-c" as keysyms) (AO tmux.ts:113).
-      await tmux("send-keys", "-t", target, "-l", text);
+      await this.#tmux("send-keys", "-t", target, "-l", text);
     }
 
     // 4) Enter is sent separately, after a delay, so the harness's line
     //    discipline sees a settled line before submit (AO tmux.ts:118).
-    await sleep(heavy ? 1000 : 300);
-    await tmux("send-keys", "-t", target, "Enter");
+    await this.#sleep(heavy ? 1000 : 300);
+    await this.#tmux("send-keys", "-t", target, "Enter");
   }
 
   async resize(workspaceId: string, cols: number, rows: number): Promise<void> {
     assertValidWorkspaceId(workspaceId);
     try {
-      await tmux("resize-window", "-t", this.#target(workspaceId), "-x", String(cols), "-y", String(rows));
+      await this.#tmux("resize-window", "-t", this.#target(workspaceId), "-x", String(cols), "-y", String(rows));
     } catch {
       // Resize is best-effort; a transient failure is non-fatal.
     }
     // A width change reflows wrapped lines — re-anchor extraction (design §4).
     this.#pollers.get(workspaceId)?.extractor.reanchor();
+    const config = this.#configs.get(workspaceId);
+    if (config) config.cols = cols;
   }
 
   detach(workspaceId: string): void {
@@ -403,8 +562,9 @@ export class TmuxSessionBackend implements SessionBackend {
   async kill(workspaceId: string): Promise<void> {
     assertValidWorkspaceId(workspaceId);
     this.detach(workspaceId);
+    this.#configs.delete(workspaceId);
     try {
-      await tmux("kill-session", "-t", this.#target(workspaceId));
+      await this.#tmux("kill-session", "-t", this.#target(workspaceId));
       log.info("session.killed", { workspace: workspaceId });
     } catch {
       // Session may already be gone — that's fine.

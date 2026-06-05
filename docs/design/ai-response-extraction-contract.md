@@ -197,6 +197,14 @@ function ideaFromLine(kind, logical) {
 filled the full column width). This is the no-`-J` fallback; see §5.4 for why `-J` makes it mostly
 moot.
 
+> **Implementation note (calibrated to real claude).** With `-J`, terminal auto-wraps are already
+> rejoined, and claude does its OWN word-wrapping (breaking at spaces) with logical units separated
+> by a **blank line**. So the shipped parser drops the `paneWidth`/`rowWasWrapped` heuristic and
+> instead absorbs an idea's continuation rows until a blank line / the next marker / a fence,
+> rejoining with a single space (`parseContract(region, final)` — no `paneWidth` argument). This is
+> simpler and matches the captured output; the width-based rule above was based on the idealized §1
+> sample.
+
 ### 3.4 Multi-line bodies given the single-line preference
 
 The contract **prefers** single-line. The agent is primed to keep an idea on one logical line and
@@ -335,11 +343,29 @@ export interface HarnessProfile {
   readyMarker?: RegExp;
   /** Enable the prose→idea heuristic fallback when no markers are present (§5.3). */
   ideaFallback: boolean;
+  /** Anchor for the START of an assistant turn (claude bullets replies "● "); the
+   *  response region is anchored on the first such line BELOW the echoed input
+   *  rather than byte-matching the echo (claude re-wraps/indents it — §4.3). */
+  responseMarker?: RegExp;
+  /** Leading decoration stripped from each response line (claude's "● " bullet /
+   *  2-space message margin) so it never reaches chat. */
+  responsePrefix?: RegExp;
+  /** Explicit "turn finished" signal (claude's "✻ <Verb> for <n>s" done-line); more
+   *  precise than the idle-timeout, which can fire during a mid-stream pause. */
+  completionMarker?: RegExp;
 }
 ```
 
 `DEFAULT_PROFILE` keeps its current chrome rules and sets `supportsIdeaContract: false`,
 `ideaFallback: false` (conservative — a generic harness is chat-only until proven otherwise).
+
+> **Calibration note (claude 2.1.165).** §1 was an idealized sample. The real TUI was
+> captured live and the profile updated to match: the input prompt is a bare `❯` between two
+> horizontal rules (not `╭ >`); assistant turns are bulleted `●` and the body carries a 2-space
+> left margin; the spinner done-line randomises its verb (`Worked`/`Brewed`/`Baked for <n>s`);
+> the status bar truncates with `…` on a narrow pane; and the echoed prompt is re-wrapped. So
+> the claude profile anchors on the `●` turn (below the echoed input), strips the `●`/margin,
+> completes on the done-line, and rejoins word-wrapped idea bodies (blank-line delimited).
 
 ### 5.2 Stage 1 — chrome-strip regexes (concrete, covering every sample in §1)
 
@@ -348,27 +374,38 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   name: "claude",
   supportsIdeaContract: true,
   ideaFallback: true,
-  // claude's idle input is a bordered box; a bare ">"/"❯" is the best anchor,
-  // but completion mostly relies on the poller's idle-timeout (extraction §4.3.2).
+  // claude 2.1.x renders a bare "❯" input prompt between two horizontal rules.
   promptMarkers: [/^[>❯]$/u],
   promptPrefix: /^\s*[>❯]\s?/u,
-  readyMarker: /^\s*[╭│]\s*[>❯]/u,            // the bordered input box appeared
+  readyMarker: /^\s*❯/u,                       // the "❯" input prompt has appeared
+  responseMarker: /^\s*●\s/u,                   // assistant turn starts with "● "
+  responsePrefix: /^(?:●\s|\s{2})/u,            // strip "● " bullet / 2-space margin
+  completionMarker: /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu,  // done-line
   chrome: [
     // 1) Status bar:
     //    "Opus 4.8 (1M context) | main | ~/path | ctx:29.0k/1000k (3%) | 5h:33%"
     //    Anchored on the highly-distinctive ctx:<n>/<n> (<n>%) signature.
     /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu,
 
+    // 1b) Same status bar, TRUNCATED. When the pane is narrower than the bar,
+    //    claude cuts the trailing "ctx:n/n (n%)" with an ellipsis, e.g.
+    //    "Opus 4.8 (1M context) | feat/x | ~/long/path/worktrees/a…", so the
+    //    ctx: anchor in (1) misses it. Anchor on the model header
+    //    "(<n> context) |" — the context token + the status bar's pipe
+    //    separator survive truncation and won't collide with ordinary prose.
+    /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu,
+
     // 2) Spinner verb frames: "* Catapulting…", "✽ Forging… (5s · ↓ 227 tokens)",
     //    "✶ Metamorphosing…". Leading claude spinner glyph + text ENDING in an
     //    ellipsis (the discriminator vs a markdown bullet), optional "(… tokens)".
     /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u,
 
-    // 3) "Worked for 3s" status (same glyph family, no ellipsis).
-    /^\s*[*✻✽✶✷●∗·]\s+Worked for\b.*$/u,
+    // 3) Spinner DONE line, randomised verb: "✻ Worked for 3s", "✻ Brewed for 4s",
+    //    "✻ Baked for 3s" → "<glyph> <Verb> for <n><unit>".
+    /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu,
 
     // 4) Auto-mode / agents affordance:
-    //    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
+    //    "⏵⏵ auto mode on (shift+tab to cycle) · PR #10 · ← for agents"
     /^\s*⏵⏵?\s.*$/u,
     /(?:^|·)\s*←\s+for agents\s*$/u,
 
@@ -377,13 +414,16 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     /^\s*⎿\s.*$/u,                              // claude's tool-result/gutter glyph
     /\bclaude\s+--(?:continue|resume)\b/u,      // resume hint anywhere
 
-    // 6) Shortcuts hint / placeholder.
+    // 6) Shortcuts / queued-message hints and placeholders.
     /^\s*\?\s+for shortcuts\s*$/u,
+    /^\s*Press up to edit queued messages\s*$/iu,
     /^\s*Try\s+".*"\s*$/u,
 
-    // 7) Box-drawing borders of the input panel (U+2500–U+257F incl. ╭╮╰╯│ ─).
-    //    ASCII "---" markdown dividers are NOT matched (only box-drawing range).
+    // 7) Box-drawing borders (U+2500–U+257F incl. ╭╮╰╯│ ─) + the bare "❯" input
+    //    line (idle prompt, echoed input, or a queued suggestion). ASCII "---"
+    //    markdown dividers are NOT matched (only the box-drawing range).
     /^[─-╿\s]+$/u,
+    /^\s*❯/u,
   ],
 };
 ```
@@ -744,13 +784,22 @@ const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 
 // claude chrome strip (profile.chrome)
 const STATUS  = /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu;
+const STATUS_TRUNC = /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu;  // truncated bar (ctx: cut off)
+const STATUS_T= /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu;  // truncated status bar
 const SPINNER = /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u;
-const WORKED  = /^\s*[*✻✽✶✷●∗·]\s+Worked for\b.*$/u;
+const DONE    = /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu;  // "✻ Brewed for 4s"
 const AUTO    = /^\s*⏵⏵?\s.*$/u;
 const AGENTS  = /(?:^|·)\s*←\s+for agents\s*$/u;
 const GUTTER  = /^\s*⎿\s.*$/u;
 const RESUME  = /\bclaude\s+--(?:continue|resume)\b/u;
 const SHORTCUT= /^\s*\?\s+for shortcuts\s*$/u;
+const QUEUED  = /^\s*Press up to edit queued messages\s*$/iu;
 const TRY     = /^\s*Try\s+".*"\s*$/u;
 const BORDER  = /^[─-╿\s]+$/u;   // U+2500–U+257F box drawing (incl. ╭╮╰╯│); ASCII --- preserved
+const PROMPT  = /^\s*❯/u;        // bare "❯" input line (idle / echoed input / suggestion)
+
+// claude turn structure
+const READY   = /^\s*❯/u;                         // readyMarker — input prompt present
+const TURN    = /^\s*●\s/u;                        // responseMarker — assistant turn start
+const MARGIN  = /^(?:●\s|\s{2})/u;                 // responsePrefix — "● " bullet / 2-space margin
 ```

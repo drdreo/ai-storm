@@ -1,8 +1,10 @@
 import { Injectable, inject, signal, type WritableSignal, type Signal } from '@angular/core';
+import type { Idea } from '@ai-storm/shared';
 import { BackendService } from './backend.service';
 import { CanvasService } from './canvas.service';
+import { ideaToDescriptors } from './idea-descriptors';
 import { WorkspaceService } from './workspace.service';
-import { MarkdownBlockParser, type BlockDescriptor } from './markdown-block-parser';
+import type { BlockDescriptor } from './markdown-block-parser';
 import { RenderScheduler } from './render-scheduler';
 import type { TerminalConfig } from './models';
 
@@ -15,7 +17,6 @@ interface View {
 
 /** Live streaming machinery (exists only while a session is attached). */
 interface Pipeline {
-  parser: MarkdownBlockParser;
   scheduler: RenderScheduler<BlockDescriptor>;
   unsubscribe: () => void;
   /** The attach message, re-sent on socket reopen to resume the session (§3.5). */
@@ -29,18 +30,21 @@ const isBlankParagraph = (d: BlockDescriptor) =>
 /**
  * Stateful ingestion pipeline (PRD §3.3 + §5.1).
  *
- * The backend now extracts the agent's RESPONSE text server-side (tmux
- * capture-pane diffing — see docs/design/ai-session-layer.md) and ships clean
- * lines as `response` messages. The client therefore no longer cleans raw
- * bytes; it keeps only the *structural* half of the Output Layer:
+ * The backend now extracts the agent's output server-side and ships it
+ * **pre-split** as a `response` message — `chat` (conversational) and `ideas`
+ * (brainstorming notes) — see docs/design/ai-response-extraction-contract.md.
+ * The client therefore no longer guesses structure with a markdown parser; it
+ * renders each half verbatim:
  *
- *   response lines → MarkdownBlockParser → RenderScheduler →
- *   CanvasService.applyBlocks (one batched CRDT mutation per paint frame).
+ *   msg.chat  → the control hub's scrollback signal (no canvas)
+ *   msg.ideas → ideaToDescriptors → RenderScheduler → CanvasService.applyBlocks
+ *               (one batched CRDT mutation per paint frame)
  *
- * The `SlicingBuffer`/`ansi.ts` raw-cleaning stage moved backend-side with the
- * extractor. Pipelines are independent per workspace (PRD §3.4) and torn down
- * on detach (PRD §5.2); the lightweight view signal persists so the control hub
- * keeps the extracted-response scrollback after a stream ends.
+ * `MarkdownBlockParser` is no longer on the live stream path; it survives only
+ * as a body formatter inside `ideaToDescriptors` (§8.3). Pipelines are
+ * independent per workspace (PRD §3.4) and torn down on detach (PRD §5.2); the
+ * lightweight view signal persists so the control hub keeps the conversational
+ * scrollback after a stream ends.
  */
 @Injectable({ providedIn: 'root' })
 export class IngestionService {
@@ -65,12 +69,11 @@ export class IngestionService {
       sink: (batch) => this.#canvas.applyBlocks(workspaceId, batch),
       maxPerFrame: 80,
     });
-    const parser = new MarkdownBlockParser();
 
     const unsubscribe = this.#backend.subscribe(workspaceId, (msg) => {
       switch (msg.type) {
         case 'response':
-          this.#ingest(workspaceId, msg.lines, msg.complete);
+          this.#ingest(workspaceId, msg.chat, msg.ideas, msg.complete);
           break;
         case 'session-status':
           this.#applyStatus(workspaceId, msg.status);
@@ -105,34 +108,39 @@ export class IngestionService {
     // refresh resumes the durable session without losing the agent (§3.5).
     const unsubscribeOpen = this.#backend.onOpen(reattach);
 
-    this.#active.set(workspaceId, { parser, scheduler, unsubscribe, reattach, unsubscribeOpen });
+    this.#active.set(workspaceId, { scheduler, unsubscribe, reattach, unsubscribeOpen });
 
     this.#backend.connect();
     reattach();
   }
 
-  #ingest(workspaceId: string, lines: string[], complete: boolean): void {
+  #ingest(workspaceId: string, chat: string[], ideas: Idea[], complete: boolean): void {
     const p = this.#active.get(workspaceId);
     if (!p) return;
-    const view = this.#view(workspaceId);
 
-    if (lines.length > 0) {
-      // The control hub's panel shows extracted RESPONSE text only — no raw
-      // terminal mirror (design constraint: "no xterm.js mirror").
-      const next = view.lines().concat(lines);
-      view.lines.set(
-        next.length > MAX_TERMINAL_LINES ? next.slice(-MAX_TERMINAL_LINES) : next,
-      );
-      const descriptors = p.parser.translateAll(lines).filter((d) => !isBlankParagraph(d));
+    // (a) chat → the control hub's conversational scrollback signal only. No
+    // canvas: the backend already separated chat from ideas, so the hub never
+    // sees brainstorming cards and the canvas never sees chatter.
+    if (chat.length > 0) this.#appendChatLines(workspaceId, chat);
+
+    // (b) ideas → canvas cards, batched through the scheduler (one CRDT txn per
+    // paint frame). ideaToDescriptors dictates the block shape from the Idea —
+    // no structure inference (extraction-contract §8.1).
+    if (ideas.length > 0) {
+      const descriptors = ideas.flatMap(ideaToDescriptors).filter((d) => !isBlankParagraph(d));
       if (descriptors.length > 0) p.scheduler.enqueueAll(descriptors);
     }
 
-    // On completion, flush any dangling fenced block and paint immediately.
-    if (complete) {
-      const fenced = p.parser.flush();
-      if (fenced) p.scheduler.enqueue(fenced);
-      p.scheduler.flushNow();
-    }
+    // On completion, paint immediately so the final card lands without waiting
+    // for the next batching frame.
+    if (complete) p.scheduler.flushNow();
+  }
+
+  /** Append conversational lines to the hub scrollback signal (bounded). */
+  #appendChatLines(workspaceId: string, chat: string[]): void {
+    const view = this.#view(workspaceId);
+    const next = view.lines().concat(chat);
+    view.lines.set(next.length > MAX_TERMINAL_LINES ? next.slice(-MAX_TERMINAL_LINES) : next);
   }
 
   #applyStatus(workspaceId: string, status: string): void {

@@ -1,0 +1,20 @@
+❯ give me two ideas about ad serving
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+● Here are a few directions worth capturing.
+
+  «IDEA» Contextual Edge Ad Selection :: Pick ads at the CDN edge based on page content + request signals, cutting
+  round-trips and latency to sub-50ms.
+
+  «IDEA:risk» Token rotation :: may break long-lived sessions
+
+  «IDEA» Offline-first canvas
+
+  Happy to expand on any of these — which should we explore first?
+
+✻ Brewed for 4s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8 (1M context) |  feat/extraction-contract | ~/.agent-orchestrator/projects/ai-storm_7552b8552b/worktrees/a…
+  ⏵⏵ auto mode on (shift+tab to cycle) · PR #10 · ← for agents
