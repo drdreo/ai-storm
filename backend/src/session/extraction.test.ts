@@ -229,6 +229,26 @@ describe("claude profile — §9.1 chrome strip on the exact §1 samples", () =>
     expect(out.chat).toEqual(["A real reply."]);
     expect(out.ideas).toEqual([]);
   });
+
+  it("strips the status bar even when the pane TRUNCATES it (ctx: cut off)", () => {
+    const chrome = (line: string) => CLAUDE_PROFILE.chrome.some((re) => re.test(line));
+    // A narrow pane cuts the trailing "ctx:n/n (n%)" — the model header
+    // "(1M context) | <branch>" survives and must still be chrome.
+    const truncated =
+      "  Opus 4.8 (1M context) |  feat/extraction-contract | ~/very/long/path/to/worktrees/a…";
+    expect(chrome(truncated)).toBe(true);
+    expect(chrome("Sonnet 4.6 (200K context) | main | ~/p…")).toBe(true);
+    // Prose / an idea that merely MENTIONS a context window (no trailing pipe)
+    // must NOT be mistaken for the status bar.
+    expect(chrome("Caching keeps the working set small.")).toBe(false);
+    expect(chrome("We could exploit the (1M context) window for whole-repo recall.")).toBe(false);
+
+    const out = claudeRun(
+      cap("> go", truncated, "A real reply about the (1M context) window.", ">"),
+      "go",
+    );
+    expect(out.chat).toEqual(["A real reply about the (1M context) window."]);
+  });
 });
 
 describe("claude profile — §9.2 marked output", () => {

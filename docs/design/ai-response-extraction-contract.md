@@ -359,6 +359,14 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     //    Anchored on the highly-distinctive ctx:<n>/<n> (<n>%) signature.
     /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu,
 
+    // 1b) Same status bar, TRUNCATED. When the pane is narrower than the bar,
+    //    claude cuts the trailing "ctx:n/n (n%)" with an ellipsis, e.g.
+    //    "Opus 4.8 (1M context) | feat/x | ~/long/path/worktrees/a…", so the
+    //    ctx: anchor in (1) misses it. Anchor on the model header
+    //    "(<n> context) |" — the context token + the status bar's pipe
+    //    separator survive truncation and won't collide with ordinary prose.
+    /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu,
+
     // 2) Spinner verb frames: "* Catapulting…", "✽ Forging… (5s · ↓ 227 tokens)",
     //    "✶ Metamorphosing…". Leading claude spinner glyph + text ENDING in an
     //    ellipsis (the discriminator vs a markdown bullet), optional "(… tokens)".
@@ -744,6 +752,7 @@ const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 
 // claude chrome strip (profile.chrome)
 const STATUS  = /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu;
+const STATUS_TRUNC = /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu;  // truncated bar (ctx: cut off)
 const SPINNER = /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u;
 const WORKED  = /^\s*[*✻✽✶✷●∗·]\s+Worked for\b.*$/u;
 const AUTO    = /^\s*⏵⏵?\s.*$/u;

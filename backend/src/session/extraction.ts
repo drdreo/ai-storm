@@ -117,6 +117,15 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     //    Anchored on the highly-distinctive ctx:<n>/<n> (<n>%) signature.
     /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu,
 
+    // 1b) Same status bar, TRUNCATED: when the pane is narrower than the bar,
+    //    claude cuts the trailing "ctx:n/n (n%)" with an ellipsis (e.g.
+    //    "Opus 4.8 (1M context) | feat/x | ~/very/long/path/worktrees/a…"), so
+    //    the ctx: anchor above misses it. Anchor on the model header
+    //    "(<n> context) |" — the context token immediately followed by the
+    //    status bar's pipe separator survives truncation and is specific enough
+    //    that prose merely mentioning a context window won't collide.
+    /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu,
+
     // 2) Spinner verb frames: "* Catapulting…", "✽ Forging… (5s · ↓ 227 tokens)",
     //    "✶ Metamorphosing…". Leading claude spinner glyph + text ENDING in an
     //    ellipsis (the discriminator vs a markdown bullet), optional "(… tokens)".
