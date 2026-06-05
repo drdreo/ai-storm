@@ -3,6 +3,7 @@
 **Status:** Proposed (design only — no implementation in this PR)
 **Author:** ai-storm backend
 **Related:** PRD §3.2, §3.3, §3.5, §3.6, §4.2, §5.1, §5.2
+**Follow-up:** [`ai-response-extraction-contract.md`](./ai-response-extraction-contract.md) refines §4.3's chrome filter into a concrete claude harness profile + idea-marker contract, and evolves §6's `ResponseMessage` to split chat (hub) from extracted ideas (canvas).
 **Reference implementation:** [`agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator) (local checkout at `/home/drdreo/Work/projects/agent-orchestrator`)
 
 ---
