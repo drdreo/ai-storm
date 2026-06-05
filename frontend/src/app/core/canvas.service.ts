@@ -8,6 +8,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import type { Idea } from '@ai-storm/shared';
 import type { BlockDescriptor } from './markdown-block-parser';
 import { ideaToDescriptors } from './idea-descriptors';
+import { shouldSeedDoc } from './canvas-seed';
 import type { CanvasMode } from './models';
 
 export { ideaToDescriptors } from './idea-descriptors';
@@ -41,8 +42,12 @@ export class CanvasService {
   #schema = new Schema();
   #collection!: DocCollection;
   #persistence!: IndexeddbPersistence;
+  /** Per-workspace subdoc persistence — the layer that actually saves blocks. */
+  #subdocPersistence = new Map<string, IndexeddbPersistence>();
   #editor: AffineEditorContainer | null = null;
   #mountedHost: HTMLElement | null = null;
+  /** Id of the doc the editor should currently show — guards hot-switch races. */
+  #targetDocId: string | null = null;
   /** Cached note-block id per workspace doc, the append target for §3.3. */
   #noteIds = new Map<string, string>();
   /** Count of idea cards created per workspace, for non-overlapping tiling. */
@@ -72,37 +77,90 @@ export class CanvasService {
     return [...this.#collection.docs.keys()];
   }
 
+  /**
+   * Ensure a workspace's doc exists AND has finished rehydrating, awaiting its
+   * subdoc store sync and seeding it if (and only if) the store came back empty.
+   * Boot awaits this for the workspace it shows first, so the editor binds to an
+   * already-rooted doc — avoiding the connect-time race of appending the editor
+   * against a still-loading doc in a stray microtask.
+   */
+  async ensureReady(workspaceId: string): Promise<void> {
+    const doc = this.ensureDoc(workspaceId);
+    const persistence = this.#subdocPersistence.get(workspaceId);
+    if (persistence && !persistence.synced) await persistence.whenSynced;
+    this.#seedIfEmpty(workspaceId, doc, persistence);
+  }
+
   hasDoc(workspaceId: string): boolean {
     return this.#collection.getDoc(workspaceId) !== null;
   }
 
   /**
-   * Return the workspace's Doc, creating and seeding it (page/surface/note/
-   * paragraph) on first use. Idempotent and safe after a storage rehydrate.
+   * Return the workspace's Doc and bind its per-subdoc persistence. The doc is
+   * NEVER seeded synchronously: its block tree may be empty right now simply
+   * because its IndexedDB store has not applied its updates yet, and seeding
+   * then would clobber content about to rehydrate (the reload data-loss bug).
+   * Seeding is always deferred until the subdoc store has synced and is gated on
+   * the *actual* content at that point (see {@link shouldSeedDoc}) — so it is
+   * safe even if the doc was created fresh vs. restored.
    */
   ensureDoc(workspaceId: string): Doc {
-    const doc = this.#collection.getDoc(workspaceId) ??
-      this.#collection.createDoc({ id: workspaceId });
-
-    // load() runs the init callback exactly once (the first time the doc is
-    // loaded). We seed page/surface/note/paragraph only when the doc is empty —
-    // a doc rehydrated from IndexedDB already has its root, so we leave it be.
-    if (!doc.ready) {
-      doc.load(() => {
-        if (!doc.root) {
-          const pageId = doc.addBlock('affine:page', {});
-          doc.addBlock('affine:surface', {}, pageId);
-          const noteId = doc.addBlock('affine:note', {}, pageId);
-          doc.addBlock('affine:paragraph', {}, noteId);
-          this.#noteIds.set(workspaceId, noteId);
-        }
-      });
+    let doc = this.#collection.getDoc(workspaceId);
+    if (!doc) {
+      try {
+        doc = this.#collection.createDoc({ id: workspaceId });
+      } catch {
+        // Rare rehydrate race: the docMeta loaded but its BlockCollection was
+        // not instantiated when we first looked. createDoc rejects the
+        // duplicate; re-fetch the now-resolvable doc instead of seeding anew.
+        doc = this.#collection.getDoc(workspaceId);
+        if (!doc) throw new Error(`canvas: unable to resolve doc ${workspaceId}`);
+      }
     }
-    if (!this.#noteIds.has(workspaceId)) {
-      const note = doc.getBlocksByFlavour('affine:note')[0];
-      if (note) this.#noteIds.set(workspaceId, note.id);
-    }
+    if (!doc.ready) doc.load();
+    this.#ensureSubdocPersisted(workspaceId, doc);
+    this.#cacheNoteId(workspaceId, doc);
     return doc;
+  }
+
+  /**
+   * Bind a dedicated IndexedDB store to this workspace's Yjs subdoc — the only
+   * layer that actually persists block content (the root provider does not save
+   * subdocs). Once the store has fully synced we seed the doc only if it came
+   * back genuinely empty; a doc that rehydrated with content is left untouched.
+   */
+  #ensureSubdocPersisted(workspaceId: string, doc: Doc): void {
+    if (this.#subdocPersistence.has(workspaceId)) return;
+    const subdoc = doc.spaceDoc;
+    const persistence = new IndexeddbPersistence(subdoc.guid, subdoc);
+    this.#subdocPersistence.set(workspaceId, persistence);
+    void persistence.whenSynced.then(() => this.#seedIfEmpty(workspaceId, doc, persistence));
+  }
+
+  /** Seed page/surface/note/paragraph iff the subdoc synced empty (§3.5). */
+  #seedIfEmpty(workspaceId: string, doc: Doc, persistence: IndexeddbPersistence | undefined): void {
+    if (shouldSeedDoc({ hasRoot: !!doc.root, synced: persistence?.synced ?? false })) {
+      this.#seedBlocks(workspaceId, doc);
+    } else {
+      this.#cacheNoteId(workspaceId, doc);
+    }
+  }
+
+  /** Seed a fresh page/surface/note/paragraph into a verified-empty doc. */
+  #seedBlocks(workspaceId: string, doc: Doc): void {
+    if (doc.root) return; // already has content — never double-seed
+    const pageId = doc.addBlock('affine:page', {});
+    doc.addBlock('affine:surface', {}, pageId);
+    const noteId = doc.addBlock('affine:note', {}, pageId);
+    doc.addBlock('affine:paragraph', {}, noteId);
+    this.#noteIds.set(workspaceId, noteId);
+  }
+
+  /** Cache the append-target note id (§3.3) once the doc has one. */
+  #cacheNoteId(workspaceId: string, doc: Doc): void {
+    if (this.#noteIds.has(workspaceId)) return;
+    const note = doc.getBlocksByFlavour('affine:note')[0];
+    if (note) this.#noteIds.set(workspaceId, note.id);
   }
 
   /** Mount the shared editor into a host element and bind it to a workspace. */
@@ -111,13 +169,7 @@ export class CanvasService {
     if (!this.#editor) {
       this.#editor = new AffineEditorContainer();
     }
-    this.#editor.doc = doc;
-    this.#editor.mode = mode;
-    if (this.#mountedHost !== host) {
-      this.#detachEditorDom();
-      host.appendChild(this.#editor);
-      this.#mountedHost = host;
-    }
+    this.#bindWhenRooted(doc, mode, host);
   }
 
   /**
@@ -128,8 +180,37 @@ export class CanvasService {
   switchTo(workspaceId: string, mode: CanvasMode): void {
     if (!this.#editor) return;
     const doc = this.ensureDoc(workspaceId);
-    this.#editor.doc = doc;
-    this.#editor.mode = mode;
+    this.#bindWhenRooted(doc, mode, this.#mountedHost ?? undefined);
+  }
+
+  /**
+   * Bind the editor to a doc and attach it to its host, but never while the doc
+   * is still root-less: the BlockSuite editor reads `doc.root`/`doc.slots` on
+   * render and throws on a doc without a root. A brand-new doc is seeded
+   * synchronously (root already present → binds immediately); a rehydrating doc
+   * gains its root only once its subdoc store has synced, so we defer the bind
+   * (and the DOM attach) until then. `#targetDocId` guards against a rapid
+   * hot-switch: only the latest requested doc is ever bound.
+   */
+  #bindWhenRooted(doc: Doc, mode: CanvasMode, host: HTMLElement | undefined): void {
+    this.#targetDocId = doc.id;
+    const apply = () => {
+      if (!this.#editor || this.#targetDocId !== doc.id || !doc.root) return;
+      this.#editor.doc = doc;
+      this.#editor.mode = mode;
+      if (host && this.#mountedHost !== host) {
+        this.#detachEditorDom();
+        host.appendChild(this.#editor);
+        this.#mountedHost = host;
+      }
+    };
+    if (doc.root) {
+      apply();
+      return;
+    }
+    const persistence = this.#subdocPersistence.get(doc.id);
+    if (persistence) void persistence.whenSynced.then(apply);
+    else queueMicrotask(apply);
   }
 
   setMode(mode: CanvasMode): void {
@@ -292,9 +373,22 @@ export class CanvasService {
   removeWorkspace(workspaceId: string): void {
     this.#noteIds.delete(workspaceId);
     this.#noteCounts.delete(workspaceId);
-    if (this.#collection.getDoc(workspaceId)) {
-      this.#collection.removeDoc(workspaceId);
-    }
+    const persistence = this.#subdocPersistence.get(workspaceId);
+    this.#subdocPersistence.delete(workspaceId);
+
+    // Dispose the doc (and clear its IndexedDB store, so no orphaned blocks
+    // linger) only AFTER the editor's pending render settles. Callers switch
+    // the editor onto another doc before deleting the active one; that re-render
+    // is async (Lit), and the outgoing view reads its doc's meta as it tears
+    // down — so the doc must survive until the switch completes, or BlockSuite
+    // throws reading a removed doc's title.
+    const dispose = () => {
+      void persistence?.clearData();
+      if (this.#collection.getDoc(workspaceId)) this.#collection.removeDoc(workspaceId);
+    };
+    const settled = this.#editor?.updateComplete;
+    if (settled) void settled.then(dispose);
+    else dispose();
   }
 
   #detachEditorDom(): void {
@@ -308,6 +402,8 @@ export class CanvasService {
   dispose(): void {
     this.#detachEditorDom();
     this.#editor = null;
+    for (const persistence of this.#subdocPersistence.values()) persistence.destroy();
+    this.#subdocPersistence.clear();
     this.#persistence?.destroy();
     this.#collection?.forceStop();
   }

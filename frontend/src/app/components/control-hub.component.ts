@@ -421,6 +421,22 @@ export class ControlHubComponent {
       const el = this.stream()?.nativeElement;
       if (el) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
     });
+
+    // Resume a durable session after a reload / hot-switch (PRD §3.5). A page
+    // reload loses the client-side pipeline but the named backend session
+    // survives, so on (re)activation we re-attach to it. We gate on the
+    // *persisted* live status ('active' / 'streaming') as the proxy for "this
+    // workspace had a session", so merely visiting a never-started workspace
+    // does not spawn a harness. `attach` is idempotent: it reconnects to the
+    // surviving session rather than respawning it.
+    effect(() => {
+      const ws = this.workspaces.active();
+      if (!ws) return;
+      const wasLive = ws.status === 'active' || ws.status === 'streaming';
+      if (wasLive && !this.ingestion.isAttached(ws.id)) {
+        this.ingestion.attach(ws.id, ws.terminal);
+      }
+    });
   }
 
   setHarness(id: string, event: Event): void {
