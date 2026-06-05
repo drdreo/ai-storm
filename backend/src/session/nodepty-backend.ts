@@ -144,7 +144,6 @@ export class NodePtySessionBackend implements SessionBackend {
           const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
           log[level](event, { workspace: workspaceId, ...data });
         },
-        paneWidth: cols,
       }),
       profile,
       transcript: [],

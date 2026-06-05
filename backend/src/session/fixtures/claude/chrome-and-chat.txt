@@ -1,10 +1,11 @@
-> Brainstorm ideas for the canvas
-Opus 4.8 (1M context) |  main | ~/Work/projects/ai-storm/backend | ctx:29.0k/1000k (3%) | 5h:33%
-* Catapulting…
-✽ Forging… (5s · ↓ 227 tokens)
-✶ Metamorphosing…
+❯ what should we do next?
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+● Let me know which, or just tell me the task.
+
 ✻ Worked for 3s
-⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
-⎿  Tip: Run claude --continue or claude --resume to resume a conversation
-Let me know which, or just tell me the task.
->
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8 (1M context) |  main | ~/Work/projects/ai-storm/backend | ctx:29.0k/1000k (3%) | 5h:33%
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

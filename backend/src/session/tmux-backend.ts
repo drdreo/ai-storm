@@ -51,7 +51,7 @@ const PRIMED_OPTION = "@ai_storm_primed";
 /** Poll interval while waiting for harness readiness / the priming ack (§4.3). */
 const PRIME_POLL_MS = 150;
 /** Bounded wait for the harness input box to appear before priming (§4.3). */
-const PRIME_READY_TIMEOUT_MS = 5_000;
+const PRIME_READY_TIMEOUT_MS = 10_000;
 /** Bounded wait for the priming `READY` ack before giving up (§4.5). */
 const PRIME_ACK_TIMEOUT_MS = 8_000;
 
@@ -342,10 +342,12 @@ export class TmuxSessionBackend implements SessionBackend {
    */
   async #awaitPrimeAck(workspaceId: string): Promise<boolean> {
     const deadline = Date.now() + PRIME_ACK_TIMEOUT_MS;
+    // claude prefixes its reply with a "● " bullet, so accept "● READY" too.
+    const ack = /^\s*●?\s*READY\s*$/u;
     for (;;) {
       try {
         const capture = await this.#capture(workspaceId);
-        if (capture.split("\n").some((line) => line.trim() === "READY")) return true;
+        if (capture.split("\n").some((line) => ack.test(line))) return true;
       } catch {
         // ignore transient capture failures
       }
@@ -377,7 +379,6 @@ export class TmuxSessionBackend implements SessionBackend {
         const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
         log[level](event, { workspace: workspaceId, ...data });
       },
-      paneWidth: config?.cols ?? 0,
     });
     const poller: Poller = {
       extractor,
@@ -542,11 +543,8 @@ export class TmuxSessionBackend implements SessionBackend {
     } catch {
       // Resize is best-effort; a transient failure is non-fatal.
     }
-    // A width change reflows wrapped lines — re-anchor extraction (design §4)
-    // and update the pane width used for the reflow rejoin (§3.3).
-    const poller = this.#pollers.get(workspaceId);
-    poller?.extractor.reanchor();
-    poller?.extractor.setPaneWidth(cols);
+    // A width change reflows wrapped lines — re-anchor extraction (design §4).
+    this.#pollers.get(workspaceId)?.extractor.reanchor();
     const config = this.#configs.get(workspaceId);
     if (config) config.cols = cols;
   }

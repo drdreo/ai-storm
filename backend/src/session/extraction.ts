@@ -64,6 +64,29 @@ export interface HarnessProfile {
    * (§5.3). Conservative default: only claude opts in.
    */
   ideaFallback: boolean;
+  /**
+   * Optional anchor for the START of an assistant turn (e.g. claude prefixes its
+   * reply with a "● " bullet). When set, the response region is anchored on the
+   * most recent such line instead of byte-matching the echoed input — claude
+   * re-wraps and re-indents the echo, which defeats echo matching. Harnesses
+   * that plainly echo input (python/bash) leave this unset.
+   */
+  responseMarker?: RegExp;
+  /**
+   * Optional leading decoration stripped from each surviving response line — the
+   * assistant's left margin (claude's "● " first-line bullet or its 2-space
+   * continuation indent). Presentation chrome, removed so it never reaches chat
+   * and the contract parser sees flush-left text.
+   */
+  responsePrefix?: RegExp;
+  /**
+   * Optional explicit "response finished" signal in the pane (claude prints a
+   * "✻ <Verb> for <n>s" done-line when a turn completes). When present in the
+   * response region this completes the response immediately — more precise than
+   * the poller's idle-timeout, which can fire during a mid-stream pause and drop
+   * the lines that follow (e.g. the ideas after an intro sentence).
+   */
+  completionMarker?: RegExp;
 }
 
 /**
@@ -102,15 +125,28 @@ export const DEFAULT_PROFILE: HarnessProfile = {
  * Stage-1 chrome regexes are Appendix B verbatim (the single source of truth);
  * `supportsIdeaContract`/`ideaFallback` enable priming + the prose fallback.
  */
+// Regexes verified against a live claude 2.1.165 capture-pane (see §5.2). The
+// real TUI differs from the design's idealized §1 sample: the prompt is a bare
+// "❯" between horizontal rules, replies are "● "-bulleted, and the spinner
+// done-line uses a randomised verb ("Brewed for 4s", "Baked for 3s").
 export const CLAUDE_PROFILE: HarnessProfile = {
   name: "claude",
   supportsIdeaContract: true,
   ideaFallback: true,
-  // claude's idle input is a bordered box; a bare ">"/"❯" is the best anchor,
-  // but completion mostly relies on the poller's idle-timeout (design §4.3.2).
+  // claude 2.1.x renders a bare "❯" input prompt (between two horizontal rules),
+  // NOT a "> "; completion otherwise relies on the poller's idle-timeout (§4.3.2).
   promptMarkers: [/^[>❯]$/u],
   promptPrefix: /^\s*[>❯]\s?/u,
-  readyMarker: /^\s*[╭│]\s*[>❯]/u, // the bordered input box appeared
+  readyMarker: /^\s*❯/u, // the "❯" input prompt has appeared (ready for input)
+  // Assistant turns start with a "● " bullet; anchor on it (§4.3). claude
+  // indents the whole message body by a 2-space left margin, with "● " on the
+  // first line — strip either so the margin/bullet never reaches chat and the
+  // contract parser sees flush-left text.
+  responseMarker: /^\s*●\s/u,
+  responsePrefix: /^(?:●\s|\s{2})/u,
+  // claude prints "✻ <Verb> for <n>s" when a turn is fully done — a precise
+  // completion signal (vs the idle-timeout, which can fire mid-stream).
+  completionMarker: /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu,
   chrome: [
     // 1) Status bar:
     //    "Opus 4.8 (1M context) | main | ~/path | ctx:29.0k/1000k (3%) | 5h:33%"
@@ -131,11 +167,12 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     //    ellipsis (the discriminator vs a markdown bullet), optional "(… tokens)".
     /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u,
 
-    // 3) "Worked for 3s" status (same glyph family, no ellipsis).
-    /^\s*[*✻✽✶✷●∗·]\s+Worked for\b.*$/u,
+    // 3) Spinner DONE line: "✻ Worked for 3s", "✻ Brewed for 4s", "✻ Baked for
+    //    3s" — claude randomises the verb, so match "<glyph> <Verb> for <n><unit>".
+    /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu,
 
     // 4) Auto-mode / agents affordance:
-    //    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
+    //    "⏵⏵ auto mode on (shift+tab to cycle) · PR #10 · ← for agents"
     /^\s*⏵⏵?\s.*$/u,
     /(?:^|·)\s*←\s+for agents\s*$/u,
 
@@ -144,13 +181,16 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     /^\s*⎿\s.*$/u, // claude's tool-result/gutter glyph
     /\bclaude\s+--(?:continue|resume)\b/u, // resume hint anywhere
 
-    // 6) Shortcuts hint / placeholder.
+    // 6) Shortcuts / queued-message hints and placeholders.
     /^\s*\?\s+for shortcuts\s*$/u,
+    /^\s*Press up to edit queued messages\s*$/iu,
     /^\s*Try\s+".*"\s*$/u,
 
-    // 7) Box-drawing borders of the input panel (U+2500–U+257F incl. ╭╮╰╯│ ─).
-    //    ASCII "---" markdown dividers are NOT matched (only box-drawing range).
+    // 7) Box-drawing borders + the bare "❯" input prompt line (U+2500–U+257F incl.
+    //    ╭╮╰╯│ ─). The "❯ …" input line (idle prompt, echoed input, or a queued
+    //    suggestion) is chrome; "❯" doesn't collide with markdown so this is safe.
     /^[─-╿\s]+$/u,
+    /^\s*❯/u,
   ],
 };
 
@@ -214,10 +254,11 @@ const FENCE_KEY = /^(title|body|kind)\s*:\s*(.*)$/i;
  */
 const MARKER_NEAR_MISS = /^\s*[^\w\s]{0,4}\s*idea\b/iu;
 
-// Heuristic-floor structural patterns (mirror markdown-block-parser.ts).
-const HEU_HEADING = /^(#{1,6})\s+(.*)$/;
-const HEU_BULLET = /^[-*+]\s+(.*)$/;
-const HEU_NUMBERED = /^(\d{1,9})[.)]\s+(.*)$/;
+// Heuristic-floor structural patterns (mirror markdown-block-parser.ts, but
+// tolerate a leading indent — claude word-wraps/indents its message body).
+const HEU_HEADING = /^\s*(#{1,6})\s+(.*)$/;
+const HEU_BULLET = /^\s*[-*+]\s+(.*)$/;
+const HEU_NUMBERED = /^\s*(\d{1,9})[.)]\s+(.*)$/;
 
 /** Parse a single-line idea: `title :: body`, split on the FIRST `::`. */
 function ideaFromLine(kind: string | undefined, logical: string): Idea {
@@ -234,12 +275,15 @@ function ideaFromLine(kind: string | undefined, logical: string): Idea {
  * line after `body:` (or every non-key line once a title exists) accumulates
  * verbatim into the body (extraction-contract §3.2 Form 2).
  */
-function ideaFromFence(kind: string | undefined, bodyLines: string[]): Idea {
+function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
   let title: string | undefined;
   let kindV = kind;
   const bodyParts: string[] = [];
   let inBody = false;
 
+  // claude indents the whole assistant message (and thus the fenced block) by a
+  // left margin, so trim each line before recognising `title:`/`body:`/`kind:`.
+  const bodyLines = rawBodyLines.map((l) => l.trim());
   for (const line of bodyLines) {
     if (inBody) {
       bodyParts.push(line);
@@ -271,23 +315,20 @@ function ideaFromFence(kind: string | undefined, bodyLines: string[]): Idea {
   return kindV ? { title: finalTitle, body, kind: kindV } : { title: finalTitle, body };
 }
 
-/** tmux only wraps a row that has filled the full column width (§3.3, no-`-J`). */
-function rowWasWrapped(row: string, paneWidth: number): boolean {
-  return paneWidth > 0 && row.length >= paneWidth;
-}
-
 /**
  * Contract parse (extraction-contract §3.3). Splits a chrome-stripped region
  * into `chat` and `ideas`. When `final` is false, a still-growing tail (the
  * last idea/chat line, or an unterminated fence) is held back so a half-typed
  * idea is never emitted as a finished card (§9 risk 3); on `finalize` we re-run
  * with `final: true` to flush whatever remains.
+ *
+ * A single-line idea whose body word-wraps across several rows is rejoined: the
+ * agent (and `capture-pane -J`) wrap at word boundaries and separate logical
+ * units with a BLANK line, so the body continues on the following non-blank,
+ * non-marker rows until a blank line / the next marker — independent of pane
+ * width.
  */
-export function parseContract(
-  region: string[],
-  paneWidth: number,
-  final: boolean,
-): { chat: string[]; ideas: Idea[] } {
+export function parseContract(region: string[], final: boolean): { chat: string[]; ideas: Idea[] } {
   const chat: string[] = [];
   const ideas: Idea[] = [];
   const n = region.length;
@@ -314,22 +355,21 @@ export function parseContract(
       continue;
     }
 
-    // Form 1 — single-line marker (with optional reflow-wrapped continuation).
+    // Form 1 — single-line marker, rejoining word-wrapped continuation rows.
     const m = IDEA_MARKER.exec(line);
     if (m) {
       const kind = m[1] ?? m[2];
       let logical = line;
       let k = i;
-      // Rejoin reflow-wrapped continuation rows (only relevant without `-J`).
+      // Absorb continuation rows until a blank line / next marker / fence.
       while (
         k + 1 < n &&
-        rowWasWrapped(region[k], paneWidth) &&
+        region[k + 1].trim() !== "" &&
         !IDEA_MARKER.test(region[k + 1]) &&
-        !IDEA_FENCE_OPEN.test(region[k + 1]) &&
-        region[k + 1].trim() !== ""
+        !IDEA_FENCE_OPEN.test(region[k + 1])
       ) {
         k++;
-        logical += region[k];
+        logical += " " + region[k].trim(); // re-insert the space consumed at the wrap
       }
       if (!final && k >= lastNonBlank) break; // growing idea at the tail → hold back
       ideas.push(ideaFromLine(kind, logical));
@@ -373,7 +413,6 @@ export class ResponseExtractor {
   readonly #onWarn?: (msg: string) => void;
   readonly #onHeuristic?: (count: number) => void;
   readonly #onDebug?: (event: string, data: Record<string, string | number>) => void;
-  #paneWidth: number;
 
   /** Most recent capture's trimmed lines — kept so a send can baseline off it. */
   #lastLines: string[] = [];
@@ -409,15 +448,12 @@ export class ResponseExtractor {
        * warning, an ordinary chat-only reply is debug).
        */
       onDebug?: (event: string, data: Record<string, string | number>) => void;
-      /** Pane width in columns, for the no-`-J` reflow rejoin (§3.3). */
-      paneWidth?: number;
     } = {},
   ) {
     this.#profile = profile;
     this.#onWarn = opts.onWarn;
     this.#onHeuristic = opts.onHeuristic;
     this.#onDebug = opts.onDebug;
-    this.#paneWidth = opts.paneWidth ?? 0;
   }
 
   get responding(): boolean {
@@ -426,11 +462,6 @@ export class ResponseExtractor {
 
   get profile(): HarnessProfile {
     return this.#profile;
-  }
-
-  /** Update the pane width used for the reflow rejoin (on resize). */
-  setPaneWidth(cols: number): void {
-    this.#paneWidth = cols > 0 ? cols : 0;
   }
 
   /** Record the input we just submitted so its echo is skipped (design §4.3.1). */
@@ -457,15 +488,20 @@ export class ResponseExtractor {
     if (!this.#responding) return { chat: [], ideas: [], complete: false };
 
     const start = this.#responseStart(lines);
-    const region = lines.slice(start);
+    // Strip the assistant-turn bullet ("● ") from each row so it never reaches
+    // chat and the contract parser sees clean text (extraction-contract §5.2).
+    const prefix = this.#profile.responsePrefix;
+    const region = prefix ? lines.slice(start).map((l) => l.replace(prefix, "")) : lines.slice(start);
 
-    // Completion: the trailing non-empty line is an idle prompt marker — but
-    // ONLY trust this once we have anchored on the echo of our own input.
-    // Otherwise the idle prompt already on screen before we sent anything looks
-    // like an instant (empty) "completion". When we cannot anchor (e.g. a shell
-    // whose PS1 prompt we don't recognise), completion is left to the poller's
-    // idle-timeout `finalize()` instead (design §4.3.2).
-    const complete = this.#anchored && this.#trailingPrompt(region);
+    // Completion: either the profile's explicit done-line appears (claude's
+    // "✻ <Verb> for <n>s" — precise, avoids completing during a mid-stream
+    // pause) OR the trailing non-empty line is an idle prompt marker. Trusted
+    // ONLY once we have anchored, so the idle prompt already on screen before we
+    // sent anything doesn't look like an instant (empty) "completion". Otherwise
+    // completion is left to the poller's idle-timeout `finalize()` (design §4.3.2).
+    const cm = this.#profile.completionMarker;
+    const complete =
+      this.#anchored && (this.#trailingPrompt(region) || (!!cm && region.some((l) => cm.test(l))));
 
     // STAGE 1 — chrome strip (now per-profile; claude strips the TUI status
     // bar, spinners, auto-mode, tips — extraction-contract §5.2).
@@ -542,7 +578,7 @@ export class ResponseExtractor {
 
   /** Contract parse + heuristic floor over a chrome-stripped region. */
   #extract(region: string[], final: boolean): { chat: string[]; ideas: Idea[] } {
-    const parsed = parseContract(region, this.#paneWidth, final);
+    const parsed = parseContract(region, final);
     if (parsed.ideas.length > 0 || !this.#profile.ideaFallback) return parsed;
     // Heuristic floor (§5.3): the agent emitted NO markers and the profile opts
     // in — promote a bullet/heading list to ideas, logging that we fell back.
@@ -572,6 +608,7 @@ export class ResponseExtractor {
       const bullet = HEU_BULLET.exec(line);
       const numbered = HEU_NUMBERED.exec(line);
       const text = heading?.[2] ?? bullet?.[1] ?? numbered?.[2];
+      // (heading group 1 is the # run; bullet/numbered group 1/2 is the text.)
       if (text !== undefined) ideas.push({ title: text.trim(), body: "", kind: "heuristic" });
       else remaining.push(line);
     }
@@ -592,6 +629,27 @@ export class ResponseExtractor {
 
   /** Index of the first response line: just after the echoed input. */
   #responseStart(lines: string[]): number {
+    // Marker-anchored harnesses (claude): the assistant turn starts with a "● "
+    // bullet. We must anchor on the turn that answers THIS prompt, not a marker
+    // from a previous turn still on screen (e.g. the priming "● READY", whose
+    // own done-line would otherwise complete us instantly and drop the real
+    // reply). So we first locate the echo of the input we just sent — claude
+    // renders it on a prompt line ("❯ <prompt>") — and anchor on the first "● "
+    // BELOW it. Until that echo appears we anchor on NOTHING (return an empty
+    // region), so a stale previous turn is never mistaken for this one.
+    const rm = this.#profile.responseMarker;
+    if (rm) {
+      const from = this.#echoEnd(lines);
+      if (from < 0) return lines.length; // our prompt's echo isn't on screen yet
+      for (let i = lines.length - 1; i >= from; i--) {
+        if (rm.test(lines[i])) {
+          this.#anchored = true;
+          return i;
+        }
+      }
+      return lines.length; // assistant turn for this prompt hasn't rendered yet
+    }
+
     if (this.#sentLines.length === 0) {
       // No input text to anchor on (e.g. a bare Enter); use the baseline.
       return Math.min(this.#baseline, lines.length);
@@ -614,6 +672,28 @@ export class ResponseExtractor {
       );
     }
     return Math.min(this.#baseline, lines.length);
+  }
+
+  /**
+   * Index just after the echoed input on a marker-anchored harness (claude).
+   * Finds the most recent prompt line ("❯ …") whose text is the start of what we
+   * just sent (claude word-wraps the echo, so the first row is a prefix) and
+   * returns the line after it. Returns:
+   *  - `0` when there is nothing to match on (a bare Enter, or the unit-test
+   *    harness that calls `beginResponse("")`) → anchor on any assistant marker;
+   *  - `-1` when we DO have sent text but its echo isn't on screen yet → the
+   *    caller must not anchor, so a stale previous turn isn't picked up.
+   */
+  #echoEnd(lines: string[]): number {
+    const firstSent = this.#sentLines[0]?.trim();
+    const ready = this.#profile.readyMarker;
+    if (!firstSent || firstSent.length < 3 || !ready) return 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!ready.test(lines[i])) continue;
+      const content = lines[i].replace(this.#profile.promptPrefix, "").trim();
+      if (content.length >= 3 && firstSent.startsWith(content)) return i + 1;
+    }
+    return -1; // echo of our prompt not visible yet
   }
 
   /** Does `line` echo the line of input we sent (with or without a prompt glyph)? */

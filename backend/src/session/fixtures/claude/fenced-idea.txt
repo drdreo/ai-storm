@@ -1,10 +1,19 @@
-> Give me one well-developed idea.
-Sure — here is a richer one that needs a few lines.
-```idea kind=decision
-title: Adopt event-sourced canvas history
-body: Persist every CRDT op as an append-only log.
-Enables time-travel scrub and per-idea provenance.
-Cost: storage growth; mitigate with periodic snapshots.
-```
-That one has real trade-offs worth discussing.
->
+❯ give me one well-developed idea
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+● Sure — here is a richer one that needs a few lines.
+
+  ```idea kind=decision
+  title: Adopt event-sourced canvas history
+  body: Persist every CRDT op as an append-only log.
+  Enables time-travel scrub and per-idea provenance.
+  Cost: storage growth; mitigate with periodic snapshots.
+  ```
+
+  That one has real trade-offs worth discussing.
+
+✻ Forged for 6s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8 (1M context) |  main | ~/p | ctx:31.0k/1000k (3%) | 5h:33%
