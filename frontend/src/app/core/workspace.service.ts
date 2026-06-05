@@ -66,6 +66,12 @@ export class WorkspaceService {
       this.setActive(exists ? stored! : fallback.id);
     }
 
+    // Wait for the workspace we're about to show to finish rehydrating its
+    // canvas before rendering the panes, so the editor binds to a ready doc
+    // (PRD §3.5 boot) instead of racing its async restore.
+    const active = this.activeId();
+    if (active) await this.canvas.ensureReady(active);
+
     this.booted.set(true);
   }
 
@@ -127,16 +133,28 @@ export class WorkspaceService {
     if (meta) this.#write({ ...meta, lastActiveAt: Date.now() });
   }
 
-  remove(id: string): void {
+  async remove(id: string): Promise<void> {
+    const wasActive = this.activeId() === id;
+    let target = this.workspaces().find((w) => w.id !== id) ?? null;
+    if (wasActive && !target) {
+      // Deleting the last workspace — stand up a replacement to switch onto.
+      const fresh = this.create('Untitled Project');
+      target = this.#map.get(fresh) ?? null;
+    }
+
+    // When deleting the ACTIVE workspace, move the shared editor onto the
+    // target doc BEFORE the deleted doc is disposed: BlockSuite reads the doc's
+    // meta (title) while tearing down the old view, so the bound editor must
+    // already point elsewhere or it throws on a now-removed doc. We await the
+    // target's rehydration so the switch binds synchronously (an unvisited doc
+    // would otherwise defer its bind and leave the editor on the doomed doc).
+    if (wasActive && target) {
+      await this.canvas.ensureReady(target.id);
+      this.setActive(target.id);
+      this.canvas.switchTo(target.id, target.mode);
+    }
+
     this.#map.delete(id);
     this.canvas.removeWorkspace(id);
-    if (this.activeId() === id) {
-      const next = this.workspaces()[0];
-      if (next) this.setActive(next.id);
-      else {
-        const fresh = this.create('Untitled Project');
-        this.setActive(fresh);
-      }
-    }
   }
 }
