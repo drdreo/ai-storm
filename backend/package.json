@@ -10,6 +10,7 @@
     "smoke": "node smoke_test.ts"
   },
   "dependencies": {
+    "@ai-storm/shared": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "@hono/node-ws": "^1.0.4",
     "@lydell/node-pty": "^1.1.0",

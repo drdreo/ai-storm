@@ -1,6 +1,10 @@
 /**
  * Wire protocol shared between the Node backend and the web client.
  *
+ * Canonical single source of truth: both `ai-storm-backend` and
+ * `ai-storm-frontend` import this module via the `@ai-storm/shared` workspace
+ * dependency. There is no longer a hand-maintained frontend mirror.
+ *
  * All messages are JSON encoded and exchanged over the local-only WebSocket
  * loop described in PRD §4.2. Every message is keyed by `workspaceId` so a
  * single socket can multiplex the strictly-isolated workspaces from PRD §3.4.

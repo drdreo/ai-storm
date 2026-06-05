@@ -14,7 +14,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { PtyManager } from "./pty/manager.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import { parseClientMessage, type ServerMessage } from "./protocol.ts";
+import { parseClientMessage, type ServerMessage } from "@ai-storm/shared";
 
 let connectionSeq = 0;
 

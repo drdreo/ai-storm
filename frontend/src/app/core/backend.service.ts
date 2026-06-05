@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import type { ClientMessage, ServerMessage } from './protocol';
+import type { ClientMessage, ServerMessage } from '@ai-storm/shared';
 
 export type ServerMessageHandler = (msg: ServerMessage) => void;
 export type ConnectionState = 'connecting' | 'open' | 'closed';

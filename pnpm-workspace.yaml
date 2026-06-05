@@ -1,11 +1,17 @@
+packages:
+  - frontend
+  - backend
+  - packages/*
+
 # data-view@0.19.5 imports a since-renamed misspelled icon that only exists in
 # @blocksuite/icons 2.1.75; pin it so installs don't re-resolve to 2.2.x and
-# break the build (see commit d9fa7de). pnpm 11 reads overrides from here, not
-# from package.json's `pnpm.overrides`.
+# break the build (see commit d9fa7de). pnpm 11 reads overrides from the
+# workspace root file, not from package.json's `pnpm.overrides`.
 overrides:
   '@blocksuite/icons': 2.1.75
 
 allowBuilds:
+  protobufjs: false
   '@parcel/watcher': true
   esbuild: true
   lmdb: true
