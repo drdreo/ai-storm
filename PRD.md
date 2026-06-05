@@ -1,9 +1,9 @@
-Summary: This Product Requirement Document outlines the architecture for ai-storm, a local-first collaborative canvas powered by a Deno backend that streams local tmux terminal data into a multi-workspace BlockSuite environment using a stateful parsing buffer.
+Summary: This Product Requirement Document outlines the architecture for ai-storm, a local-first collaborative canvas powered by a Node backend that streams local tmux terminal data into a multi-workspace BlockSuite environment using a stateful parsing buffer.
 Product Requirement Document (PRD)
 Project Name: ai-storm (v3.0)
 1. Executive Summary & Core Objectives
 ai-storm is a localized, framework-agnostic collaborative product brainstorming workspace designed to translate creative, conversational ideation into structural, executable developer workflows. The application completely avoids external AI API connections, subscription models, or cloud-hosted keys. Instead, it reuses existing local command-line interface subscriptions by tapping directly into active pseudo-terminals and headless terminal sessions running on the developer's machine.
-By integrating BlockSuite into a highly responsive user interface, the system gives the user an infinite visual layout to organize notes while concurrently streaming real-time local text generation directly into structured document blocks. The backend layer is powered entirely by a secure, lightweight local execution environment utilizing the Deno runtime ecosystem.
+By integrating BlockSuite into a highly responsive user interface, the system gives the user an infinite visual layout to organize notes while concurrently streaming real-time local text generation directly into structured document blocks. The backend layer is powered entirely by a lightweight, local-only execution environment built on the Node runtime, using a Hono HTTP/WebSocket server and @lydell/node-pty for real pseudo-terminals (ConPTY on Windows, forkpty on POSIX).
 2. High-Level Workflows & User Persona
 The target user is an independent software engineer or product builder who values speed, local data privacy, and minimal tooling friction. The system facilitates a seamless three-stage workflow:
 Multi-Project Brainstorming: The developer stands up isolated workspaces to explore multiple disparate product ideas concurrently, using a sidebar to snap between project canvases instantly.
@@ -30,14 +30,14 @@ CRDT Binary Serialization: The data layer must rely entirely on Conflict-free Re
 Crash Recovery Boot Sequence: Upon application boot, an initialization service must scan the browser storage engine index, identify the most recently active workspace identifier, rebuild the structural data engine from local binary storage logs, and present the workspace exactly as it was left.
 3.6. Downstream Agent Execution Hook
 Every structural node component or multi-selected group of blocks within the BlockSuite canvas must feature an actionable contextual interaction macro.
-When executed, the system must extract the plain text contents, strip out layout wrappers, and dispatch a structured local loopback event to the Deno background service.
-The Deno service must interpret the payload and instantly spawn an asynchronous local system subprocess, invoking the target agent orchestrator command execution array with the text payload passed as a clear functional argument.
+When executed, the system must extract the plain text contents, strip out layout wrappers, and dispatch a structured local loopback event to the Node background service.
+The Node service must interpret the payload and instantly spawn an asynchronous local system subprocess, invoking the target agent orchestrator command execution array with the text payload passed as a clear functional argument.
 4. System Topology & Backend Specifications
 4.1. Framework-Agnostic Core Principles
 The front-end web interface must treat BlockSuite as a set of standard, browser-native web components. No framework-specific lifecycle boundaries or proprietary wrapper hooks may be utilized for data rendering or view synchronization.
-4.2. Secure Deno Runtime Environment
-The background daemon service must run exclusively on the Deno platform, leveraging native permission parameters to guarantee restricted local file-system and subprocess access.
-The Deno backend is responsible for spawning pseudo-terminal instances that attach to local terminal execution binaries or running system sessions.
+4.2. Local-Only Node Runtime Environment
+The background daemon service runs on the Node runtime. Node does not provide an OS-enforced permission model (there is no equivalent of a native `--allow-*` capability flag), so the daemon's security posture is achieved through containment rather than a runtime sandbox: it binds exclusively to the loopback interface (127.0.0.1) so the control channel never leaves the local machine, keeps its spawn surface restricted to the explicitly configured agent harness, and path-traversal-guards any static file serving. For stricter isolation, operators are expected to run the daemon under an OS-level boundary (a restricted user account or container).
+The Node backend is responsible for spawning pseudo-terminal instances — via @lydell/node-pty (real ConPTY/forkpty) — that attach to local terminal execution binaries or running system sessions.
 The backend must establish a local, low-overhead WebSocket server loop to broadcast the raw pseudo-terminal standard output data directly to the web client, running entirely within a local-only sandbox environment.
 5. Non-Functional Requirements & Performance Targets
 5.1. Framerate-Throttled UI Updates

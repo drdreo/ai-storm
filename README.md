@@ -25,7 +25,8 @@ reuses the CLI tools already running on your machine.
 
 ### The ingestion engine (PRD §3.3, §5.1) — `frontend/src/app/core/`
 
-Pure, framework-agnostic TypeScript with full unit coverage (`deno test`):
+Pure, framework-agnostic TypeScript with full unit coverage (`pnpm test`, run by
+[Vitest](https://vitest.dev)):
 
 | Module | Responsibility | PRD |
 | --- | --- | --- |
@@ -67,7 +68,10 @@ memory. Detaching a workspace tears down its pipeline, render scheduler, and PTY
   Angular 22 CLI engine gate)
 - **pnpm** (via `corepack pnpm`, bundled with Node)
 - A modern Chromium-based browser
-- **Deno** ≥ 2.x — optional, only to run the ingestion-engine unit tests
+
+The ingestion-engine unit tests run on [Vitest](https://vitest.dev) (a
+devDependency installed via `corepack pnpm install`), so they need no extra
+runtime beyond Node itself.
 
 ## Running
 
@@ -98,8 +102,8 @@ cd ../backend && corepack pnpm start -- --static ../frontend/dist/browser
 ## Tests
 
 ```sh
-# Unit — framework-agnostic ingestion engine (19 tests, no browser needed)
-cd frontend && deno test --allow-read src/app/core
+# Unit — framework-agnostic ingestion engine (22 tests, no browser needed)
+cd frontend && corepack pnpm test
 
 # Integration — against a running backend (corepack pnpm start first)
 cd backend && node smoke_test.ts
@@ -113,7 +117,7 @@ cd frontend && node e2e/pipeline.mjs http://127.0.0.1:8790
 
 ### Verification status
 
-All layers are verified on Windows 11: 19/19 engine unit tests pass; the daemon
+All layers are verified on Windows 11: 22/22 engine unit tests pass; the daemon
 type-checks; the WebSocket PTY round-trip, input echo, agent hook, and static
 serving pass the integration smoke test; and the browser E2E confirms the editor
 mounts, both CRDT IndexedDB stores are created, the doc/edgeless toggle works,
@@ -145,8 +149,11 @@ registers the exporter, otherwise the spans are no-ops.
 ## Security model (PRD §4.2)
 
 The daemon binds only to `127.0.0.1`, so the loop never leaves the local
-machine, and static serving is path-traversal guarded. Note a deliberate
-trade-off from the original spec: moving the daemon to Node.js (required for a
-real ConPTY via `node-pty`) gives up Deno's OS-enforced `--allow-*` sandbox over
-file-system and subprocess access. For stricter confinement, run the daemon
-under an OS-level sandbox (e.g. a restricted user/container).
+machine, and static serving is path-traversal guarded. Beyond that, Node offers
+no OS-enforced permission model, so containment is the security boundary: the
+spawn surface is limited to the explicitly configured agent harness. Historical
+note: an earlier design ran the daemon on Deno for its OS-enforced `--allow-*`
+sandbox over file-system and subprocess access; moving to Node.js (required for a
+real ConPTY via `node-pty`, which Deno does not support) gave that up. For
+stricter confinement, run the daemon under an OS-level sandbox (e.g. a restricted
+user/container).

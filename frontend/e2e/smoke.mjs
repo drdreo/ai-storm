@@ -1,6 +1,6 @@
 /**
  * Browser smoke test for the ai-storm client (run against the built app served
- * by the Deno backend, e.g. on http://127.0.0.1:8790).
+ * by the Node backend, e.g. on http://127.0.0.1:8790).
  *
  * Validates the in-browser runtime that the unit/build steps can't:
  *   - the app boots through the crash-recovery sequence (PRD §3.5)

@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(deno --version)",
       "Bash(npm --version)",
       "Bash(git --version)"
     ]

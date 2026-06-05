@@ -29,7 +29,7 @@ export interface RenderSchedulerOptions<T> {
 }
 
 // Accessed via globalThis so the module type-checks in non-DOM environments
-// (Deno tests, SSR) while still binding the real rAF in the browser.
+// (Node tests, SSR) while still binding the real rAF in the browser.
 const g = globalThis as unknown as {
   requestAnimationFrame?: (cb: () => void) => number;
   cancelAnimationFrame?: (handle: number) => void;

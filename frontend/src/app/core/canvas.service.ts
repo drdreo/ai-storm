@@ -210,7 +210,6 @@ export class CanvasService {
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  // deno-lint-ignore no-explicit-any
   #modelToLine(model: any): string | null {
     const flavour: string = model.flavour;
     const text: string = model.text?.toString?.() ?? '';
