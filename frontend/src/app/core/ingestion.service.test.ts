@@ -1,8 +1,9 @@
 /**
- * Tests for the ingestion split (extraction-contract §8.1, §9):
- *  - `chat`  → the control hub scrollback signal (never the canvas)
- *  - `ideas` → CanvasService.applyBlocks via the render scheduler
- *  - the markdown parser is NOT applied to the live stream (chat is verbatim).
+ * Tests for the ingestion split (extraction-contract §8.1):
+ *  - `data` → the registered terminal sink (the xterm.js conversation surface),
+ *             buffered until a terminal mounts, then flushed.
+ *  - `idea` → CanvasService.applyBlocks via the render scheduler (one batched
+ *             CRDT mutation per frame).
  *
  * The heavy/IO collaborators (BlockSuite canvas, the WebSocket backend) are
  * mocked so the service runs in the plain Node test env; the service is built
@@ -11,7 +12,6 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Injector, runInInjectionContext } from "@angular/core";
-import type { ResponseMessage } from "@ai-storm/shared";
 
 // Replace modules that would otherwise pull in BlockSuite / a real socket.
 vi.mock("./canvas.service", () => ({ CanvasService: class {} }));
@@ -24,6 +24,9 @@ import { BackendService } from "./backend.service";
 import { WorkspaceService } from "./workspace.service";
 
 type Listener = (msg: unknown) => void;
+
+/** The render scheduler flushes on a ~16ms setTimeout frame in Node. */
+const nextFrame = () => new Promise((r) => setTimeout(r, 25));
 
 function makeService() {
   const applyBlocks = vi.fn();
@@ -47,42 +50,56 @@ function makeService() {
   });
   const svc = runInInjectionContext(injector, () => new IngestionService());
   svc.attach("ws1", { agentCommand: "claude" } as never);
-  const emit = (msg: Omit<ResponseMessage, "type">) => listener?.({ type: "response", ...msg });
-  return { svc, applyBlocks, emit };
+  const emitIdea = (idea: { title: string; body: string; kind?: string }) =>
+    listener?.({ type: "idea", workspaceId: "ws1", idea });
+  const emitData = (data: string) => listener?.({ type: "data", workspaceId: "ws1", data });
+  return { svc, applyBlocks, emitIdea, emitData };
 }
 
-describe("IngestionService — chat/ideas split", () => {
+describe("IngestionService — data/idea split", () => {
   let h: ReturnType<typeof makeService>;
   beforeEach(() => {
     h = makeService();
   });
 
-  it("appends chat to the hub signal and never to the canvas", () => {
-    h.emit({ workspaceId: "ws1", chat: ["Let me know which to explore."], ideas: [], complete: true });
-    expect(h.svc.terminalLines("ws1")()).toEqual(["Let me know which to explore."]);
-    expect(h.applyBlocks).not.toHaveBeenCalled();
-  });
+  it("routes an idea to the canvas (applyBlocks) and never to the terminal", async () => {
+    const write = vi.fn();
+    h.svc.registerTerminal("ws1", { write, clear: vi.fn() });
 
-  it("sends ideas to the canvas (applyBlocks) and not to the hub", () => {
-    h.emit({
-      workspaceId: "ws1",
-      chat: [],
-      ideas: [{ title: "Offline-first canvas", body: "cache CRDT ops" }],
-      complete: true,
-    });
+    h.emitIdea({ title: "Offline-first canvas", body: "cache CRDT ops" });
+    await nextFrame();
+
     expect(h.applyBlocks).toHaveBeenCalledTimes(1);
     expect(h.applyBlocks).toHaveBeenCalledWith("ws1", [
       { type: "heading", level: 3, text: "Offline-first canvas" },
       { type: "paragraph", text: "cache CRDT ops" },
     ]);
-    expect(h.svc.terminalLines("ws1")()).toEqual([]);
+    expect(write).not.toHaveBeenCalled();
   });
 
-  it("does NOT run the markdown parser over the chat stream (chat stays verbatim)", () => {
-    // A chat line that LOOKS like a markdown heading must remain plain text in
-    // the hub and must never be turned into a canvas block.
-    h.emit({ workspaceId: "ws1", chat: ["# Not a canvas heading", "- not a bullet"], ideas: [], complete: true });
-    expect(h.svc.terminalLines("ws1")()).toEqual(["# Not a canvas heading", "- not a bullet"]);
+  it("forwards raw data to a registered terminal sink and not to the canvas", () => {
+    const write = vi.fn();
+    h.svc.registerTerminal("ws1", { write, clear: vi.fn() });
+
+    h.emitData("aGVsbG8=");
+    expect(write).toHaveBeenCalledWith("aGVsbG8=");
     expect(h.applyBlocks).not.toHaveBeenCalled();
+  });
+
+  it("buffers data that arrives before the terminal mounts, then flushes on register", () => {
+    h.emitData("Zmlyc3Q="); // "first"
+    h.emitData("c2Vjb25k"); // "second"
+
+    const write = vi.fn();
+    h.svc.registerTerminal("ws1", { write, clear: vi.fn() });
+
+    expect(write.mock.calls.map((c) => c[0])).toEqual(["Zmlyc3Q=", "c2Vjb25k"]);
+  });
+
+  it("clearTerminal delegates to the registered sink", () => {
+    const clear = vi.fn();
+    h.svc.registerTerminal("ws1", { write: vi.fn(), clear });
+    h.svc.clearTerminal("ws1");
+    expect(clear).toHaveBeenCalledTimes(1);
   });
 });

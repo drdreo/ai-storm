@@ -1,12 +1,12 @@
 /**
  * End-to-end smoke test against a RUNNING backend (pnpm start first).
- * Verifies: /health, durable session attach, response extraction round-trip.
+ * Verifies: /health, durable session attach, raw `data` passthrough.
  * Run: node smoke_test.ts   (uses Node's global fetch + WebSocket)
  *
  * Drives a deterministic interactive REPL (bash) rather than a real AI harness:
- * we attach a `bash` session, send `echo SMOKE_MARKER_123`, and assert the
- * extracted RESPONSE carries the marker — while the echoed command line and the
- * shell prompt chrome do NOT reach us as raw bytes (there is no `data` frame).
+ * we attach a `bash` session, send `echo SMOKE_MARKER_123\r`, and assert the
+ * marker comes back in the raw `data` stream (base64-decoded) — the conversation
+ * surface is now a real terminal, so output arrives as bytes, not pre-split chat.
  */
 
 const BASE = "http://127.0.0.1:8787";
@@ -22,13 +22,13 @@ function assert(cond: unknown, msg: string): void {
 const health = await (await fetch(`${BASE}/health`)).json();
 assert(health.status === "ok", "/health returns ok");
 
-// 2) WebSocket session round-trip via the response extractor.
+// 2) WebSocket session round-trip via the raw data stream.
 const socket = new WebSocket(WS);
-const responseLines: string[] = [];
+let terminal = "";
 let attached = false;
 
 await new Promise<void>((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error("timeout waiting for response")), 20000);
+  const timer = setTimeout(() => reject(new Error("timeout waiting for data")), 20000);
   socket.onopen = () => {
     socket.send(JSON.stringify({ type: "attach", workspaceId: WORKSPACE, shell: "bash" }));
     setTimeout(() => {
@@ -38,11 +38,9 @@ await new Promise<void>((resolve, reject) => {
   socket.onmessage = (ev) => {
     const msg = JSON.parse(String(ev.data));
     if (msg.type === "session-status" && msg.status === "attached") attached = true;
-    if (msg.type === "response") {
-      // The response is pre-split (extraction-contract §6): bash has no idea
-      // contract, so the echoed marker arrives as conversational `chat`.
-      responseLines.push(...msg.chat);
-      if (responseLines.join("\n").includes("SMOKE_MARKER_123")) {
+    if (msg.type === "data") {
+      terminal += Buffer.from(msg.data, "base64").toString("utf8");
+      if (terminal.includes("SMOKE_MARKER_123")) {
         clearTimeout(timer);
         resolve();
       }
@@ -52,11 +50,7 @@ await new Promise<void>((resolve, reject) => {
 });
 
 assert(attached, "received session-status attached");
-assert(responseLines.join("\n").includes("SMOKE_MARKER_123"), "extracted response carried the marker");
-assert(
-  !responseLines.some((l) => l.includes("echo SMOKE_MARKER_123")),
-  "echoed command line was NOT emitted as a response",
-);
+assert(terminal.includes("SMOKE_MARKER_123"), "raw data stream carried the marker");
 
 // Tear the durable session down so the smoke run leaves nothing behind.
 socket.send(JSON.stringify({ type: "kill", workspaceId: WORKSPACE }));

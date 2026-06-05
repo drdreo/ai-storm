@@ -11,11 +11,18 @@
  *
  * The backend hosts each workspace's AI harness inside a durable, named,
  * connection-independent session (tmux on POSIX, an in-process node-pty on
- * Windows — see `docs/design/ai-session-layer.md`). It extracts the agent's
- * output server-side and ships it **pre-split** as a `response` message: the
- * conversational half (`chat`) and the extracted brainstorming ideas (`ideas`)
- * — see `docs/design/ai-response-extraction-contract.md`. The client never
- * receives the raw terminal stream and never guesses structure.
+ * Windows — see `docs/design/ai-session-layer.md`). It streams two independent
+ * surfaces per workspace:
+ *  - `data` — the raw PTY byte stream, rendered by xterm.js in the browser, so
+ *    the conversation surface is a real terminal (display is xterm's job, not
+ *    ours). Bytes are base64-encoded to survive control characters intact.
+ *  - `idea` — brainstorming ideas extracted server-side from the `«IDEA»` /
+ *    ` ```idea ` contract (`docs/design/ai-response-extraction-contract.md`),
+ *    emitted one at a time as each marker line/fence completes.
+ *
+ * The fragile chat/chrome extraction (per-version chrome regexes, echo
+ * anchoring, response-completion detection) is gone: the terminal renders
+ * itself, and only the robust, contract-defined idea scan remains.
  */
 
 /** Messages sent from the web client to the backend daemon. */
@@ -109,7 +116,8 @@ export interface AgentMessage {
 /** Messages sent from the backend daemon to the web client. */
 export type ServerMessage =
   | SessionStatusMessage
-  | ResponseMessage
+  | DataMessage
+  | IdeaMessage
   | ExitMessage
   | AgentStatusMessage
   | ErrorMessage;
@@ -132,23 +140,28 @@ export interface Idea {
 }
 
 /**
- * Backend-extracted agent output, pre-split so the client never guesses
- * structure (see `docs/design/ai-response-extraction-contract.md`):
- *  - `chat`  → conversational lines rendered in the control hub
- *  - `ideas` → brainstorming ideas rendered as canvas cards/notes
- *
- * Both halves carry only the agent's output — never the echoed prompt or the
- * harness TUI chrome (status bar, spinners, auto-mode affordance, tips).
+ * Raw PTY output for a workspace's session — streamed to the browser's xterm.js
+ * terminal verbatim (the conversation surface). `data` is base64-encoded so the
+ * control bytes of a cursor-addressed TUI survive JSON transport unchanged; the
+ * client decodes it and writes the bytes straight into the terminal.
  */
-export interface ResponseMessage {
-  type: "response";
+export interface DataMessage {
+  type: "data";
   workspaceId: string;
-  /** Conversational reply lines for the chat hub (chrome already stripped). */
-  chat: string[];
-  /** Extracted ideas for the canvas. */
-  ideas: Idea[];
-  /** True once idle/prompt-return marks the response complete (flushNow()). */
-  complete: boolean;
+  /** Base64-encoded raw PTY bytes. */
+  data: string;
+}
+
+/**
+ * A single brainstorming idea extracted from the harness output via the §3
+ * contract, destined for the canvas. Emitted one at a time as each `«IDEA»`
+ * line / ` ```idea ` fence completes; the backend dedupes within a session so
+ * a re-rendered marker is never delivered twice.
+ */
+export interface IdeaMessage {
+  type: "idea";
+  workspaceId: string;
+  idea: Idea;
 }
 
 /** The durable session ended unexpectedly (e.g. killed externally). */

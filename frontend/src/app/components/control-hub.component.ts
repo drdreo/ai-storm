@@ -1,28 +1,27 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   computed,
   effect,
   inject,
-  signal,
-  viewChild,
 } from '@angular/core';
 import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { IngestionService } from '../core/ingestion.service';
 import { AgentService } from '../core/agent.service';
 import { BackendService } from '../core/backend.service';
+import { TerminalComponent } from './terminal.component';
 
 /**
- * Conversational Control Hub (PRD §3.1). Provides the prompt input, session
- * controls, the agent's conversational reply stream (the `chat` half of the
- * extraction contract — ideas now live on the canvas, not here), downstream
- * agent run output, and diagnostic readouts of the background connection.
+ * Conversational Control Hub (PRD §3.1). The conversation surface is a real
+ * terminal (xterm.js, fed the raw PTY stream — see TerminalComponent), so this
+ * shell provides the session controls, the harness selector, the downstream
+ * agent run output, and diagnostic readouts of the background connection. Ideas
+ * land on the canvas, not here.
  */
 @Component({
   selector: 'as-control-hub',
-  imports: [Toolbar, ToolbarWidget],
+  imports: [Toolbar, ToolbarWidget, TerminalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (workspaces.active(); as ws) {
@@ -41,7 +40,7 @@ import { BackendService } from '../core/backend.service';
               Start session
             </button>
           }
-          <button ngToolbarWidget value="clear" class="ghost" (click)="ingestion.clearScrollback(ws.id)">
+          <button ngToolbarWidget value="clear" class="ghost" (click)="ingestion.clearTerminal(ws.id)">
             Clear
           </button>
         </div>
@@ -56,18 +55,16 @@ import { BackendService } from '../core/backend.service';
           placeholder="claude"
           spellcheck="false"
           (change)="setHarness(ws.id, $event)"
-          title="The AI CLI launched for this workspace's session (PRD §2). Prompts are sent to its stdin."
+          title="The AI CLI launched for this workspace's session (PRD §2). Keystrokes are sent to its PTY."
         />
-        <span class="hint">prompts go to this CLI's stdin</span>
+        <span class="hint">a real terminal — type directly; ideas land on the canvas</span>
       </div>
 
-      <section class="stream" #stream role="log" aria-live="polite" aria-label="Conversation">
-        @for (line of lines(); track $index) {
-          <div class="line">{{ line }}</div>
+      <section class="terminal-wrap">
+        @if (!ingestion.isAttached(ws.id)) {
+          <div class="empty">No session yet. Start a session, then talk to the agent in the terminal; ideas land on the canvas.</div>
         }
-        @if (lines().length === 0) {
-          <div class="empty">No messages yet. Start a session and type a prompt below; ideas land on the canvas.</div>
-        }
+        <as-terminal />
       </section>
 
       @if (agentRun(); as run) {
@@ -83,16 +80,6 @@ import { BackendService } from '../core/backend.service';
           }
         </section>
       }
-
-      <footer class="composer">
-        <textarea
-          #prompt
-          rows="2"
-          placeholder="Type a prompt and press Enter (Shift+Enter for newline)…"
-          (keydown)="onKey($event, ws.id)"
-        ></textarea>
-        <button class="send" (click)="send(ws.id, prompt)">Send</button>
-      </footer>
     }
   `,
   styles: [
@@ -240,41 +227,32 @@ import { BackendService } from '../core/backend.service';
       .stop:hover {
         background: color-mix(in srgb, var(--danger) 14%, var(--btn-bg)) !important;
       }
-      .stream {
+      .terminal-wrap {
+        position: relative;
         flex: 1;
         min-height: 0;
-        overflow-y: auto;
-        padding: var(--space-3);
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        line-height: 1.5;
-        color: var(--text);
-        white-space: pre-wrap;
-        word-break: break-word;
-        background:
-          radial-gradient(
-            100% 60% at 50% 0%,
-            color-mix(in srgb, var(--accent) 4%, transparent) 0%,
-            transparent 70%
-          ),
-          var(--bg);
+        background: var(--bg);
       }
-      .line {
-        white-space: pre-wrap;
-      }
-      .pending {
-        opacity: 0.7;
+      .terminal-wrap as-terminal {
+        display: block;
+        height: 100%;
       }
       .empty {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
         display: flex;
         flex-direction: column;
         gap: var(--space-2);
         align-items: flex-start;
+        justify-content: flex-start;
         color: var(--text-faint);
         font-family: var(--sans);
         font-size: 0.82rem;
         line-height: 1.5;
-        padding-top: var(--space-2);
+        padding: var(--space-3);
+        pointer-events: none;
+        background: var(--bg);
       }
       .empty::before {
         content: '~';
@@ -327,70 +305,6 @@ import { BackendService } from '../core/backend.service';
         word-break: break-word;
         color: var(--text);
       }
-      .composer {
-        display: flex;
-        gap: var(--space-2);
-        padding: var(--space-3);
-        border-top: 1px solid var(--border-strong);
-        background: var(--panel-bg);
-      }
-      textarea {
-        flex: 1;
-        resize: none;
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-strong);
-        background: var(--input-bg);
-        color: var(--text);
-        padding: 0.55rem 0.65rem;
-        font: inherit;
-        font-size: 0.84rem;
-        line-height: 1.45;
-        transition:
-          border-color var(--dur-fast) var(--ease-out),
-          box-shadow var(--dur-fast) var(--ease-out);
-      }
-      textarea::placeholder {
-        color: var(--text-faint);
-      }
-      textarea:hover {
-        border-color: var(--border-strong);
-      }
-      textarea:focus {
-        outline: none;
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px var(--accent-ring);
-      }
-      .send {
-        align-self: stretch;
-        padding: 0 1.1rem;
-        border-radius: var(--radius-md);
-        border: 1px solid var(--accent);
-        background: var(--accent);
-        color: var(--on-accent);
-        font: inherit;
-        font-weight: 600;
-        font-size: 0.84rem;
-        cursor: pointer;
-        box-shadow:
-          var(--shadow-sm),
-          inset 0 1px 0 rgba(255, 255, 255, 0.18);
-        transition:
-          background var(--dur-fast) var(--ease-out),
-          border-color var(--dur-fast) var(--ease-out),
-          transform var(--dur-fast) var(--ease-out);
-      }
-      .send:hover {
-        background: var(--accent-hover);
-        border-color: var(--accent-hover);
-      }
-      .send:active {
-        transform: translateY(1px);
-        background: var(--accent-press);
-      }
-      .send:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 3px var(--accent-ring);
-      }
     `,
   ],
 })
@@ -400,28 +314,12 @@ export class ControlHubComponent {
   readonly backend = inject(BackendService);
   readonly #agent = inject(AgentService);
 
-  readonly stream = viewChild<ElementRef<HTMLElement>>('stream');
-
-  // Reactively follow the active workspace's stream/agent signals.
-  readonly lines = computed(() => {
-    const id = this.workspaces.activeId();
-    return id ? this.ingestion.terminalLines(id)() : [];
-  });
   readonly agentRun = computed(() => {
     const id = this.workspaces.activeId();
     return id ? this.#agent.run(id)() : null;
   });
 
-  readonly #autoscroll = signal(0);
-
   constructor() {
-    // Keep the stream pinned to the bottom as new lines arrive.
-    effect(() => {
-      this.lines();
-      const el = this.stream()?.nativeElement;
-      if (el) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
-    });
-
     // Resume a durable session after a reload / hot-switch (PRD §3.5). A page
     // reload loses the client-side pipeline but the named backend session
     // survives, so on (re)activation we re-attach to it. We gate on the
@@ -453,22 +351,5 @@ export class ControlHubComponent {
     // Explicit "Stop" tears the durable session down (PRD §5.2). A browser
     // refresh / socket drop only detaches and leaves the session alive (§3.5).
     this.ingestion.kill(id);
-  }
-
-  onKey(event: KeyboardEvent, id: string): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      this.send(id, event.target as HTMLTextAreaElement);
-    }
-  }
-
-  send(id: string, input: HTMLTextAreaElement): void {
-    const value = input.value;
-    if (!value.trim()) return;
-    if (!this.ingestion.isAttached(id)) this.start(id);
-    // Real PTY (ConPTY/forkpty): the Enter key is a carriage return; the
-    // terminal's line discipline turns it into a submitted line.
-    this.ingestion.sendInput(id, value + '\r');
-    input.value = '';
   }
 }

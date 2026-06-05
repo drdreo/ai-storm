@@ -1,6 +1,9 @@
 /* BlockSuite affine theme variables (required by the editor web component). */
 @import '@toeverything/theme/style.css';
 
+/* xterm.js terminal styles (the conversation surface renders the raw PTY). */
+@import '@xterm/xterm/css/xterm.css';
+
 /* Modern UI typeface — Inter (self-described variable font via Google Fonts).
    Loaded with display=swap so the system stack renders instantly first. */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');

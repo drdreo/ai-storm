@@ -26,12 +26,13 @@ import { parseClientMessage, type ServerMessage } from "@ai-storm/shared";
 let connectionSeq = 0;
 
 /**
- * The §4.1 session-priming instruction. Sent once as the first message into a
- * freshly-created idea-contract-aware session (e.g. claude). It defines the
- * single-line `«IDEA»` marker the backend extracts into canvas ideas; the
- * trailing `READY` ack is deterministic and droppable (suppressed, §4.5).
+ * The §4.1 session-priming instruction. Delivered to a contract-aware harness
+ * (claude) as an APPENDED SYSTEM PROMPT at launch (see `HarnessProfile.
+ * systemPromptFlag`), so the `«IDEA»` contract is followed from the first turn
+ * with nothing typed into the terminal. It defines the single-line `«IDEA»`
+ * marker (and fenced form) the backend extracts into canvas ideas.
  */
-const PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply to me normally in conversation.
+const PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply normally in conversation.
 
 Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, emit it on its OWN line in exactly this format, then continue talking normally:
 
@@ -47,15 +48,13 @@ For an idea that truly needs several lines, use a fenced block instead:
 
 Rules:
 - One idea per «IDEA» line. Put each «IDEA» line on its own line.
-- Use «IDEA» ONLY for real ideas, never for chitchat, status, or questions to me.
-- Everything you write that is NOT an «IDEA» line is treated as ordinary chat.
-
-Acknowledge with the single word READY and nothing else.`;
+- Use «IDEA» ONLY for real ideas, never for chitchat, status, or questions.
+- Everything that is NOT an «IDEA» line is treated as ordinary chat.`;
 
 /**
  * Derive the harness profile name + priming text from the harness command. A
- * contract-aware harness (claude) is primed; anything else gets no prime so a
- * bare shell never has the instruction echoed at it (extraction-contract §4.6).
+ * contract-aware harness (claude) is primed via its system-prompt flag; anything
+ * else gets no prime (extraction-contract §4.6).
  */
 function harnessSetup(command: string): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
@@ -231,14 +230,15 @@ async function dispatch(
         send({ type: "session-status", workspaceId, status: "created" });
         await backend.attach(
           workspaceId,
-          (chunk) => {
-            log.info("response", {
-              workspace: workspaceId,
-              chat: chunk.chat.length,
-              ideas: chunk.ideas.length,
-              complete: chunk.complete,
-            });
-            send({ type: "response", workspaceId, chat: chunk.chat, ideas: chunk.ideas, complete: chunk.complete });
+          // Raw PTY bytes → the browser's xterm.js terminal. base64 so the
+          // control bytes of a cursor-addressed TUI survive JSON intact.
+          (raw) => {
+            send({ type: "data", workspaceId, data: Buffer.from(raw, "utf8").toString("base64") });
+          },
+          // Each newly-extracted idea → the canvas.
+          (idea) => {
+            log.info("idea", { workspace: workspaceId, kind: idea.kind ?? "", title: idea.title });
+            send({ type: "idea", workspaceId, idea });
           },
           (message) => {
             log.warn("session.error", { workspace: workspaceId, message });
@@ -255,8 +255,7 @@ async function dispatch(
       break;
     }
     case "input":
-      log.info("input", { workspace: msg.workspaceId, bytes: msg.data.length });
-      send({ type: "session-status", workspaceId: msg.workspaceId, status: "responding" });
+      log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
       try {
         await backend.sendInput(msg.workspaceId, msg.data);
       } catch (err) {
@@ -279,11 +278,11 @@ async function dispatch(
       send({ type: "session-status", workspaceId: msg.workspaceId, status: "killed" });
       break;
     case "context":
-      // Inject the serialized canvas as contextual memory (PRD §3.2): delivered
-      // to the harness as a prompt through the same input path.
+      // Inject the serialized canvas as contextual memory (PRD §3.2): submitted
+      // to the harness as a full prompt (not raw keystrokes — it is multi-line).
       log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
       try {
-        await backend.sendInput(msg.workspaceId, msg.document);
+        await backend.submitPrompt(msg.workspaceId, msg.document);
       } catch (err) {
         send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
       }

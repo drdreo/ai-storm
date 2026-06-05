@@ -3,8 +3,9 @@
  *
  * One interface, two implementations: `TmuxSessionBackend` on POSIX (durable,
  * connection-independent tmux sessions) and `NodePtySessionBackend` on Windows
- * (in-process node-pty). Both extract clean responses server-side and never
- * expose the raw terminal — callers receive `ResponseChunk`s, not bytes.
+ * (in-process node-pty). Both stream the raw PTY bytes (rendered by xterm.js in
+ * the browser) and, alongside, the ideas extracted server-side from the §3
+ * contract — see `docs/design/ai-response-extraction-contract.md`.
  */
 
 import type { Idea } from "@ai-storm/shared";
@@ -40,21 +41,6 @@ export interface SessionSpec {
   prime?: string;
 }
 
-/**
- * A single extracted response chunk, backend-produced and pre-split
- * (extraction-contract §6): conversational `chat` lines for the hub and
- * `ideas` for the canvas. Never carries the echoed prompt or harness chrome.
- */
-export interface ResponseChunk {
-  workspaceId: string;
-  /** Newly-finalized conversational lines for the chat hub. */
-  chat: string[];
-  /** Newly-finalized extracted ideas for the canvas. */
-  ideas: Idea[];
-  /** True once idle/prompt-return marks this response complete. */
-  complete: boolean;
-}
-
 export interface SessionBackend {
   /** The runtime name, for diagnostics: "tmux" | "process". */
   readonly runtime: "tmux" | "process";
@@ -79,19 +65,33 @@ export interface SessionBackend {
   hasSession(workspaceId: string): Promise<boolean>;
 
   /**
-   * Begin (or resume) extracting responses; invokes onChunk per finalized batch.
-   * Replaces raw-byte streaming — callers never see the raw terminal.
+   * Begin (or resume) streaming this workspace's session. `onData` receives the
+   * raw PTY bytes (for the xterm.js terminal); `onIdea` receives each newly-seen
+   * extracted idea (for the canvas).
    */
   attach(
     workspaceId: string,
-    onChunk: (chunk: ResponseChunk) => void,
+    onData: (raw: string) => void,
+    onIdea: (idea: Idea) => void,
     onError: (message: string) => void,
   ): Promise<void>;
 
-  /** Send a prompt to the session (Escape→clear→literal/paste→delayed Enter, §2.3). */
+  /**
+   * Forward RAW keystrokes to the session's PTY, verbatim — the xterm.js
+   * terminal sends these as the user types (printable bytes, control codes, the
+   * carriage return that submits a line). No line editing or Enter synthesis.
+   */
   sendInput(workspaceId: string, data: string): Promise<void>;
 
-  /** Inform the session of a new viewport; re-anchors extraction width (§4 reflow). */
+  /**
+   * Submit a complete prompt PROGRAMMATICALLY (priming, canvas-context
+   * injection) — clears any partial input, delivers the (possibly multi-line)
+   * text, then submits it. Distinct from {@link sendInput} because a real
+   * terminal's keystrokes must NOT be line-edited or auto-submitted.
+   */
+  submitPrompt(workspaceId: string, text: string): Promise<void>;
+
+  /** Inform the session of a new viewport size (cols/rows). */
   resize(workspaceId: string, cols: number, rows: number): Promise<void>;
 
   /** Stop extracting for this workspace but LEAVE the session alive (refresh/disconnect). */

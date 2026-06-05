@@ -1,4 +1,4 @@
-import { Injectable, inject, signal, type WritableSignal, type Signal } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import type { Idea } from '@ai-storm/shared';
 import { BackendService } from './backend.service';
 import { CanvasService } from './canvas.service';
@@ -8,11 +8,16 @@ import type { BlockDescriptor } from './markdown-block-parser';
 import { RenderScheduler } from './render-scheduler';
 import type { TerminalConfig } from './models';
 
-const MAX_TERMINAL_LINES = 4000;
+/** Cap on raw bytes buffered before a terminal mounts, so an attached-but-never-
+ *  viewed workspace cannot grow without bound (oldest chunks are dropped). */
+const MAX_BUFFERED_DATA = 256 * 1024;
 
-/** Persistent per-workspace view state (survives attach/detach cycles). */
-interface View {
-  lines: WritableSignal<string[]>;
+/** A mounted xterm.js terminal's sink — the component registers these. */
+export interface TerminalSink {
+  /** Write base64-encoded raw PTY bytes to the terminal. */
+  write(dataB64: string): void;
+  /** Clear the terminal's scrollback + viewport. */
+  clear(): void;
 }
 
 /** Live streaming machinery (exists only while a session is attached). */
@@ -24,27 +29,34 @@ interface Pipeline {
   unsubscribeOpen: () => void;
 }
 
+/** Per-workspace terminal binding (survives attach/detach cycles). */
+interface TerminalState {
+  /** The mounted terminal's sink, or null until the component registers it. */
+  sink: TerminalSink | null;
+  /** Raw `data` chunks (base64) received before the terminal mounted. */
+  buffer: string[];
+  bufferedBytes: number;
+}
+
 const isBlankParagraph = (d: BlockDescriptor) =>
   d.type === 'paragraph' && d.text.trim() === '';
 
 /**
  * Stateful ingestion pipeline (PRD §3.3 + §5.1).
  *
- * The backend now extracts the agent's output server-side and ships it
- * **pre-split** as a `response` message — `chat` (conversational) and `ideas`
- * (brainstorming notes) — see docs/design/ai-response-extraction-contract.md.
- * The client therefore no longer guesses structure with a markdown parser; it
- * renders each half verbatim:
+ * The backend streams two surfaces per workspace
+ * (docs/design/ai-response-extraction-contract.md):
  *
- *   msg.chat  → the control hub's scrollback signal (no canvas)
- *   msg.ideas → ideaToDescriptors → RenderScheduler → CanvasService.applyBlocks
- *               (one batched CRDT mutation per paint frame)
+ *   `data` → raw PTY bytes → the workspace's xterm.js terminal (the conversation
+ *            surface renders itself; no chat extraction). Forwarded to a
+ *            {@link TerminalSink} the TerminalComponent registers, buffered until
+ *            the terminal mounts.
+ *   `idea` → ideaToDescriptors → RenderScheduler → CanvasService.applyBlocks
+ *            (one batched CRDT mutation per paint frame).
  *
- * `MarkdownBlockParser` is no longer on the live stream path; it survives only
- * as a body formatter inside `ideaToDescriptors` (§8.3). Pipelines are
- * independent per workspace (PRD §3.4) and torn down on detach (PRD §5.2); the
- * lightweight view signal persists so the control hub keeps the conversational
- * scrollback after a stream ends.
+ * Pipelines are independent per workspace (PRD §3.4) and torn down on detach
+ * (PRD §5.2); the lightweight terminal binding persists so a workspace keeps its
+ * terminal across attach/detach cycles.
  */
 @Injectable({ providedIn: 'root' })
 export class IngestionService {
@@ -52,18 +64,18 @@ export class IngestionService {
   readonly #canvas = inject(CanvasService);
   readonly #workspaces = inject(WorkspaceService);
 
-  #views = new Map<string, View>();
+  #terminals = new Map<string, TerminalState>();
   #active = new Map<string, Pipeline>();
 
   /**
-   * Ensure the durable session exists and start ingesting its responses.
+   * Ensure the durable session exists and start ingesting its streams.
    * Idempotent (PRD §3.5): a second call for an already-attached workspace is a
    * no-op, and the backend reuses a running session rather than respawning it.
    */
   attach(workspaceId: string, config: TerminalConfig, cols = 120, rows = 32): void {
     if (this.#active.has(workspaceId)) return;
-    // Pre-create the view signal so terminalLines is immediately available.
-    this.#view(workspaceId);
+    // Pre-create the terminal binding so a sink can register immediately.
+    this.#terminal(workspaceId);
 
     const scheduler = new RenderScheduler<BlockDescriptor>({
       sink: (batch) => this.#canvas.applyBlocks(workspaceId, batch),
@@ -72,8 +84,11 @@ export class IngestionService {
 
     const unsubscribe = this.#backend.subscribe(workspaceId, (msg) => {
       switch (msg.type) {
-        case 'response':
-          this.#ingest(workspaceId, msg.chat, msg.ideas, msg.complete);
+        case 'data':
+          this.#ingestData(workspaceId, msg.data);
+          break;
+        case 'idea':
+          this.#ingestIdea(workspaceId, msg.idea);
           break;
         case 'session-status':
           this.#applyStatus(workspaceId, msg.status);
@@ -89,8 +104,8 @@ export class IngestionService {
     });
 
     // The interactive session defaults to launching the configured AI harness
-    // (e.g. `claude`), so prompts typed in the control hub go to the agent —
-    // not to a raw shell. An explicit `shell` override takes precedence.
+    // (e.g. `claude`), so prompts typed in the terminal go to the agent — not to
+    // a raw shell. An explicit `shell` override takes precedence.
     const harness = config.shell?.trim() || config.agentCommand?.trim() || 'claude';
     const harnessArgs = config.shell ? config.args ?? [] : config.agentArgs ?? [];
     const reattach = () => {
@@ -114,33 +129,45 @@ export class IngestionService {
     reattach();
   }
 
-  #ingest(workspaceId: string, chat: string[], ideas: Idea[], complete: boolean): void {
-    const p = this.#active.get(workspaceId);
-    if (!p) return;
-
-    // (a) chat → the control hub's conversational scrollback signal only. No
-    // canvas: the backend already separated chat from ideas, so the hub never
-    // sees brainstorming cards and the canvas never sees chatter.
-    if (chat.length > 0) this.#appendChatLines(workspaceId, chat);
-
-    // (b) ideas → canvas cards, batched through the scheduler (one CRDT txn per
-    // paint frame). ideaToDescriptors dictates the block shape from the Idea —
-    // no structure inference (extraction-contract §8.1).
-    if (ideas.length > 0) {
-      const descriptors = ideas.flatMap(ideaToDescriptors).filter((d) => !isBlankParagraph(d));
-      if (descriptors.length > 0) p.scheduler.enqueueAll(descriptors);
+  /** Forward raw PTY bytes to the terminal (or buffer until it mounts). */
+  #ingestData(workspaceId: string, dataB64: string): void {
+    const t = this.#terminal(workspaceId);
+    if (t.sink) {
+      t.sink.write(dataB64);
+      return;
     }
-
-    // On completion, paint immediately so the final card lands without waiting
-    // for the next batching frame.
-    if (complete) p.scheduler.flushNow();
+    t.buffer.push(dataB64);
+    t.bufferedBytes += dataB64.length;
+    // Drop oldest chunks past the cap (a never-viewed session must stay bounded).
+    while (t.bufferedBytes > MAX_BUFFERED_DATA && t.buffer.length > 1) {
+      t.bufferedBytes -= t.buffer.shift()!.length;
+    }
   }
 
-  /** Append conversational lines to the hub scrollback signal (bounded). */
-  #appendChatLines(workspaceId: string, chat: string[]): void {
-    const view = this.#view(workspaceId);
-    const next = view.lines().concat(chat);
-    view.lines.set(next.length > MAX_TERMINAL_LINES ? next.slice(-MAX_TERMINAL_LINES) : next);
+  /** Route one extracted idea to the canvas via the render scheduler. */
+  #ingestIdea(workspaceId: string, idea: Idea): void {
+    const p = this.#active.get(workspaceId);
+    if (!p) return;
+    const descriptors = ideaToDescriptors(idea).filter((d) => !isBlankParagraph(d));
+    if (descriptors.length > 0) p.scheduler.enqueueAll(descriptors);
+  }
+
+  /**
+   * Bind a mounted terminal for a workspace. Flushes any data buffered before
+   * the terminal mounted, then forwards subsequent `data` live. Returns an
+   * unbind fn the component calls on teardown.
+   */
+  registerTerminal(workspaceId: string, sink: TerminalSink): () => void {
+    const t = this.#terminal(workspaceId);
+    t.sink = sink;
+    if (t.buffer.length > 0) {
+      for (const chunk of t.buffer) sink.write(chunk);
+      t.buffer = [];
+      t.bufferedBytes = 0;
+    }
+    return () => {
+      if (t.sink === sink) t.sink = null;
+    };
   }
 
   #applyStatus(workspaceId: string, status: string): void {
@@ -159,6 +186,7 @@ export class IngestionService {
     }
   }
 
+  /** Forward raw keystrokes from the terminal to the session's PTY. */
   sendInput(workspaceId: string, data: string): void {
     this.#backend.send({ type: 'input', workspaceId, data });
   }
@@ -167,13 +195,9 @@ export class IngestionService {
     this.#backend.send({ type: 'resize', workspaceId, cols, rows });
   }
 
-  clearScrollback(workspaceId: string): void {
-    this.#views.get(workspaceId)?.lines.set([]);
-  }
-
-  /** Read-only accessor for a workspace's extracted response lines. */
-  terminalLines(workspaceId: string): Signal<string[]> {
-    return this.#view(workspaceId).lines.asReadonly();
+  /** Clear the workspace's terminal display (does not touch the session). */
+  clearTerminal(workspaceId: string): void {
+    this.#terminals.get(workspaceId)?.sink?.clear();
   }
 
   isAttached(workspaceId: string): boolean {
@@ -208,12 +232,12 @@ export class IngestionService {
     return p;
   }
 
-  #view(workspaceId: string): View {
-    let view = this.#views.get(workspaceId);
-    if (!view) {
-      view = { lines: signal<string[]>([]) };
-      this.#views.set(workspaceId, view);
+  #terminal(workspaceId: string): TerminalState {
+    let t = this.#terminals.get(workspaceId);
+    if (!t) {
+      t = { sink: null, buffer: [], bufferedBytes: 0 };
+      this.#terminals.set(workspaceId, t);
     }
-    return view;
+    return t;
   }
 }

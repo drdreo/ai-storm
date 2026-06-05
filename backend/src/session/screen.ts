@@ -10,15 +10,14 @@
  * (`ESC[K`). The earlier `SlicingBuffer` only modelled `\n` + `\r`, so it could
  * not reconstruct a cursor-addressed screen — those codes were stripped without
  * being APPLIED and the resulting text was garbled (e.g. "✻Churned" instead of
- * "✻ Churned", and rows concatenated across in-place redraws). That fed the
- * shared extractor nonsense, so it anchored/completed on empty regions.
+ * "✻ Churned", and rows concatenated across in-place redraws), so the idea scan
+ * saw nonsense.
  *
- * This wraps `@xterm/headless` — the same terminal engine AO renders client-side
- * — as a server-side screen buffer. We feed it the raw bytes and read back a
- * rendered snapshot of the VISIBLE viewport: the Windows analog of
- * `capture-pane -p`. The shared `ResponseExtractor` then runs unchanged, seeing
- * the same capture SHAPE on both platforms ("the byte source differs; the
- * extraction rules are shared").
+ * This wraps `@xterm/headless` — the same terminal engine xterm.js renders
+ * client-side — as a server-side screen buffer. We feed it the raw bytes and
+ * read back a rendered snapshot: the Windows analog of `capture-pane -p`. The
+ * shared `IdeaScanner` then runs unchanged, seeing the same capture SHAPE on
+ * both platforms ("the byte source differs; the scan rules are shared").
  */
 
 import os from "node:os";
@@ -74,6 +73,23 @@ export class TerminalScreen {
     const rows: string[] = [];
     for (let i = 0; i < this.#rows; i++) {
       rows.push(buf.getLine(top + i)?.translateToString(true) ?? "");
+    }
+    return rows.join("\n");
+  }
+
+  /**
+   * Render the ENTIRE buffer — scrollback above the screen plus the visible
+   * viewport — to flat text. The idea scan uses this (not {@link snapshot}) so
+   * an `«IDEA»` line that scrolled off between two captures is still caught
+   * before xterm trims it from scrollback. Session-scoped dedupe makes the
+   * inevitable re-scan of still-visible lines idempotent.
+   */
+  snapshotAll(): string {
+    const buf = this.#term.buffer.active;
+    const total = buf.length; // scrollback + viewport rows currently retained
+    const rows: string[] = [];
+    for (let i = 0; i < total; i++) {
+      rows.push(buf.getLine(i)?.translateToString(true) ?? "");
     }
     return rows.join("\n");
   }

@@ -1,10 +1,34 @@
 # Design: tmux-based interactive AI session layer (POSIX) + response extraction
 
-**Status:** Proposed (design only — no implementation in this PR)
+**Status:** Partially superseded — the durable-session layer stands; the response *extraction* (§4.3 chrome filter, §6 `ResponseMessage`) is replaced by terminal passthrough. See banner.
 **Author:** ai-storm backend
 **Related:** PRD §3.2, §3.3, §3.5, §3.6, §4.2, §5.1, §5.2
-**Follow-up:** [`ai-response-extraction-contract.md`](./ai-response-extraction-contract.md) refines §4.3's chrome filter into a concrete claude harness profile + idea-marker contract, and evolves §6's `ResponseMessage` to split chat (hub) from extracted ideas (canvas).
-**Reference implementation:** [`agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator) (local checkout at `/home/drdreo/Work/projects/agent-orchestrator`)
+**Reference implementation:** [`agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator)
+
+---
+
+> ## ⚠️ Update: the conversation surface is a real terminal again
+>
+> The durable, named, connection-independent **session layer** described here
+> stands (tmux on POSIX, in-process node-pty on Windows; priming, reconcile,
+> idempotent attach). What changed is the **output path**: instead of polling
+> `capture-pane`, extracting clean chat lines, and shipping a `ResponseMessage`
+> (§4.3, §6), the backend now streams the **raw PTY bytes** to the browser as a
+> `data` message and **xterm.js renders them** — much like the original AO model
+> this document set out to replace, but keeping the durable session layer.
+>
+> - **POSIX raw stream:** `tmux pipe-pane` tees the pane's raw output to a temp
+>   file which the backend tails and forwards as `data`. `capture-pane` is still
+>   polled, but only to feed the **idea scan**.
+> - **Windows raw stream:** node-pty `onData` bytes go straight to `data`, and in
+>   parallel into a headless `TerminalScreen` whose render is scanned for ideas.
+> - **Ideas:** the `«IDEA»` contract from
+>   [`ai-response-extraction-contract.md`](./ai-response-extraction-contract.md)
+>   is the only thing extracted server-side; each idea ships as an `idea` message.
+>
+> So §4.3's chrome filter, the `ResponseExtractor`, `ResponseMessage`/`chat`, and
+> `line-buffer.ts`/`SlicingBuffer` are obsolete; the §2 session/transport
+> machinery and §3.5 durability are not.
 
 ---
 

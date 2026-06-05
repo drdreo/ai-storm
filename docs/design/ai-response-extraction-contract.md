@@ -1,9 +1,37 @@
 # Design: backend AI response extraction contract (chat vs canvas ideas)
 
-**Status:** Proposed (design only — no implementation in this PR)
+**Status:** ⚠️ SUPERSEDED (the chat/chrome half) — see the banner below.
 **Author:** ai-storm backend
 **Related:** PRD §3.1, §3.2, §3.3, §3.5, §5.1 · builds directly on [`docs/design/ai-session-layer.md`](./ai-session-layer.md)
-**Touches:** `backend/src/session/extraction.ts`, `backend/src/session/line-buffer.ts`, `backend/src/session/tmux-backend.ts`, `backend/src/session/types.ts`, `backend/src/server.ts`, `packages/shared/src/protocol.ts`, `frontend/src/app/core/ingestion.service.ts`, `frontend/src/app/core/canvas.service.ts`, `frontend/src/app/components/control-hub.component.ts`
+
+---
+
+> ## ⚠️ Superseded: terminal passthrough + idea scan
+>
+> The **chat/display half** described below — server-side chat extraction, the
+> per-claude-version chrome regexes, echo anchoring, the `● ` reply marker, and
+> response-completion detection — has been **removed**. The conversation surface
+> is now a **real terminal**: the backend streams raw PTY bytes (a `data`
+> message, base64-encoded) and the browser renders them with **xterm.js**. This
+> deleted the fragile, version-tuned chrome/anchor/completion logic outright.
+>
+> What remains — and what the rest of this document still accurately describes —
+> is the **robust idea scan**: the `«IDEA»` / ` ```idea ` contract (§3, §4
+> priming, Appendix B) is unchanged. The backend renders the pane (tmux
+> `capture-pane` on POSIX, a headless `TerminalScreen` on Windows), scans **all**
+> lines for markers via `IdeaScanner` (`backend/src/session/extraction.ts`), and
+> emits each newly-seen idea as a single `idea` message, deduped by
+> `(title, body, kind)` across the whole session. There is no longer a
+> `response` message, a `chat` array, a completion flag, or the prose→idea
+> heuristic floor.
+>
+> **Current touches:** `backend/src/session/extraction.ts` (now `IdeaScanner`),
+> `screen.ts` (`snapshotAll`), `tmux-backend.ts` (`pipe-pane` raw stream +
+> capture-pane idea poll), `nodepty-backend.ts`, `types.ts`, `server.ts`,
+> `packages/shared/src/protocol.ts` (`data` + `idea`), the frontend
+> `TerminalComponent`, `ingestion.service.ts`, and `control-hub.component.ts`.
+> Sections below referring to `chat`, chrome stripping, `ResponseExtractor`,
+> `responseMarker`/`completionMarker`, or `line-buffer.ts` are historical.
 
 ---
 

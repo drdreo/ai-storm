@@ -25,13 +25,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, watch, type FSWatcher } from "node:fs";
+import { open } from "node:fs/promises";
+import { StringDecoder } from "node:string_decoder";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
-import { ResponseExtractor, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
-import type { ResponseChunk, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
+import { IdeaScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import type { Idea, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const TMUX_TIMEOUT_MS = 5_000;
@@ -39,21 +41,12 @@ const SESSION_PREFIX = "ai-storm-";
 
 /** Scrollback window captured each poll — generous so fast output isn't lost. */
 const CAPTURE_LINES = 2000;
-/** Poll cadence while a response is actively streaming (design §4.3.2). */
-const ACTIVE_POLL_MS = 100;
-/** Poll cadence while idle — near-zero CPU between responses. */
-const IDLE_POLL_MS = 600;
-/** Pane byte-identical for this long while responding ⇒ response complete. */
-const IDLE_COMPLETE_MS = 500;
-
-/** Durable tmux option stamping that a session was successfully primed (§4.4). */
-const PRIMED_OPTION = "@ai_storm_primed";
-/** Poll interval while waiting for harness readiness / the priming ack (§4.3). */
-const PRIME_POLL_MS = 150;
-/** Bounded wait for the harness input box to appear before priming (§4.3). */
-const PRIME_READY_TIMEOUT_MS = 10_000;
-/** Bounded wait for the priming `READY` ack before giving up (§4.5). */
-const PRIME_ACK_TIMEOUT_MS = 8_000;
+/**
+ * Cadence of the `capture-pane` idea scan. The conversation display does NOT
+ * depend on this poll — raw bytes stream live via `pipe-pane` — so a steady,
+ * low-cost cadence is enough to catch newly-rendered `«IDEA»` markers.
+ */
+const IDEA_POLL_MS = 400;
 
 /** Only safe characters in workspace IDs — the injection guard (design §9). */
 const SAFE_WORKSPACE_ID = /^[a-zA-Z0-9_-]+$/;
@@ -89,13 +82,24 @@ function writeLaunchScript(command: string): string {
 }
 
 interface Poller {
-  extractor: ResponseExtractor;
-  onChunk: (chunk: ResponseChunk) => void;
+  scanner: IdeaScanner;
+  onIdea: (idea: Idea) => void;
   onError: (message: string) => void;
   timer: NodeJS.Timeout | null;
   lastCapture: string;
-  idleSince: number | null;
   stopped: boolean;
+  // ── Raw byte stream (`pipe-pane` → file → onData), for the xterm.js terminal ──
+  onData: (raw: string) => void;
+  /** Temp file tmux's `pipe-pane` appends the pane's raw output to. */
+  rawFile: string | null;
+  /** Byte offset already forwarded from {@link rawFile}. */
+  rawOffset: number;
+  /** Watches {@link rawFile} for appended output. */
+  rawWatcher: FSWatcher | null;
+  /** Decodes raw bytes into strings across multibyte boundaries. */
+  rawDecoder: StringDecoder;
+  /** True while a read of {@link rawFile} is in flight (serializes reads). */
+  rawReading: boolean;
 }
 
 /** Run a tmux command, returning trimmed stdout. Uses execFile (no shell). */
@@ -209,14 +213,17 @@ export class TmuxSessionBackend implements SessionBackend {
 
     if (await this.hasSession(workspaceId)) {
       // Idempotent: an existing durable session is reused as-is (design §3.3).
+      // Priming is baked into the launch command (system-prompt flag), so a
+      // reused session is already primed — nothing to (re)do here.
       log.info("session.reuse", { workspace: workspaceId, session: sessionName });
-      // Crash-safe priming (§4.4): if the durable primed-flag is absent (the
-      // backend died between new-session and the priming Enter), (re)prime now.
-      await this.#ensurePrimed(workspaceId, profile, spec.prime);
       return { workspaceId, sessionId: sessionName };
     }
 
-    const args = spec.args ?? [];
+    // Prime via the harness's system-prompt flag — the «IDEA» contract becomes
+    // part of the system prompt at launch, followed from the first turn with
+    // nothing typed into the pane (no readiness/ack/echo dance).
+    const primeArgs = profile.systemPromptFlag && spec.prime ? [profile.systemPromptFlag, spec.prime] : [];
+    const args = [...(spec.args ?? []), ...primeArgs];
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
@@ -263,145 +270,59 @@ export class TmuxSessionBackend implements SessionBackend {
 
     log.info("session.created", { workspace: workspaceId, session: sessionName, command: command || "(shell)" });
 
-    // Prime the freshly-created session (§4): wait for harness readiness, send
-    // the instruction, suppress the READY ack, and stamp the durable flag.
-    await this.#ensurePrimed(workspaceId, profile, spec.prime);
-
     return { workspaceId, sessionId: sessionName };
-  }
-
-  /**
-   * Idempotent session priming (extraction-contract §4). Sends the harness the
-   * one-time idea-contract instruction exactly once per durable session, even
-   * across backend restarts / reattaches, gated on a durable tmux option.
-   *
-   * No-op unless the profile supports the contract AND a prime text was given.
-   * If the durable `@ai_storm_primed` flag is already set we skip (this is a
-   * reattach/restart). Otherwise we run the §4.3 readiness probe, send the
-   * instruction, run the §4.5 suppression window (the `READY` ack is consumed,
-   * never forwarded), then stamp the flag so a future restart won't re-prime.
-   */
-  async #ensurePrimed(workspaceId: string, profile: HarnessProfile, prime: string | undefined): Promise<void> {
-    if (!prime || !profile.supportsIdeaContract) return;
-    if (await this.#isPrimed(workspaceId)) {
-      log.info("prime.skip", { workspace: workspaceId, reason: "already-primed" });
-      return;
-    }
-    // Stop any prior poller so the priming turn (incl. the READY ack) is never
-    // forwarded as a response (§4.5); the server re-attaches right after create.
-    this.detach(workspaceId);
-
-    await this.#awaitReady(workspaceId, profile);
-    await this.sendInput(workspaceId, prime);
-    const acked = await this.#awaitPrimeAck(workspaceId);
-    if (!acked) log.warn("prime.no-ack", { workspace: workspaceId });
-
-    try {
-      await this.#tmux("set-option", "-t", this.#target(workspaceId), PRIMED_OPTION, "1");
-    } catch (err) {
-      // Non-fatal: an unstamped session just gets re-primed next create (§4.4).
-      log.warn("prime.stamp-failed", { workspace: workspaceId, message: err instanceof Error ? err.message : String(err) });
-    }
-    log.info("session.primed", { workspace: workspaceId, acked });
-  }
-
-  /** Read the durable primed-flag back (§4.4). Absent / error ⇒ not primed. */
-  async #isPrimed(workspaceId: string): Promise<boolean> {
-    try {
-      const v = await this.#tmux("show-options", "-v", "-t", this.#target(workspaceId), PRIMED_OPTION);
-      return v.trim() === "1";
-    } catch {
-      return false;
-    }
-  }
-
-  /** Poll the pane until the harness input box appears or a timeout (§4.3). */
-  async #awaitReady(workspaceId: string, profile: HarnessProfile): Promise<void> {
-    const marker = profile.readyMarker;
-    if (!marker) return;
-    const deadline = Date.now() + PRIME_READY_TIMEOUT_MS;
-    for (;;) {
-      try {
-        const capture = await this.#capture(workspaceId);
-        if (capture.split("\n").some((line) => marker.test(line))) return;
-      } catch {
-        // Session not capturable yet; keep waiting until the deadline.
-      }
-      if (Date.now() >= deadline) {
-        log.warn("prime.no-ready", { workspace: workspaceId });
-        return;
-      }
-      await this.#sleep(PRIME_POLL_MS);
-    }
-  }
-
-  /**
-   * Suppression window (§4.5): wait for the priming `READY` ack to appear in the
-   * pane, discarding everything. Returns whether the ack was observed. Output is
-   * never forwarded — the poller is detached for the whole window.
-   */
-  async #awaitPrimeAck(workspaceId: string): Promise<boolean> {
-    const deadline = Date.now() + PRIME_ACK_TIMEOUT_MS;
-    // claude prefixes its reply with a "● " bullet, so accept "● READY" too.
-    const ack = /^\s*●?\s*READY\s*$/u;
-    for (;;) {
-      try {
-        const capture = await this.#capture(workspaceId);
-        if (capture.split("\n").some((line) => ack.test(line))) return true;
-      } catch {
-        // ignore transient capture failures
-      }
-      if (Date.now() >= deadline) return false;
-      await this.#sleep(PRIME_POLL_MS);
-    }
   }
 
   async attach(
     workspaceId: string,
-    onChunk: (chunk: ResponseChunk) => void,
+    onData: (raw: string) => void,
+    onIdea: (idea: Idea) => void,
     onError: (message: string) => void,
   ): Promise<void> {
     assertValidWorkspaceId(workspaceId);
     // Idempotent reattach: stop any prior poller for this workspace first.
     this.detach(workspaceId);
 
-    // Use the profile + pane width recorded at create() (§7.2). If attach is
-    // somehow reached without a create (e.g. reconcile-then-attach), fall back
-    // to the default profile so extraction still runs.
-    const config = this.#configs.get(workspaceId);
-    const profile = config?.profile ?? getProfile(undefined);
-    const extractor = new ResponseExtractor(profile, {
-      onWarn: (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
-      onHeuristic: (count) => log.info("extract.heuristic", { workspace: workspaceId, count }),
-      // A near-miss (the agent attempted but mangled the «IDEA» marker) is worth
-      // a warning; an ordinary chat-only reply is debug-level noise.
-      onDebug: (event, data) => {
-        const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
-        log[level](event, { workspace: workspaceId, ...data });
-      },
-    });
     const poller: Poller = {
-      extractor,
-      onChunk,
+      scanner: new IdeaScanner({
+        // A near-miss (the agent attempted but mangled the «IDEA» marker) is
+        // worth a warning; an ordinary scan is debug-level noise.
+        onDebug: (event, data) => {
+          const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
+          log[level](event, { workspace: workspaceId, ...data });
+        },
+      }),
+      onIdea,
       onError,
       timer: null,
       lastCapture: "",
-      idleSince: null,
       stopped: false,
+      onData,
+      rawFile: null,
+      rawOffset: 0,
+      rawWatcher: null,
+      rawDecoder: new StringDecoder("utf8"),
+      rawReading: false,
     };
     this.#pollers.set(workspaceId, poller);
 
-    // Seed the extractor with the current idle pane so a send taken immediately
-    // after attach baselines off the real prompt, not an empty pane.
+    // SEED the scanner with the current pane and DISCARD the result so ideas
+    // already on screen are never re-emitted: this suppresses the echoed priming
+    // instruction's example «IDEA» line AND, on reattach to a running session,
+    // the ideas the canvas already holds (a fresh scanner has an empty dedupe
+    // set, so without this every visible idea would be re-sent on reconnect).
     try {
       poller.lastCapture = await this.#capture(workspaceId);
-      extractor.ingest(poller.lastCapture);
+      poller.scanner.scan(poller.lastCapture, true);
     } catch {
       // Session may not exist yet; the poll loop reports it on the next tick.
     }
 
+    // Begin streaming raw pane bytes to the client (the xterm.js terminal).
+    await this.#startRawStream(workspaceId, poller);
+
     log.info("session.attached", { workspace: workspaceId });
-    this.#scheduleTick(workspaceId, IDLE_POLL_MS);
+    this.#scheduleTick(workspaceId, IDEA_POLL_MS);
   }
 
   #scheduleTick(workspaceId: string, delay: number): void {
@@ -410,6 +331,7 @@ export class TmuxSessionBackend implements SessionBackend {
     poller.timer = setTimeout(() => void this.#tick(workspaceId), delay);
   }
 
+  /** Poll `capture-pane` and emit any newly-rendered ideas (display is separate). */
   async #tick(workspaceId: string): Promise<void> {
     const poller = this.#pollers.get(workspaceId);
     if (!poller || poller.stopped) return;
@@ -425,39 +347,97 @@ export class TmuxSessionBackend implements SessionBackend {
         this.detach(workspaceId);
         return;
       }
-      // Transient error; retry on the idle cadence.
-      this.#scheduleTick(workspaceId, IDLE_POLL_MS);
+      // Transient error; retry on the same cadence.
+      this.#scheduleTick(workspaceId, IDEA_POLL_MS);
       return;
     }
     if (poller.stopped) return;
-
-    const changed = capture !== poller.lastCapture;
     poller.lastCapture = capture;
 
-    const result = poller.extractor.ingest(capture);
-    if (result.chat.length > 0 || result.ideas.length > 0 || result.complete) {
-      poller.onChunk({ workspaceId, chat: result.chat, ideas: result.ideas, complete: result.complete });
+    for (const idea of poller.scanner.scan(capture)) {
+      log.info("idea.extracted", {
+        workspace: workspaceId,
+        kind: idea.kind ?? "",
+        title: idea.title,
+        body: idea.body.slice(0, 120),
+      });
+      poller.onIdea(idea);
     }
 
-    // Idle-timeout completion: pane unchanged for IDLE_COMPLETE_MS mid-response.
-    const now = Date.now();
-    if (changed) {
-      poller.idleSince = null;
-    } else if (poller.idleSince === null) {
-      poller.idleSince = now;
+    this.#scheduleTick(workspaceId, IDEA_POLL_MS);
+  }
+
+  /**
+   * Tee the pane's raw output to a temp file via `tmux pipe-pane` and forward
+   * appended bytes to the client — the faithful (AO-style) terminal stream. We
+   * append to a regular file and tail it (rather than a FIFO) so reads never
+   * block on the writer and a transient reader gap just leaves bytes on disk.
+   */
+  async #startRawStream(workspaceId: string, poller: Poller): Promise<void> {
+    const file = join(tmpdir(), `ai-storm-pipe-${workspaceId}-${randomUUID().slice(0, 8)}.raw`);
+    try {
+      writeFileSync(file, "", { encoding: "utf-8", mode: 0o600 });
+      poller.rawFile = file;
+      poller.rawOffset = 0;
+      // `cat >> file` appends this pane's raw stdout (escape sequences intact).
+      await this.#tmux("pipe-pane", "-t", this.#target(workspaceId), `cat >> ${shellEscape(file)}`);
+      poller.rawWatcher = watch(file, () => void this.#drainRaw(workspaceId));
+      // Drain once immediately in case bytes landed before the watcher attached.
+      void this.#drainRaw(workspaceId);
+    } catch (err) {
+      log.warn("pipe.start_failed", {
+        workspace: workspaceId,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
-    if (
-      poller.extractor.responding &&
-      poller.idleSince !== null &&
-      now - poller.idleSince >= IDLE_COMPLETE_MS
-    ) {
-      const fin = poller.extractor.finalize();
-      if (fin.chat.length > 0 || fin.ideas.length > 0 || fin.complete) {
-        poller.onChunk({ workspaceId, chat: fin.chat, ideas: fin.ideas, complete: fin.complete });
+  }
+
+  /** Read everything appended to the pipe file since the last read; forward it. */
+  async #drainRaw(workspaceId: string): Promise<void> {
+    const poller = this.#pollers.get(workspaceId);
+    if (!poller || poller.stopped || !poller.rawFile || poller.rawReading) return;
+    poller.rawReading = true;
+    try {
+      const handle = await open(poller.rawFile, "r");
+      try {
+        for (;;) {
+          const buf = Buffer.allocUnsafe(64 * 1024);
+          const { bytesRead } = await handle.read(buf, 0, buf.length, poller.rawOffset);
+          if (bytesRead <= 0) break;
+          poller.rawOffset += bytesRead;
+          const text = poller.rawDecoder.write(buf.subarray(0, bytesRead));
+          if (text && !poller.stopped) poller.onData(text);
+        }
+      } finally {
+        await handle.close();
       }
+    } catch {
+      // File vanished / unreadable — the session is tearing down; ignore.
+    } finally {
+      poller.rawReading = false;
     }
+  }
 
-    this.#scheduleTick(workspaceId, poller.extractor.responding ? ACTIVE_POLL_MS : IDLE_POLL_MS);
+  /** Stop teeing the pane and remove the pipe file. */
+  #stopRawStream(workspaceId: string, poller: Poller): void {
+    if (poller.rawWatcher) {
+      try {
+        poller.rawWatcher.close();
+      } catch {
+        /* already closed */
+      }
+      poller.rawWatcher = null;
+    }
+    // `pipe-pane` with no command toggles the pipe off.
+    void this.#tmux("pipe-pane", "-t", this.#target(workspaceId)).catch(() => {});
+    if (poller.rawFile) {
+      try {
+        unlinkSync(poller.rawFile);
+      } catch {
+        /* best-effort cleanup */
+      }
+      poller.rawFile = null;
+    }
   }
 
   /** `capture-pane -p` already flattens the screen and drops escapes; sanitize
@@ -479,23 +459,32 @@ export class TmuxSessionBackend implements SessionBackend {
 
   async sendInput(workspaceId: string, data: string): Promise<void> {
     assertValidWorkspaceId(workspaceId);
-    const target = this.#target(workspaceId);
-    // The frontend appends a carriage return for PTY line discipline; tmux
-    // submits with a separate Enter, so strip the trailing newline here.
-    const text = data.replace(/[\r\n]+$/, "");
-
-    // Record what we sent so the extractor can skip its echo (design §4.3.1).
-    // Done before any keystrokes so the baseline reflects the pre-send pane.
-    const poller = this.#pollers.get(workspaceId);
-    poller?.extractor.beginResponse(text);
-    // Kick the poll loop onto its active cadence immediately rather than
-    // waiting out the remaining idle interval, so the echo/response is captured
-    // promptly after Enter (design §4.3.2 adaptive cadence).
-    if (poller) {
-      if (poller.timer) clearTimeout(poller.timer);
-      poller.idleSince = null;
-      this.#scheduleTick(workspaceId, ACTIVE_POLL_MS);
+    if (data.length === 0) return;
+    // Raw passthrough: forward the xterm.js keystrokes (printable bytes, control
+    // codes, the submitting carriage return) literally. `-l` stops tmux
+    // interpreting them as key NAMES ("Enter"/"C-c"); the bytes reach the pane
+    // exactly as typed, which is what an interactive terminal needs.
+    try {
+      await this.#tmux("send-keys", "-t", this.#target(workspaceId), "-l", data);
+    } catch (err) {
+      log.warn("send.failed", {
+        workspace: workspaceId,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
+  }
+
+  /**
+   * Submit a full prompt programmatically (priming / context injection): clear
+   * the input line, deliver the text (paste buffer for multi-line/long, literal
+   * for short), then submit with a delayed Enter so the harness's line
+   * discipline sees a settled line. NOT used for interactive keystrokes.
+   */
+  async submitPrompt(workspaceId: string, data: string): Promise<void> {
+    assertValidWorkspaceId(workspaceId);
+    const target = this.#target(workspaceId);
+    // tmux submits with a separate Enter, so strip any trailing newline here.
+    const text = data.replace(/[\r\n]+$/, "");
 
     // 1) Clear any partial input first. AO's session-creation path
     //    (runtime-tmux/index.ts) uses `C-u` (readline kill-line) for this, NOT
@@ -543,8 +532,6 @@ export class TmuxSessionBackend implements SessionBackend {
     } catch {
       // Resize is best-effort; a transient failure is non-fatal.
     }
-    // A width change reflows wrapped lines — re-anchor extraction (design §4).
-    this.#pollers.get(workspaceId)?.extractor.reanchor();
     const config = this.#configs.get(workspaceId);
     if (config) config.cols = cols;
   }
@@ -554,6 +541,7 @@ export class TmuxSessionBackend implements SessionBackend {
     if (!poller) return;
     poller.stopped = true;
     if (poller.timer) clearTimeout(poller.timer);
+    this.#stopRawStream(workspaceId, poller);
     this.#pollers.delete(workspaceId);
     log.info("session.detached", { workspace: workspaceId });
     // The tmux session is intentionally left alive (PRD §3.5).
