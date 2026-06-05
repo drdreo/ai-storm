@@ -2,14 +2,20 @@
  * Terminal garbage elimination (PRD §3.3).
  *
  * Strips ANSI escape sequences, SGR color/style parameters, cursor controls,
- * OSC strings, and other terminal control bytes so the parser downstream sees
+ * OSC strings, and other terminal control bytes so the response extractor sees
  * clean, uncorrupted text. Pure & framework-agnostic so it is unit-testable
- * outside the browser. No literal control bytes appear in this source — every
+ * outside any runtime. No literal control bytes appear in this source — every
  * control character is expressed as a \u escape so the file stays ASCII-safe.
+ *
+ * This previously lived client-side (`frontend/src/app/core/ansi.ts`). The
+ * response layer is now extracted backend-side, so the cleaning logic moved
+ * here with it: `tmux capture-pane -p` already drops escapes, but it is applied
+ * as defence-in-depth for residual control bytes (design §4.3 step 3), and the
+ * Windows node-pty backend relies on it to clean the raw PTY byte stream.
  */
 
-const ESC = String.fromCharCode(0x1B); // 7-bit escape introducer
-const CSI8 = String.fromCharCode(0x9B); // 8-bit CSI introducer
+const ESC = String.fromCharCode(0x1b); // 7-bit escape introducer
+const CSI8 = String.fromCharCode(0x9b); // 8-bit CSI introducer
 
 const ANSI_PATTERN = new RegExp(
   [
@@ -50,7 +56,7 @@ export function sanitize(input: string): string {
 
 /**
  * Detect whether a chunk ends mid-escape-sequence (an ESC introducer with no
- * terminating final byte yet). The slicing buffer uses this to hold back a
+ * terminating final byte yet). The line buffer uses this to hold back a
  * fragment that would otherwise split an escape across chunk boundaries.
  */
 export function endsWithPartialEscape(input: string): boolean {

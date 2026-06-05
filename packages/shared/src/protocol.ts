@@ -8,6 +8,12 @@
  * All messages are JSON encoded and exchanged over the local-only WebSocket
  * loop described in PRD §4.2. Every message is keyed by `workspaceId` so a
  * single socket can multiplex the strictly-isolated workspaces from PRD §3.4.
+ *
+ * The backend hosts each workspace's AI harness inside a durable, named,
+ * connection-independent session (tmux on POSIX, an in-process node-pty on
+ * Windows — see `docs/design/ai-session-layer.md`). It extracts the agent's
+ * **response text** server-side and ships clean lines as `response` messages;
+ * the client never receives the raw terminal stream.
  */
 
 /** Messages sent from the web client to the backend daemon. */
@@ -16,31 +22,41 @@ export type ClientMessage =
   | InputMessage
   | ResizeMessage
   | DetachMessage
+  | KillMessage
   | ContextMessage
   | AgentMessage;
 
-/** Spawn (or re-attach to) the PTY bound to a workspace. */
+/**
+ * Ensure the durable session for a workspace exists and start streaming its
+ * extracted responses to this client. Idempotent (PRD §3.5): if the session is
+ * already running (e.g. after a browser refresh or backend restart), the
+ * backend re-attaches the response stream instead of respawning the harness.
+ */
 export interface AttachMessage {
   type: "attach";
   workspaceId: string;
-  /** Override the shell/binary to spawn. Defaults to the platform shell. */
+  /**
+   * The interactive harness command to host, e.g. "claude". Optional; defaults
+   * to the configured harness. Never a headless/print flag — the real
+   * interactive CLI is always driven (design §1, hard constraints).
+   */
   shell?: string;
-  /** Arguments passed to the spawned binary. */
+  /** Arguments passed to the harness command. */
   args?: string[];
-  /** Working directory for the spawned process. */
+  /** Working directory for the session. */
   cwd?: string;
   cols?: number;
   rows?: number;
 }
 
-/** Forward raw keystrokes/text to the PTY stdin. */
+/** Send a prompt to the workspace's session (delivered to the harness stdin). */
 export interface InputMessage {
   type: "input";
   workspaceId: string;
   data: string;
 }
 
-/** Inform the PTY of a new viewport size. */
+/** Inform the session of a new viewport size; re-anchors extraction width. */
 export interface ResizeMessage {
   type: "resize";
   workspaceId: string;
@@ -48,15 +64,25 @@ export interface ResizeMessage {
   rows: number;
 }
 
-/** Terminate and clean up a workspace's PTY (PRD §5.2 teardown). */
+/**
+ * Stop streaming responses for a workspace but LEAVE the durable session alive
+ * (browser refresh, socket loss, workspace hot-switch). The session can be
+ * reattached later (PRD §3.5).
+ */
 export interface DetachMessage {
   type: "detach";
   workspaceId: string;
 }
 
+/** Terminate and clean up a workspace's session entirely (PRD §5.2 teardown). */
+export interface KillMessage {
+  type: "kill";
+  workspaceId: string;
+}
+
 /**
- * Inject the serialized canvas state into the terminal loop (PRD §3.2).
- * The backend writes the document to the PTY stdin as contextual memory.
+ * Inject the serialized canvas state into the session loop (PRD §3.2).
+ * The backend feeds the document to the harness as contextual memory.
  */
 export interface ContextMessage {
   type: "context";
@@ -80,27 +106,33 @@ export interface AgentMessage {
 
 /** Messages sent from the backend daemon to the web client. */
 export type ServerMessage =
-  | ReadyMessage
-  | DataMessage
+  | SessionStatusMessage
+  | ResponseMessage
   | ExitMessage
   | AgentStatusMessage
   | ErrorMessage;
 
-/** A PTY was spawned successfully. */
-export interface ReadyMessage {
-  type: "ready";
+/** Lifecycle of a durable session, decoupled from a specific connection. */
+export interface SessionStatusMessage {
+  type: "session-status";
   workspaceId: string;
-  pid: number;
+  status: "created" | "attached" | "idle" | "responding" | "killed";
 }
 
-/** A raw, unprocessed chunk of PTY stdout (PRD §3.3 — parsed client-side). */
-export interface DataMessage {
-  type: "data";
+/**
+ * Backend-extracted agent response text (replaces the old raw `data` framing).
+ * Carries only the agent's response — never the echoed prompt or harness chrome.
+ */
+export interface ResponseMessage {
+  type: "response";
   workspaceId: string;
-  chunk: string;
+  /** Clean, finalized lines ready for MarkdownBlockParser. */
+  lines: string[];
+  /** True once idle/prompt-return marks the response complete (flushNow()). */
+  complete: boolean;
 }
 
-/** The PTY process exited. */
+/** The durable session ended unexpectedly (e.g. killed externally). */
 export interface ExitMessage {
   type: "exit";
   workspaceId: string;
@@ -146,7 +178,7 @@ export function parseClientMessage(raw: string): ClientMessage {
   }
 
   // Per-type field validation so malformed payloads are rejected here with a
-  // clear error instead of reaching node-pty / the spawner as `undefined`.
+  // clear error instead of reaching the session backend as `undefined`.
   const m = msg as unknown as Record<string, unknown>;
   switch (msg.type) {
     case "attach":
@@ -160,6 +192,7 @@ export function parseClientMessage(raw: string): ClientMessage {
       requireNumber(m, "rows", "resize");
       break;
     case "detach":
+    case "kill":
       // workspaceId checked above; nothing else required.
       break;
     case "context":

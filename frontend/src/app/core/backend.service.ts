@@ -20,6 +20,7 @@ export class BackendService {
   #url: string;
   #handlers = new Map<string, Set<ServerMessageHandler>>();
   #globalHandlers = new Set<ServerMessageHandler>();
+  #openHandlers = new Set<() => void>();
   #outbox: ClientMessage[] = [];
   #reconnectDelay = 500;
   #reconnectTimer: number | null = null;
@@ -47,6 +48,10 @@ export class BackendService {
       // Flush anything queued while disconnected.
       const queued = this.#outbox.splice(0);
       for (const msg of queued) this.#rawSend(msg);
+      // Notify subscribers so durable sessions can be re-attached after a
+      // backend restart or socket drop (PRD §3.5). `attach` is idempotent, so
+      // re-issuing it against an already-running session simply resumes it.
+      for (const h of this.#openHandlers) h();
     };
 
     socket.onmessage = (event) => {
@@ -106,6 +111,12 @@ export class BackendService {
   subscribeAll(handler: ServerMessageHandler): () => void {
     this.#globalHandlers.add(handler);
     return () => this.#globalHandlers.delete(handler);
+  }
+
+  /** Run `handler` every time the socket (re)opens. Returns an unsubscribe fn. */
+  onOpen(handler: () => void): () => void {
+    this.#openHandlers.add(handler);
+    return () => this.#openHandlers.delete(handler);
   }
 
   send(msg: ClientMessage): void {

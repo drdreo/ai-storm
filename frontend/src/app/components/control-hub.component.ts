@@ -60,15 +60,12 @@ import { BackendService } from '../core/backend.service';
         <span class="hint">prompts go to this CLI's stdin</span>
       </div>
 
-      <section class="stream" #stream role="log" aria-live="polite" aria-label="Terminal output">
+      <section class="stream" #stream role="log" aria-live="polite" aria-label="Agent response output">
         @for (line of lines(); track $index) {
           <div class="line">{{ line }}</div>
         }
-        @if (pending()) {
-          <div class="line pending">{{ pending() }}</div>
-        }
-        @if (lines().length === 0 && !pending()) {
-          <div class="empty">No terminal output yet. Start a session and type a prompt below.</div>
+        @if (lines().length === 0) {
+          <div class="empty">No responses yet. Start a session and type a prompt below.</div>
         }
       </section>
 
@@ -302,10 +299,6 @@ export class ControlHubComponent {
     const id = this.workspaces.activeId();
     return id ? this.ingestion.terminalLines(id)() : [];
   });
-  readonly pending = computed(() => {
-    const id = this.workspaces.activeId();
-    return id ? this.ingestion.terminalPending(id)() : '';
-  });
   readonly agentRun = computed(() => {
     const id = this.workspaces.activeId();
     return id ? this.#agent.run(id)() : null;
@@ -317,7 +310,6 @@ export class ControlHubComponent {
     // Keep the stream pinned to the bottom as new lines arrive.
     effect(() => {
       this.lines();
-      this.pending();
       const el = this.stream()?.nativeElement;
       if (el) queueMicrotask(() => (el.scrollTop = el.scrollHeight));
     });
@@ -334,7 +326,9 @@ export class ControlHubComponent {
   }
 
   stop(id: string): void {
-    this.ingestion.detach(id);
+    // Explicit "Stop" tears the durable session down (PRD §5.2). A browser
+    // refresh / socket drop only detaches and leaves the session alive (§3.5).
+    this.ingestion.kill(id);
   }
 
   onKey(event: KeyboardEvent, id: string): void {
