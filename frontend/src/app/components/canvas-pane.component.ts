@@ -76,29 +76,47 @@ import type { CanvasMode } from '../core/models';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.5rem 0.75rem;
-        border-bottom: 1px solid var(--border);
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 1px solid var(--border-strong);
         background: var(--panel-bg);
-        gap: 0.5rem;
+        box-shadow: var(--shadow-sm);
+        gap: var(--space-2);
+        z-index: 2;
       }
+      /* Segmented control for the Document / Canvas view toggle. */
       .modes {
         display: inline-flex;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--input-bg);
       }
       .modes button {
         border: 0;
-        background: var(--btn-bg);
+        background: transparent;
         color: var(--text-dim);
-        padding: 0.4rem 0.85rem;
+        padding: 0.34rem 0.85rem;
+        border-radius: 6px;
         cursor: pointer;
         font: inherit;
         font-size: 0.8rem;
+        font-weight: 500;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out);
+      }
+      .modes button:hover:not(.on) {
+        color: var(--text);
       }
       .modes button.on {
-        background: var(--accent-soft);
+        background: var(--surface-raised);
         color: var(--text);
+        box-shadow: var(--shadow-sm);
+      }
+      .modes button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .modes:focus,
       .modes:focus-visible,
@@ -108,15 +126,29 @@ import type { CanvasMode } from '../core/models';
       }
       .actions {
         display: flex;
-        gap: 0.5rem;
+        gap: var(--space-2);
       }
       .actions button {
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         padding: 0.42rem 0.8rem;
         cursor: pointer;
         font: inherit;
         font-size: 0.8rem;
-        border: 1px solid var(--border);
+        font-weight: 500;
+        border: 1px solid var(--border-strong);
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out),
+          border-color var(--dur-fast) var(--ease-out),
+          transform var(--dur-fast) var(--ease-out),
+          box-shadow var(--dur-fast) var(--ease-out);
+      }
+      .actions button:active {
+        transform: translateY(1px);
+      }
+      .actions button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .ghost {
         background: var(--btn-bg);
@@ -125,15 +157,23 @@ import type { CanvasMode } from '../core/models';
       .ghost:hover {
         background: var(--btn-hover);
         color: var(--text);
+        border-color: var(--border-strong);
       }
       .accent {
         background: var(--accent);
-        color: #08111d;
+        color: var(--on-accent);
         border-color: var(--accent);
         font-weight: 600;
+        box-shadow:
+          var(--shadow-sm),
+          inset 0 1px 0 rgba(255, 255, 255, 0.18);
       }
       .accent:hover {
-        filter: brightness(1.08);
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      .accent:active {
+        background: var(--accent-press);
       }
       .host {
         flex: 1;

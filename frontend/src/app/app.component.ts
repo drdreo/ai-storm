@@ -48,18 +48,24 @@ import { ControlHubComponent } from './components/control-hub.component';
       }
       .shell {
         display: grid;
-        grid-template-columns: var(--sidebar-w, 240px) 1fr var(--hub-w, 420px);
+        grid-template-columns: var(--sidebar-w, 244px) 1fr var(--hub-w, 424px);
         height: 100%;
+        background: var(--bg);
       }
       .canvas-pane {
         position: relative;
         min-width: 0;
         background: var(--canvas-bg);
         overflow: hidden;
+        /* The light canvas is the focal plane — lift it above the dark shell. */
+        box-shadow:
+          -8px 0 24px -12px rgba(0, 0, 0, 0.55),
+          8px 0 24px -12px rgba(0, 0, 0, 0.55);
+        z-index: 1;
       }
       .hub-pane {
         min-width: 0;
-        border-left: 1px solid var(--border);
+        border-left: 1px solid var(--border-strong);
         background: var(--panel-bg);
         display: flex;
         flex-direction: column;
@@ -68,17 +74,27 @@ import { ControlHubComponent } from './components/control-hub.component';
         height: 100%;
         display: grid;
         place-content: center;
-        gap: 1rem;
+        gap: var(--space-5);
         justify-items: center;
         color: var(--text-dim);
+        background: radial-gradient(
+          120% 80% at 50% 0%,
+          var(--panel-bg) 0%,
+          var(--bg) 60%
+        );
+      }
+      .boot p {
+        margin: 0;
+        font-size: 0.9rem;
+        letter-spacing: 0.01em;
       }
       .boot__spinner {
-        width: 28px;
-        height: 28px;
-        border: 3px solid var(--border);
+        width: 30px;
+        height: 30px;
+        border: 2.5px solid var(--border-strong);
         border-top-color: var(--accent);
         border-radius: 50%;
-        animation: spin 0.8s linear infinite;
+        animation: spin 0.7s var(--ease-out) infinite;
       }
       @keyframes spin {
         to {
