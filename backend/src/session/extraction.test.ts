@@ -217,11 +217,16 @@ describe("claude profile — §9.1 chrome strip (verified against real claude 2.
     const chrome = (line: string) => CLAUDE_PROFILE.chrome.some((re) => re.test(line));
     expect(chrome("Opus 4.8 (1M context) | main | ~/p | ctx:29.0k/1000k (3%) | 5h:33%")).toBe(true);
     expect(chrome("  Opus 4.8 (1M context) |  feat/x | ~/very/long/path/worktrees/a…")).toBe(true); // truncated
+    // Opus 4.8 per-segment status bar (the format the live Windows TUI emits).
+    expect(chrome("  [Opus 4.8 (1M context)] 📁 C:\\Dev\\ai-storm | 🌿 main | 0% context | $0.00")).toBe(true);
+    expect(chrome("  [Opus 4.8 (1M context)] 📁 C:\\Dev\\very\\long\\path")).toBe(true); // truncated header
     expect(chrome("* Catapulting…")).toBe(true);
     expect(chrome("✽ Forging… (5s · ↓ 227 tokens)")).toBe(true);
+    expect(chrome("✢ Sprouting… (24s)")).toBe(true); // dingbat-star spinner glyph
     expect(chrome("✻ Worked for 3s")).toBe(true);
     expect(chrome("✻ Brewed for 4s")).toBe(true); // randomised verb
     expect(chrome("✻ Baked for 3s")).toBe(true);
+    expect(chrome("✢ Churned for 10s")).toBe(true); // dingbat-star done glyph
     expect(chrome("⏵⏵ auto mode on (shift+tab to cycle) · PR #10 · ← for agents")).toBe(true);
     expect(chrome("⎿  Tip: Run claude --continue or claude --resume to resume a conversation")).toBe(true);
     expect(chrome("❯ go deeper on the latency budget")).toBe(true); // echoed input / suggestion / idle prompt

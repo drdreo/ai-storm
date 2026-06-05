@@ -232,7 +232,7 @@ async function dispatch(
         await backend.attach(
           workspaceId,
           (chunk) => {
-            log.debug("response", {
+            log.info("response", {
               workspace: workspaceId,
               chat: chunk.chat.length,
               ideas: chunk.ideas.length,
@@ -255,7 +255,7 @@ async function dispatch(
       break;
     }
     case "input":
-      log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
+      log.info("input", { workspace: msg.workspaceId, bytes: msg.data.length });
       send({ type: "session-status", workspaceId: msg.workspaceId, status: "responding" });
       try {
         await backend.sendInput(msg.workspaceId, msg.data);

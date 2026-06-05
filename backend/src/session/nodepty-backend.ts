@@ -21,25 +21,32 @@ import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError } from "../pty/resolve.ts";
-import { SlicingBuffer } from "./line-buffer.ts";
+import { TerminalScreen } from "./screen.ts";
 import { ResponseExtractor, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
 import type { ResponseChunk, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
 const pty = ptyDefault as unknown as typeof import("@lydell/node-pty");
 
-/** Pane goes quiet for this long mid-response ⇒ response complete (design §4.3.2). */
-const IDLE_COMPLETE_MS = 500;
+/**
+ * Pane goes quiet for this long mid-response ⇒ response complete (design §4.3.2).
+ * This is the FALLBACK completion path; the precise path is the profile's
+ * `completionMarker` (claude's "✻ <Verb> for <n>s" done-line), which finalizes
+ * immediately. 500ms was far too short — claude pauses well over that while
+ * thinking / using tools / retrying, which fired `finalize()` mid-turn and
+ * completed the response empty. 15s comfortably outlasts those pauses.
+ */
+const IDLE_COMPLETE_MS = 15_000;
 /** Fallback delay before priming if the readiness marker never appears (§4.3). */
 const PRIME_FALLBACK_MS = 3_000;
 
 interface Session {
   term: IPty | null;
-  buffer: SlicingBuffer;
+  /** Headless VT screen: applies ConPTY's cursor-addressed paint stream so we
+   *  can read back a rendered capture (the Windows `capture-pane -p` analog). */
+  screen: TerminalScreen;
   extractor: ResponseExtractor;
   profile: HarnessProfile;
-  /** Running transcript of completed logical lines (the "pane" we extract from). */
-  transcript: string[];
   onChunk: ((chunk: ResponseChunk) => void) | null;
   onError: ((message: string) => void) | null;
   idleTimer: NodeJS.Timeout | null;
@@ -134,7 +141,7 @@ export class NodePtySessionBackend implements SessionBackend {
 
     const session: Session = {
       term,
-      buffer: new SlicingBuffer(),
+      screen: new TerminalScreen(cols, rows),
       extractor: new ResponseExtractor(profile, {
         onWarn: (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
         onHeuristic: (count) => log.info("extract.heuristic", { workspace: workspaceId, count }),
@@ -146,7 +153,6 @@ export class NodePtySessionBackend implements SessionBackend {
         },
       }),
       profile,
-      transcript: [],
       onChunk: null,
       onError: null,
       idleTimer: null,
@@ -158,7 +164,14 @@ export class NodePtySessionBackend implements SessionBackend {
     };
     this.#sessions.set(workspaceId, session);
 
-    term.onData((chunk) => this.#onData(workspaceId, chunk));
+    term.onData((chunk) => {
+      this.#onData(workspaceId, chunk).catch((err) =>
+        log.warn("pty.ondata_error", {
+          workspace: workspaceId,
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    });
     term.onExit(({ exitCode }) => {
       session.closed = true;
       if (session.primeFallback) clearTimeout(session.primeFallback);
@@ -209,30 +222,49 @@ export class NodePtySessionBackend implements SessionBackend {
     log.info("session.attached", { workspace: workspaceId });
   }
 
-  /** Reconstruct the transcript from the byte stream and run the extractor. */
-  #onData(workspaceId: string, chunk: string): void {
+  /** Apply the byte stream to the headless screen, snapshot it, run the extractor. */
+  async #onData(workspaceId: string, chunk: string): Promise<void> {
     const session = this.#sessions.get(workspaceId);
     if (!session) return;
-    const { lines } = session.buffer.push(chunk);
-    if (lines.length > 0) session.transcript.push(...lines);
+    await session.screen.write(chunk);
+
+    // The rendered viewport — the same capture shape tmux gives us on POSIX.
+    const capture = session.screen.snapshot();
 
     // Priming readiness probe (§4.3): once the harness input box appears, send
     // the pending instruction. Done before extraction so the READY ack — which
     // arrives while not `responding` — is never forwarded as a response (§4.5).
     if (session.pendingPrime && session.profile.readyMarker) {
       const marker = session.profile.readyMarker;
-      if (lines.some((l) => marker.test(l)) || marker.test(session.buffer.pending)) {
+      if (capture.split("\n").some((l) => marker.test(l))) {
         this.#sendPrime(workspaceId);
       }
     }
 
-    // Feed the running transcript (+ live partial line) as the current capture.
-    const capture = [...session.transcript, session.buffer.pending].join("\n");
     const result = session.extractor.ingest(capture);
+    for (const idea of result.ideas) {
+      log.info("idea.extracted", {
+        workspace: workspaceId,
+        kind: idea.kind ?? "",
+        title: idea.title,
+        body: idea.body.slice(0, 120),
+      });
+    }
     if ((result.chat.length > 0 || result.ideas.length > 0 || result.complete) && session.onChunk) {
       session.onChunk({ workspaceId, chat: result.chat, ideas: result.ideas, complete: result.complete });
     }
+    // One capture dump per turn, at completion — not per streamed chunk.
+    if (result.complete) this.#logResponseCapture(workspaceId, capture, session.extractor.anchored);
     this.#armIdleTimer(workspaceId);
+  }
+
+  /** Debug-only: dump the final rendered screen once a response completes. */
+  #logResponseCapture(workspaceId: string, capture: string, anchored: boolean): void {
+    log.debug("response.capture", {
+      workspace: workspaceId,
+      anchored,
+      tail: JSON.stringify(capture.split("\n").filter((l) => l !== "").slice(-24)).slice(0, 1500),
+    });
   }
 
   /** When the stream goes quiet mid-response, finalize via idle timeout. */
@@ -242,10 +274,13 @@ export class NodePtySessionBackend implements SessionBackend {
     if (session.idleTimer) clearTimeout(session.idleTimer);
     session.idleTimer = setTimeout(() => {
       if (!session.extractor.responding) return;
+      const anchored = session.extractor.anchored;
       const fin = session.extractor.finalize();
       if ((fin.chat.length > 0 || fin.ideas.length > 0 || fin.complete) && session.onChunk) {
         session.onChunk({ workspaceId, chat: fin.chat, ideas: fin.ideas, complete: fin.complete });
       }
+      // Same single end-of-turn capture dump for the idle-timeout completion path.
+      this.#logResponseCapture(workspaceId, session.screen.snapshot(), anchored);
     }, IDLE_COMPLETE_MS);
   }
 
@@ -271,6 +306,7 @@ export class NodePtySessionBackend implements SessionBackend {
     session.rows = rows;
     try {
       session.term.resize(cols, rows);
+      session.screen.resize(cols, rows);
     } catch {
       // ignore resize on a dead terminal
     }

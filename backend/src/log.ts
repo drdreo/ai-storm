@@ -1,8 +1,8 @@
 /**
  * Structured logging + tracing for the backend flow.
  *
- *   1. `log.{debug,info,warn,error}` — structured records, level via
- *      `AI_STORM_LOG` (debug|info|warn|error, default info). Printed as
+ *   1. `log.{debug,info,warn,error}` — structured records, level set in code via
+ *      the `LOG_LEVEL` constant below (debug|info|warn|error). Printed as
  *      human-readable lines; also attached as events to the active OTel span.
  *   2. `withSpan` / `addEvent` — real OTel spans via `@opentelemetry/api`. The
  *      API is a no-op unless a tracer provider is registered, so there is zero
@@ -17,7 +17,10 @@ type Attrs = Record<string, AttrValue | undefined>;
 type Level = "debug" | "info" | "warn" | "error";
 
 const LEVELS: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
-const THRESHOLD = LEVELS[(process.env.AI_STORM_LOG as Level) ?? "info"] ?? LEVELS.info;
+
+/** Active log level — edit this to see/hide lower-severity records. */
+const LOG_LEVEL: Level = "debug";
+const THRESHOLD = LEVELS[LOG_LEVEL];
 
 const tracer = trace.getTracer("ai-storm-backend", "3.0.0");
 

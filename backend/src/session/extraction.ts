@@ -145,8 +145,10 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   responseMarker: /^\s*●\s/u,
   responsePrefix: /^(?:●\s|\s{2})/u,
   // claude prints "✻ <Verb> for <n>s" when a turn is fully done — a precise
-  // completion signal (vs the idle-timeout, which can fire mid-stream).
-  completionMarker: /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu,
+  // completion signal (vs the idle-timeout, which can fire mid-stream). The
+  // leading glyph cycles through claude's dingbat-star set (U+2722–U+2747:
+  // ✢ ✶ ✷ ✻ ✽ …) plus `* · ∗ ⋆`, so match the whole family, not a fixed list.
+  completionMarker: /^\s*[*·∗⋆✢-❇]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu,
   chrome: [
     // 1) Status bar:
     //    "Opus 4.8 (1M context) | main | ~/path | ctx:29.0k/1000k (3%) | 5h:33%"
@@ -162,14 +164,27 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     //    that prose merely mentioning a context window won't collide.
     /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu,
 
+    // 1c) Opus 4.8 status bar — the format changed from the "ctx:n/n (n%)" above
+    //    to a per-segment bar: "[Opus 4.8 (1M context)] 📁 …/path | 🌿 main |
+    //    0% context | $0.00". Anchor on the "| <n>% context" segment: the pipe +
+    //    "n% context" only occurs in the bar, while prose mentioning a context
+    //    window ("the (1M context) window") has no such pipe segment.
+    /\|\s*\d+\s*%\s+context\b/iu,
+
+    // 1d) Same bar, TRUNCATED to the model header on a narrow pane:
+    //    "[Opus 4.8 (1M context)] 📁 …". The bracketed "[<model> (<n> context)]"
+    //    header at line start is distinct from prose (no sentence opens with it).
+    /^\s*\[[^\]]*\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\]/iu,
+
     // 2) Spinner verb frames: "* Catapulting…", "✽ Forging… (5s · ↓ 227 tokens)",
-    //    "✶ Metamorphosing…". Leading claude spinner glyph + text ENDING in an
-    //    ellipsis (the discriminator vs a markdown bullet), optional "(… tokens)".
-    /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u,
+    //    "✢ Sprouting… (24s)". Leading claude spinner glyph (the dingbat-star
+    //    family U+2722–U+2747, plus `* · ∗ ⋆`) + text ENDING in an ellipsis (the
+    //    discriminator vs a markdown bullet), optional trailing "(… tokens)".
+    /^\s*[*·●∗⋆✢-❇]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u,
 
     // 3) Spinner DONE line: "✻ Worked for 3s", "✻ Brewed for 4s", "✻ Baked for
     //    3s" — claude randomises the verb, so match "<glyph> <Verb> for <n><unit>".
-    /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu,
+    /^\s*[*·∗⋆✢-❇]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu,
 
     // 4) Auto-mode / agents affordance:
     //    "⏵⏵ auto mode on (shift+tab to cycle) · PR #10 · ← for agents"
@@ -458,6 +473,11 @@ export class ResponseExtractor {
 
   get responding(): boolean {
     return this.#responding;
+  }
+
+  /** Whether we anchored on this turn's echoed input yet (diagnostic). */
+  get anchored(): boolean {
+    return this.#anchored;
   }
 
   get profile(): HarnessProfile {
