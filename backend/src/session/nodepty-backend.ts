@@ -138,6 +138,12 @@ export class NodePtySessionBackend implements SessionBackend {
       extractor: new ResponseExtractor(profile, {
         onWarn: (m) => log.warn("extract.anchor", { workspace: workspaceId, message: m }),
         onHeuristic: (count) => log.info("extract.heuristic", { workspace: workspaceId, count }),
+        // A near-miss (the agent attempted but mangled the «IDEA» marker) is
+        // worth a warning; an ordinary chat-only reply is debug-level noise.
+        onDebug: (event, data) => {
+          const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
+          log[level](event, { workspace: workspaceId, ...data });
+        },
         paneWidth: cols,
       }),
       profile,

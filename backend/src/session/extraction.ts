@@ -205,6 +205,15 @@ const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 /** Fenced-body recognised keys (case-insensitive): title / body / kind. */
 const FENCE_KEY = /^(title|body|kind)\s*:\s*(.*)$/i;
 
+/**
+ * A line that LOOKS like an attempted idea marker but did not parse — used to
+ * diagnose a contract-following lapse: mangled guillemets (`«IDEA »`, `?IDEA?`),
+ * the bare word (`Idea: …`), bracketed (`[IDEA]`), or markdown-wrapped
+ * (`**IDEA**`). Anchored at line start so a mid-sentence "idea" is not flagged,
+ * and `\bidea\b` so "Ideally"/"ideas" don't trip it.
+ */
+const MARKER_NEAR_MISS = /^\s*[^\w\s]{0,4}\s*idea\b/iu;
+
 // Heuristic-floor structural patterns (mirror markdown-block-parser.ts).
 const HEU_HEADING = /^(#{1,6})\s+(.*)$/;
 const HEU_BULLET = /^[-*+]\s+(.*)$/;
@@ -363,6 +372,7 @@ export class ResponseExtractor {
   readonly #profile: HarnessProfile;
   readonly #onWarn?: (msg: string) => void;
   readonly #onHeuristic?: (count: number) => void;
+  readonly #onDebug?: (event: string, data: Record<string, string | number>) => void;
   #paneWidth: number;
 
   /** Most recent capture's trimmed lines — kept so a send can baseline off it. */
@@ -392,6 +402,13 @@ export class ResponseExtractor {
       onWarn?: (msg: string) => void;
       /** Logged when the heuristic floor promotes prose to ideas (§5.3). */
       onHeuristic?: (count: number) => void;
+      /**
+       * Per-response contract diagnostics (chat/ideas counts, near-misses) so a
+       * contract-following lapse is observable. Called once per completed
+       * response; the consumer chooses the log level (a near-miss is worth a
+       * warning, an ordinary chat-only reply is debug).
+       */
+      onDebug?: (event: string, data: Record<string, string | number>) => void;
       /** Pane width in columns, for the no-`-J` reflow rejoin (§3.3). */
       paneWidth?: number;
     } = {},
@@ -399,6 +416,7 @@ export class ResponseExtractor {
     this.#profile = profile;
     this.#onWarn = opts.onWarn;
     this.#onHeuristic = opts.onHeuristic;
+    this.#onDebug = opts.onDebug;
     this.#paneWidth = opts.paneWidth ?? 0;
   }
 
@@ -462,7 +480,10 @@ export class ResponseExtractor {
     this.#chatEmitted = chat.length;
     const newIdeas = this.#dedupe(ideas);
 
-    if (complete) this.#responding = false;
+    if (complete) {
+      this.#emitSummary(stripped, chat, ideas);
+      this.#responding = false;
+    }
     return { chat: newChat, ideas: newIdeas, complete };
   }
 
@@ -477,8 +498,40 @@ export class ResponseExtractor {
     const newChat = chat.slice(this.#chatEmitted);
     this.#chatEmitted = chat.length;
     const newIdeas = this.#dedupe(ideas);
+    this.#emitSummary(this.#lastRegion, chat, ideas);
     this.#responding = false;
     return { chat: newChat, ideas: newIdeas, complete: true };
+  }
+
+  /**
+   * Emit one structured diagnostic per completed response (extraction-contract
+   * observability). Reports chat/idea counts split by source (contract vs
+   * heuristic floor) and any **near-misses** — lines that looked like an idea
+   * marker but did not parse — so a contract-following lapse (the agent ignoring
+   * or mangling the `«IDEA»` format) is visible rather than silently dropped to
+   * chat. No-op unless an `onDebug` consumer is wired.
+   */
+  #emitSummary(region: string[], chat: string[], ideas: Idea[]): void {
+    if (!this.#onDebug) return;
+    const nearMisses = region.filter((l) => MARKER_NEAR_MISS.test(l) && !IDEA_MARKER.test(l));
+    const heuristicIdeas = ideas.reduce((n, i) => (i.kind === "heuristic" ? n + 1 : n), 0);
+    const data: Record<string, string | number> = {
+      profile: this.#profile.name,
+      chat: chat.length,
+      ideas: ideas.length,
+      contractIdeas: ideas.length - heuristicIdeas,
+      heuristicIdeas,
+      nearMisses: nearMisses.length,
+    };
+    if (nearMisses.length > 0) {
+      // A small, truncated sample of the offending lines — enough to see HOW the
+      // agent deviated (e.g. "Idea: …" with no guillemets) without flooding logs.
+      data.nearMissSample = nearMisses
+        .slice(0, 3)
+        .map((l) => l.trim().slice(0, 80))
+        .join(" ⏎ ");
+    }
+    this.#onDebug("extract.contract", data);
   }
 
   /** Re-anchor after a resize/reflow: forget the cached pane (design §4 reflow). */

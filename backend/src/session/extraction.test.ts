@@ -378,6 +378,41 @@ describe("claude profile — §9.7 streaming partial idea", () => {
   });
 });
 
+describe("claude profile — contract diagnostics (onDebug)", () => {
+  it("reports a per-response summary split by source on completion", () => {
+    const onDebug = vi.fn();
+    const ex = new ResponseExtractor(CLAUDE_PROFILE, { onDebug });
+    ex.beginResponse("go");
+    ex.ingest(cap("> go", "Some chat.", "«IDEA» Edge cache :: serve from CDN", ">"));
+    expect(onDebug).toHaveBeenCalledTimes(1);
+    const [event, data] = onDebug.mock.calls[0];
+    expect(event).toBe("extract.contract");
+    expect(data).toMatchObject({ profile: "claude", chat: 1, ideas: 1, contractIdeas: 1, heuristicIdeas: 0, nearMisses: 0 });
+  });
+
+  it("flags a near-miss when the agent mangles the marker (no guillemets / wrong wrapper)", () => {
+    const onDebug = vi.fn();
+    const ex = new ResponseExtractor(CLAUDE_PROFILE, { onDebug });
+    ex.beginResponse("go");
+    // The agent ignored the «IDEA» format and wrote bare/bracketed variants.
+    ex.ingest(cap("> go", "Idea: cache at the edge", "[IDEA] rotate tokens on attach", "Plain reply.", ">"));
+    const data = onDebug.mock.calls.at(-1)![1];
+    expect(data.ideas).toBe(0); // nothing parsed as a contract idea
+    expect(data.nearMisses).toBe(2);
+    expect(String(data.nearMissSample)).toContain("Idea: cache at the edge");
+    // The mangled lines fall through to chat (not lost), so they're recoverable.
+    // (The warning tells the operator the contract isn't being honoured.)
+  });
+
+  it("does not flag ordinary prose that merely contains the word idea", () => {
+    const onDebug = vi.fn();
+    const ex = new ResponseExtractor(CLAUDE_PROFILE, { onDebug });
+    ex.beginResponse("go");
+    ex.ingest(cap("> go", "Ideally we cache aggressively.", "That idea is mid-sentence.", ">"));
+    expect(onDebug.mock.calls.at(-1)![1].nearMisses).toBe(0);
+  });
+});
+
 describe("priming suppression — §9.9 (extractor level)", () => {
   it("never forwards output while not responding (the READY ack is swallowed)", () => {
     const ex = new ResponseExtractor(CLAUDE_PROFILE);
