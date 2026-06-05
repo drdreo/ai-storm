@@ -1,22 +1,49 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Directive,
+  ElementRef,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@angular/aria/menu';
 import { WorkspaceService } from '../core/workspace.service';
 import { IngestionService } from '../core/ingestion.service';
 import type { WorkspaceMeta } from '../core/models';
+
+/** Focus (and select) a freshly-rendered inline input — the rename field. */
+@Directive({ selector: '[asAutofocus]' })
+export class AutofocusDirective {
+  constructor() {
+    const el = inject(ElementRef).nativeElement as HTMLInputElement;
+    afterNextRender(() => {
+      el.focus();
+      el.select();
+    });
+  }
+}
 
 /**
  * Global navigation sidebar (PRD §3.4). Lists every workspace with a
  * human-readable title and live status, and performs the sub-100ms hot-switch
  * by simply changing the active id — CanvasService rebinds the shared editor.
+ *
+ * Workspace management lives on the rows themselves (no bottom buttons): a
+ * double-click on the title (or the kebab's "Rename") turns it into an inline
+ * input, and a per-row kebab (⋮) opens an `@angular/aria` menu to rename or
+ * delete. New workspaces are created from the header "+".
  */
 @Component({
   selector: 'as-sidebar',
-  imports: [Listbox, Option],
+  imports: [Listbox, Option, Menu, MenuContent, MenuItem, MenuTrigger, AutofocusDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="head">
       <span class="brand">ai-storm</span>
-      <button class="add" title="New workspace" (click)="add()">+</button>
+      <button class="add" title="New workspace" aria-label="New workspace" (click)="add()">+</button>
     </header>
     <ul
       class="list"
@@ -34,19 +61,62 @@ import type { WorkspaceMeta } from '../core/models';
           [value]="ws.id"
           [label]="ws.title"
           [class.active]="ws.id === workspaces.activeId()"
+          [class.editing]="editingId() === ws.id"
         >
           <span class="dot" [attr.data-status]="ws.status"></span>
-          <span class="title" [title]="ws.title">{{ ws.title }}</span>
+          @if (editingId() === ws.id) {
+            <!-- Inline rename: commits on Enter/blur, cancels on Esc. Key/click
+                 events are stopped so the parent listbox doesn't treat typing as
+                 navigation/typeahead or steal the selection. -->
+            <input
+              asAutofocus
+              class="rename-input"
+              type="text"
+              [value]="ws.title"
+              aria-label="Rename workspace"
+              (keydown)="onRenameKey($event, ws)"
+              (blur)="commitRename(ws, $event)"
+              (click)="$event.stopPropagation()"
+              (pointerdown)="$event.stopPropagation()"
+            />
+          } @else {
+            <span class="title" [title]="ws.title" (dblclick)="beginRename(ws, $event)">{{ ws.title }}</span>
+          }
           <span class="status">{{ ws.status }}</span>
+          <button
+            class="kebab"
+            ngMenuTrigger
+            [menu]="wsMenu"
+            [attr.aria-label]="'Manage ' + ws.title"
+            (click)="openMenu(ws, $event)"
+            (pointerdown)="$event.stopPropagation()"
+            (dblclick)="$event.stopPropagation()"
+          >
+            <span aria-hidden="true">⋮</span>
+          </button>
         </li>
       }
     </ul>
-    @if (workspaces.active(); as active) {
-      <footer class="foot">
-        <button class="rename" (click)="rename(active)">Rename</button>
-        <button class="remove" (click)="remove(active.id)">Delete</button>
-      </footer>
-    }
+
+    <!-- One shared menu, positioned at the kebab that opened it; acts on the
+         workspace captured in menuFor(). Rendered outside the scrolling list so
+         it is never clipped. Escape / focus-out dismiss it (aria menu). -->
+    <div
+      class="ws-menu"
+      ngMenu
+      #wsMenu="ngMenu"
+      [style.top.px]="menuPos()?.top"
+      [style.left.px]="menuPos()?.left"
+    >
+      <ng-template ngMenuContent>
+        <button ngMenuItem value="rename" class="menu-item" (click)="renameFromMenu(wsMenu)">
+          Rename
+        </button>
+        <button ngMenuItem value="delete" class="menu-item danger" (click)="deleteFromMenu(wsMenu)">
+          Delete
+        </button>
+      </ng-template>
+    </div>
   `,
   styles: [
     `
@@ -133,7 +203,7 @@ import type { WorkspaceMeta } from '../core/models';
       .item {
         position: relative;
         display: grid;
-        grid-template-columns: 10px 1fr auto;
+        grid-template-columns: 10px 1fr auto auto;
         align-items: center;
         gap: var(--space-2);
         padding: 0.5rem 0.6rem;
@@ -183,12 +253,32 @@ import type { WorkspaceMeta } from '../core/models';
         white-space: nowrap;
         letter-spacing: -0.005em;
       }
+      .rename-input {
+        min-width: 0;
+        width: 100%;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--accent);
+        background: var(--input-bg);
+        color: var(--text);
+        padding: 0.15rem 0.35rem;
+        margin: -0.16rem 0;
+        font: inherit;
+        font-size: 0.86rem;
+      }
+      .rename-input:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
+      }
       .status {
         font-size: 0.62rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         opacity: 0.55;
+      }
+      /* While renaming, the status chip would crowd the input — hide it. */
+      .item.editing .status {
+        display: none;
       }
       .dot {
         width: 8px;
@@ -216,43 +306,96 @@ import type { WorkspaceMeta } from '../core/models';
           opacity: 0.45;
         }
       }
-      .foot {
-        display: flex;
-        gap: var(--space-2);
-        padding: var(--space-3);
-        border-top: 1px solid var(--border);
-      }
-      .foot button {
-        flex: 1;
-        padding: 0.42rem;
+      /* Kebab — quiet until the row is hovered/active or the menu is open. */
+      .kebab {
+        display: grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
         border-radius: var(--radius-sm);
-        border: 1px solid var(--border-strong);
-        background: var(--btn-bg);
+        border: 1px solid transparent;
+        background: transparent;
         color: var(--text-dim);
         cursor: pointer;
-        font: inherit;
-        font-size: 0.76rem;
-        font-weight: 500;
+        font-size: 15px;
+        line-height: 1;
+        opacity: 0;
         transition:
           background var(--dur-fast) var(--ease-out),
           color var(--dur-fast) var(--ease-out),
-          border-color var(--dur-fast) var(--ease-out);
+          border-color var(--dur-fast) var(--ease-out),
+          opacity var(--dur-fast) var(--ease-out);
       }
-      .foot button:hover {
+      .item:hover .kebab,
+      .item.active .kebab,
+      .kebab[aria-expanded='true'] {
+        opacity: 1;
+      }
+      .kebab:hover {
         background: var(--btn-hover);
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+      .kebab[aria-expanded='true'] {
+        background: var(--btn-press);
         color: var(--text);
         border-color: var(--accent);
       }
-      .foot button:active {
-        background: var(--btn-press);
-      }
-      .foot button:focus-visible {
+      .kebab:focus-visible {
         outline: none;
+        opacity: 1;
         box-shadow: 0 0 0 3px var(--accent-ring);
       }
-      .remove:hover {
+      /* Floating actions menu (aria-driven). Hidden unless data-visible. */
+      .ws-menu {
+        position: fixed;
+        z-index: 50;
+        min-width: 156px;
+        display: none;
+        flex-direction: column;
+        gap: 2px;
+        padding: var(--space-2);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--panel-bg);
+        box-shadow: var(--shadow-md, 0 10px 30px -12px rgba(0, 0, 0, 0.7));
+      }
+      .ws-menu[data-visible='true'] {
+        display: flex;
+      }
+      .ws-menu:focus,
+      .ws-menu:focus-visible {
+        outline: none;
+      }
+      .menu-item {
+        display: flex;
+        align-items: center;
+        padding: 0.42rem 0.6rem;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        color: var(--text-dim);
+        cursor: pointer;
+        text-align: left;
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 500;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out);
+      }
+      .menu-item:hover,
+      .menu-item:focus-visible,
+      .menu-item[tabindex='0'] {
+        outline: none;
+        background: var(--surface-overlay);
+        color: var(--text);
+      }
+      .menu-item.danger:hover,
+      .menu-item.danger:focus-visible,
+      .menu-item.danger[tabindex='0'] {
+        background: color-mix(in srgb, var(--danger) 16%, transparent);
         color: var(--danger);
-        border-color: var(--danger);
       }
     `,
   ],
@@ -260,6 +403,13 @@ import type { WorkspaceMeta } from '../core/models';
 export class SidebarComponent {
   readonly workspaces = inject(WorkspaceService);
   readonly #ingestion = inject(IngestionService);
+
+  /** Id of the workspace currently being renamed inline (null = none). */
+  readonly editingId = signal<string | null>(null);
+  /** Workspace the open kebab menu acts on. */
+  readonly #menuFor = signal<WorkspaceMeta | null>(null);
+  /** Viewport coordinates the floating kebab menu anchors to. */
+  readonly menuPos = signal<{ top: number; left: number } | null>(null);
 
   /**
    * The listbox `[(value)]` model is an array of selected option values. For our
@@ -282,13 +432,64 @@ export class SidebarComponent {
     if (id) this.workspaces.setActive(id);
   }
 
-  rename(ws: WorkspaceMeta): void {
-    const title = prompt('Rename workspace', ws.title);
-    if (title && title.trim()) this.workspaces.rename(ws.id, title.trim());
+  // ---- Inline rename ------------------------------------------------------
+
+  beginRename(ws: WorkspaceMeta, event?: Event): void {
+    event?.stopPropagation();
+    this.editingId.set(ws.id);
+  }
+
+  /** Commit the inline edit (Enter / blur). No-ops if the field is empty. */
+  commitRename(ws: WorkspaceMeta, event: Event): void {
+    // Only the active edit commits — guards the blur fired by Esc/Enter teardown.
+    if (this.editingId() !== ws.id) return;
+    const title = (event.target as HTMLInputElement).value.trim();
+    if (title && title !== ws.title) this.workspaces.rename(ws.id, title);
+    this.editingId.set(null);
+  }
+
+  onRenameKey(event: KeyboardEvent, ws: WorkspaceMeta): void {
+    // Keep the listbox from treating rename keystrokes as navigation/typeahead.
+    event.stopPropagation();
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.commitRename(ws, event);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.editingId.set(null); // discard — no rename
+    }
+  }
+
+  // ---- Kebab menu ---------------------------------------------------------
+
+  /** Anchor + arm the shared menu for this row; the trigger handles opening. */
+  openMenu(ws: WorkspaceMeta, event: MouseEvent): void {
+    event.stopPropagation();
+    this.#menuFor.set(ws);
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const width = 156;
+    this.menuPos.set({
+      top: Math.round(rect.bottom + 6),
+      left: Math.round(Math.max(8, rect.right - width)),
+    });
+  }
+
+  renameFromMenu(menu: Menu<string>): void {
+    const ws = this.#menuFor();
+    menu.close();
+    if (ws) this.beginRename(ws);
+  }
+
+  deleteFromMenu(menu: Menu<string>): void {
+    const ws = this.#menuFor();
+    menu.close();
+    if (ws) this.remove(ws.id);
   }
 
   remove(id: string): void {
     if (!confirm('Delete this workspace and its canvas? This cannot be undone.')) return;
+    // Detach first so the durable session is left intact (PRD §3.5); remove()
+    // recreates a workspace if this was the last one.
     this.#ingestion.detach(id);
     this.workspaces.remove(id);
   }
