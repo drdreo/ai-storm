@@ -26,7 +26,7 @@ reuses the CLI tools already running on your machine.
 ### The ingestion engine (PRD §3.3, §5.1) — `frontend/src/app/core/`
 
 Pure, framework-agnostic TypeScript with full unit coverage (`pnpm test`, run by
-Node's built-in test runner):
+[Vitest](https://vitest.dev)):
 
 | Module | Responsibility | PRD |
 | --- | --- | --- |
@@ -69,8 +69,9 @@ memory. Detaching a workspace tears down its pipeline, render scheduler, and PTY
 - **pnpm** (via `corepack pnpm`, bundled with Node)
 - A modern Chromium-based browser
 
-The ingestion-engine unit tests run on Node's built-in test runner (`node --test`),
-so they need no extra runtime beyond Node itself.
+The ingestion-engine unit tests run on [Vitest](https://vitest.dev) (a
+devDependency installed via `corepack pnpm install`), so they need no extra
+runtime beyond Node itself.
 
 ## Running
 

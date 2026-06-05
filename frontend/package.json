@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "node --import ./tools/ts-resolve-hook.mjs --test \"src/app/core/**/*.test.ts\""
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "private": true,
   "dependencies": {
@@ -30,6 +31,7 @@
     "@angular/cli": "^22.0.0",
     "@angular/compiler-cli": "^22.0.0",
     "playwright": "^1.60.0",
-    "typescript": "~6.0.0"
+    "typescript": "~6.0.0",
+    "vitest": "^4.1.8"
   }
 }
