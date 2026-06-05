@@ -62,32 +62,62 @@ import type { WorkspaceMeta } from '../core/models';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0.85rem 0.9rem;
+        padding: var(--space-4) var(--space-4) var(--space-3);
         border-bottom: 1px solid var(--border);
       }
       .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
         font-weight: 700;
-        letter-spacing: 0.02em;
+        font-size: 0.95rem;
+        letter-spacing: -0.01em;
         color: var(--text);
       }
+      /* A small mark gives the wordmark some identity instead of bare text. */
+      .brand::before {
+        content: '';
+        width: 9px;
+        height: 9px;
+        border-radius: 3px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-press));
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
       .add {
-        width: 26px;
-        height: 26px;
-        border-radius: 6px;
-        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
         background: var(--btn-bg);
-        color: var(--text);
-        font-size: 16px;
+        color: var(--text-dim);
+        font-size: 17px;
         cursor: pointer;
         line-height: 1;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out),
+          border-color var(--dur-fast) var(--ease-out),
+          transform var(--dur-fast) var(--ease-out);
       }
       .add:hover {
         background: var(--btn-hover);
+        color: var(--text);
+        border-color: var(--accent);
+      }
+      .add:active {
+        transform: scale(0.92);
+        background: var(--btn-press);
+      }
+      .add:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .list {
         flex: 1;
         overflow-y: auto;
-        padding: 0.5rem;
+        padding: var(--space-2);
         margin: 0;
         list-style: none;
         display: flex;
@@ -101,82 +131,128 @@ import type { WorkspaceMeta } from '../core/models';
         outline: none;
       }
       .item {
+        position: relative;
         display: grid;
         grid-template-columns: 10px 1fr auto;
         align-items: center;
-        gap: 0.55rem;
-        padding: 0.55rem 0.6rem;
+        gap: var(--space-2);
+        padding: 0.5rem 0.6rem;
         border: 0;
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         background: transparent;
         color: var(--text-dim);
         cursor: pointer;
         text-align: left;
         font: inherit;
+        font-size: 0.86rem;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out);
       }
       .item:hover {
-        background: var(--btn-hover);
+        background: var(--surface-overlay);
+        color: var(--text);
       }
       .item.active {
         background: var(--accent-soft);
         color: var(--text);
+        font-weight: 500;
+      }
+      /* Active-row accent rail — a clearer "you are here" than a flat fill. */
+      .item.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 1.1rem;
+        border-radius: var(--radius-full);
+        background: var(--accent);
+      }
+      .item.active .status {
+        color: var(--accent);
+        opacity: 0.9;
+      }
+      .item:focus-visible {
+        box-shadow: inset 0 0 0 1px var(--accent-ring);
       }
       .title {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        letter-spacing: -0.005em;
       }
       .status {
-        font-size: 0.66rem;
+        font-size: 0.62rem;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
-        opacity: 0.6;
+        letter-spacing: 0.06em;
+        opacity: 0.55;
       }
       .dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: var(--text-dim);
+        background: var(--text-faint);
+        box-shadow: 0 0 0 3px transparent;
+        transition: box-shadow var(--dur) var(--ease-out);
       }
       .dot[data-status='streaming'] {
         background: var(--accent);
-        box-shadow: 0 0 8px var(--accent);
-        animation: pulse 1.2s ease-in-out infinite;
+        box-shadow: 0 0 0 3px var(--accent-soft);
+        animation: pulse 1.4s var(--ease-out) infinite;
       }
       .dot[data-status='active'] {
-        background: #36c275;
+        background: var(--ok);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
       }
       .dot[data-status='error'] {
-        background: #e5534b;
+        background: var(--danger);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
       }
       @keyframes pulse {
         50% {
-          opacity: 0.35;
+          opacity: 0.45;
         }
       }
       .foot {
         display: flex;
-        gap: 0.4rem;
-        padding: 0.6rem;
+        gap: var(--space-2);
+        padding: var(--space-3);
         border-top: 1px solid var(--border);
       }
       .foot button {
         flex: 1;
-        padding: 0.4rem;
-        border-radius: 6px;
-        border: 1px solid var(--border);
+        padding: 0.42rem;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-strong);
         background: var(--btn-bg);
         color: var(--text-dim);
         cursor: pointer;
         font: inherit;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
+        font-weight: 500;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out),
+          border-color var(--dur-fast) var(--ease-out);
       }
       .foot button:hover {
         background: var(--btn-hover);
         color: var(--text);
+        border-color: var(--accent);
+      }
+      .foot button:active {
+        background: var(--btn-press);
+      }
+      .foot button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .remove:hover {
-        color: #e5534b;
+        color: var(--danger);
+        border-color: var(--danger);
       }
     `,
   ],
