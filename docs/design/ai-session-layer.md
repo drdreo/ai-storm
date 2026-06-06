@@ -34,7 +34,7 @@
 
 ## 1. Problem statement
 
-ai-storm streams a local CLI agent's output into a BlockSuite canvas as structured cards/notes. Today the backend spawns the agent **directly** under a per-connection `node-pty` PTY (`backend/src/pty/manager.ts`) and forwards every raw stdout byte to the browser as `{type:"data",chunk}` (`packages/shared/src/protocol.ts`). The frontend re-derives clean text client-side (`SlicingBuffer` → `MarkdownBlockParser` → `RenderScheduler` → `CanvasService.applyBlocks`).
+ai-storm streams a local CLI agent's output into a tldraw canvas as structured cards. Today the backend spawns the agent **directly** under a per-connection `node-pty` PTY (`backend/src/pty/manager.ts`) and forwards every raw stdout byte to the browser as `{type:"data",chunk}` (`packages/shared/src/protocol.ts`). The browser renders those bytes in an xterm terminal, and the backend scans the screen for `«IDEA»` markers it turns into cards (`RenderScheduler` → `CanvasService.applyIdeas`).
 
 This works but has three structural problems we want to fix while keeping the existing ingestion pipeline intact:
 

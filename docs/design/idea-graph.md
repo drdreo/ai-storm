@@ -1,7 +1,7 @@
 # Design: the idea graph (identity, typed edges, kind registry)
 
-**Status:** 🟡 Proposed — design for the foundational data-model refactor that the
-output-visualization epic builds on.
+**Status:** 🟢 Implemented — the foundational data model the output-visualization epic
+builds on, rendered on the tldraw canvas (PD-010, PD-013).
 **Author:** ai-storm
 **Related:** [`product-decisions.md` PD-010](../decisions/product-decisions.md) ·
 [`ai-response-extraction-contract.md`](./ai-response-extraction-contract.md) ·
@@ -16,7 +16,7 @@ Today a brainstorm board is a *pile* of cards, not a *graph*. The card verbs (#1
 Discuss, #15 Expand/Challenge/Find-risks, #14 reply-to-card) feed an editable prompt
 into the live terminal; the agent's reply streams back as terminal text, and the
 backend independently extracts `«IDEA»` markers into `Idea {title, body, kind?}` →
-`CanvasService.applyIdeas` → one tinted note card per idea (tint by `kind`, #21).
+`CanvasService.applyIdeas` → one card per idea (colored by `kind`, #21).
 
 So responses already become cards — but **free-floating, with no link back to the card
 the verb fired from**. Click "Find risks" on a card and the risk cards land wherever
@@ -134,23 +134,23 @@ verb-spawned idea usually carries one (its originating edge) or zero.
 
 The danger of a uniform node is a stringly-typed `kind` junk-drawer. We neutralize it
 with a **registry** — the single client-side place where a kind's behavior lives. It
-absorbs and replaces the three parallel maps that exist today (`KIND_LABEL`,
-`KIND_BACKGROUND`, `KNOWN_KINDS` in `idea-descriptors.ts`):
+replaced the three parallel maps that used to live in `idea-descriptors.ts` (`KIND_LABEL`,
+`KIND_BACKGROUND`, `KNOWN_KINDS`):
 
 ```ts
 interface KindSpec {
-  label: string;                 // e.g. '⚠ Risk' (today: KIND_LABEL)
-  background: string;            // note tint CSS var (today: KIND_BACKGROUND)
+  label: string;                 // e.g. '⚠ Risk'
+  color: string;                 // tldraw palette color-style name (a shared StyleProp)
   shape?: 'note' | 'diamond';    // #40 — per-kind shape; 'note' for now
   lifecycle?: LifecycleSpec;     // #20 — states + transitions; absent for now
 }
 
 const KIND_REGISTRY: Record<string, KindSpec> = {
-  risk:      { label: '⚠ Risk',      background: '--affine-note-background-red' },
-  feature:   { label: '✨ Feature',   background: '--affine-note-background-green' },
-  question:  { label: '❓ Question',  background: '--affine-note-background-yellow' },
-  decision:  { label: '✅ Decision',  background: '--affine-note-background-blue' },
-  // …unknown kinds fall back to a plain '#tag' + default tint, exactly as today.
+  risk:      { label: '⚠ Risk',      color: 'red' },
+  feature:   { label: '✨ Feature',   color: 'green' },
+  question:  { label: '❓ Question',  color: 'yellow' },
+  decision:  { label: '✅ Decision',  color: 'blue' },
+  // …unknown kinds fall back to a plain '#tag' + default color, exactly as today.
 };
 ```
 
@@ -169,16 +169,15 @@ over-fitting.
 ## 4. Identity: short refs
 
 Edges need to name their endpoints, and the **AI must be able to reproduce an endpoint
-name in its reply**. A BlockSuite block id (21-char nanoid) is unreproducible by a
-language model. So every card gets a **short ref** — `a1`, `a2`, … — that is:
+name in its reply**. A tldraw shape id is a generated token a language model can't
+reproduce. So every card gets a **short ref** — `a1`, `a2`, … — that is:
 
 - minted at card creation (in `applyIdeas` for AI cards; lazily for a user card the
   first time it's referenced),
-- stored in a CRDT map alongside the existing kind/provenance maps (`ai-storm:ref`,
-  `noteId ↔ ref`, bidirectional),
+- stored on the card itself in its shape `meta.ref` (persisted with the shape; survives reload),
 - the value used for `Idea.id` and `IdeaLink.to`.
 
-The ref space *is* the identity layer. The block id stays BlockSuite's internal concern.
+The ref space *is* the identity layer; the shape id stays tldraw's internal concern.
 
 ## 5. The crux: prompt ↔ response correlation
 
@@ -192,7 +191,7 @@ verb fires from card a1
    → primed prompt for this turn instructs: "tag every idea you emit with @a1"
    → agent reply: «IDEA:risk@a1» Token leak on reconnect :: refresh races the reattach
    → backend parses @a1 → Idea.links = [{ to: 'a1', relation: 'about' }]
-   → applyIdeas resolves a1 → its noteId, places the new card near it, draws a connector
+   → applyIdeas resolves a1 → its card, places the new card near it, draws a bound arrow
 ```
 
 ### 5.1 Contract extension (reflow-safe, mirrors `kind`)
@@ -227,55 +226,42 @@ Open question deferred to implementation: an **out-of-band** fallback (correlate
 session's "last verb invocation") is simpler but loses correctness if the user interleaves
 prompts. The in-prompt token is preferred for correctness; the fallback is a maybe-later.
 
-## 6. Persistence: client CRDT stays the single source of truth
+## 6. Persistence: the canvas store is the single source of truth
 
-No server-side graph store. The canvas CRDT (Yjs subdocs → IndexedDB, PD-005) is already
-the source of truth and persistence story, and the kind/provenance side-maps already prove
-the pattern. We add **two more** namespaced maps on the workspace subdoc:
+No server-side graph store. The tldraw canvas store (persisted per workspace via
+`persistenceKey` → IndexedDB, PD-005/PD-013) is the source of truth. Identity and edges live on
+the canvas itself, not in side-maps:
 
-| Key | Shape | Purpose |
+| Where | Shape | Purpose |
 | --- | --- | --- |
-| `ai-storm:ref` | `noteId ↔ shortRef` | identity (§4) |
-| `ai-storm:edges` | list of `{ from, to, relation }` (noteIds) | the graph edges |
+| a card's `shape.meta.ref` | `a1`, `a2`, … | identity (§4) |
+| a native arrow bound to both cards, `meta.relation` | `about` \| `supersedes` | the graph edges |
 
-Drawn on the surface as `affine:connector` elements. The **shared package** (`@ai-storm/shared`)
-is the "both sides know it" contract — that requirement is satisfied by the wire types, not by a
-second persistence home. A server graph DB would split truth between the board and the DB and
-create a sync problem we don't have today. Revisit only if multi-device/collab (PD-001) or
-server-side graph reasoning becomes a goal. AI priming over the whole graph already works via
-the existing `serializeToText` → context-injection path (PRD §3.2).
+Edges are native tldraw **arrows bound to both endpoints** (so they track the cards as they
+move), with the relation in the arrow's `meta`. The **shared package** (`@ai-storm/shared`) is the
+"both sides know it" contract — satisfied by the wire types, not a second persistence home. A
+server graph DB would split truth between the board and the DB and create a sync problem we don't
+have today. Revisit only if multi-device/collab (PD-001) or server-side graph reasoning becomes a
+goal. AI priming over the whole graph already works via the existing `serializeToText` →
+context-injection path (PRD §3.2).
 
-## 7. Phased refactor plan
+## 7. Implementation status
 
-Each phase ships independently and is invisible to users until Phase 3 — no big-bang.
+**Shipped.** The model is live on the tldraw canvas (PD-013):
 
-- **Phase 0 — Connector spike (de-risk).** Confirm the BlockSuite `affine:connector` API:
-  create one programmatically between two `affine:note` elements, confirm it persists in
-  the CRDT subdoc and survives reload. This is the one real unknown; prove it before
-  committing to the plan. *(throwaway branch)*
+- the shared contract + extraction — `Idea` with `id`/`links`, and the `@ref[!]` marker
+  grammar (`ai-response-extraction-contract.md` §3.2) the backend parses;
+- the `KIND_REGISTRY` (`idea-descriptors.ts`), replacing the old parallel label/color/known
+  maps; the kind's color is a tldraw shared StyleProp;
+- short-ref identity in `shape.meta.ref` (minted in `applyIdeas`, lazily via `cardRef`);
+- edges as native arrows bound to both cards, the relation in the arrow `meta`. `applyIdeas`
+  resolves each `link.to` → its card, places the new card near it, and draws a relation-styled
+  arrow; a verb injects the source card's ref into the primed prompt so responses come back
+  tagged — "risks branch off the card" (#40) is real.
 
-- **Phase 1 — Contract & types (no behavior change).** Extend shared `Idea`
-  (`id`, `links`, `IdeaRelation`, `IdeaLink`). Extend backend `extraction.ts`: marker
-  regex parses `@ref`, fenced keys `id`/`link`/`rel`, dedup key includes links. Update the
-  priming text + `ai-response-extraction-contract.md`. Frontend ignores `links` for now.
-  Fully unit-testable (backend extraction + shared types). *(ships green, dormant)*
-
-- **Phase 2 — Identity & registry (frontend, no edges yet).** Collapse
-  `KIND_LABEL`/`KIND_BACKGROUND`/`KNOWN_KINDS` into `KIND_REGISTRY`. Add the `ai-storm:ref`
-  map + `cardRef(workspaceId, noteId)` / `resolveRef(workspaceId, ref)` on `CanvasService`;
-  mint refs in `applyIdeas`. No visible change (registry is a pure refactor; refs are
-  internal plumbing).
-
-- **Phase 3 — Edges & connectors (the payoff).** Store edges in `ai-storm:edges`; in
-  `applyIdeas`, resolve each `link.to` ref → noteId, place the new card near its target
-  (minimal offset — full layout is #16), and draw the connector. Inject the source card's
-  ref into the primed prompt when a verb fires, so verb responses come back tagged. This is
-  where "risks branch off the card" (#40) becomes real.
-
-- **Phase 4 — consumer features (separate tickets, out of scope here).** Per-kind shapes
-  (#40), lifecycle + `supersedes` / replace-on-challenge (#20, #22), semantic layout/
-  clustering near targets (#16, #17). They consume the registry + edges; they don't
-  reinvent them.
+**Remaining (separate tickets, out of scope here).** Per-kind shapes (#40), lifecycle +
+`supersedes` / replace-on-challenge (#20, #22), semantic layout/clustering near targets
+(#16, #17). They consume the registry + edges; they don't reinvent them.
 
 ## 8. What this is explicitly *not*
 
