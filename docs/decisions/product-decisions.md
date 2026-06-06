@@ -184,6 +184,31 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-012 — A challenge is a supersede operation, not a kind
+
+`(2026-06-08, accepted, refines PD-010)`
+
+- **Decision:** "Challenge" is **not** a card kind — it is an **operation** on an existing idea.
+  When the Challenge verb (#15) fires on a card, the agent produces a refined/stronger version
+  that **supersedes** the original via a `supersedes` edge (the one relation that carries its own
+  meaning, PD-010/idea-graph §2.3); the superseded card **dims/archives** rather than disappearing,
+  so the history of the argument is preserved. So `challenge` is dropped from the kind enumeration
+  in PD-010 — there is no `challenge`-tinted card. (A counter-point the user wants to keep as a
+  standalone note is just an ordinary idea card, optionally `about`-linked.)
+- **Why:** A challenge is fundamentally *about changing an idea*, not adding a parallel one. Spawning
+  a free-floating "challenge" card (what an early kind-registry entry would have done) leaves the
+  contested idea untouched and clutters the board with disconnected objections. Routing it through
+  `supersedes` makes the board converge — the strongest version wins and the path to it stays
+  visible — which is the point of decision capture (#22) and lifecycle (#20). It also keeps the
+  kind set about *what a card is*, not *what was done to it* (that's an edge, per PD-010).
+- **Affects:** Implemented by #20 (lifecycle states: e.g. `active` → `superseded`) + #22 (decision
+  capture / snapshot the superseded card). The data home already exists — `ai-storm:edges` stores
+  `relation`, including `supersedes` (idea-graph Phase 3). The Challenge verb's prompt will need to
+  instruct the agent to emit the refined idea with a `supersedes` link back to the source ref
+  (today it emits a plain `about` link). Removes `challenge` from PD-010's kind list and from the
+  `idea-graph.md` §3.2 `KIND_REGISTRY` example. No code change lands with this decision — it scopes
+  #20/#22.
+
 ### PD-011 — The edgeless canvas is the primary surface; the doc view is a bonus
 
 `(2026-06-06, accepted)`
@@ -214,7 +239,8 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 - **Decision:** Model the board as a **graph**, not a pile or a tree. Three axes that were
   being conflated into `kind` are kept independent: **kind** (*what a card is* — risk /
-  challenge / feature / question / decision — on the node), **link** (*what it's about* —
+  feature / question / decision — on the node; **not** `challenge`, which is a supersede
+  operation, see PD-012), **link** (*what it's about* —
   a generic `about` edge to another card; the only edge type carrying its own meaning is
   `supersedes`), and **provenance** (*who made it* — `ai`/`user`, already PD-009). A node has
   one kind but many edges, to many targets. Flavor is **not** duplicated onto the edge (no
