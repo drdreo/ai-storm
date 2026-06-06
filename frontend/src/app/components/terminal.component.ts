@@ -55,13 +55,18 @@ interface Entry {
         box-sizing: border-box;
         background: var(--bg);
       }
-      .host .term {
+      /* The .term container and xterm's own DOM are created at runtime
+         (document.createElement / term.open), so they live outside Angular's
+         view encapsulation. Pierce it with ::ng-deep, otherwise these height
+         rules never match and the container collapses to its content height —
+         FitAddon then measures a short box and the terminal fills only part of
+         the pane. :host keeps the reach scoped to this component. */
+      :host ::ng-deep .term {
         height: 100%;
         width: 100%;
       }
-      /* xterm sizes its own viewport; let it fill the container. */
-      .host .xterm,
-      .host .xterm-viewport {
+      :host ::ng-deep .xterm,
+      :host ::ng-deep .xterm-viewport {
         height: 100% !important;
       }
     `,

@@ -14,6 +14,7 @@ import {
   ideaToDescriptors,
   kindBackground,
   normalizeKind,
+  type IdeaLifecycle,
   type NoteOrigin,
 } from './idea-descriptors';
 import { shouldSeedDoc } from './canvas-seed';
@@ -86,6 +87,33 @@ interface EdgeRecord {
   to: string;
   relation: IdeaRelation;
 }
+
+/**
+ * Top-level `Y.Map<IdeaLifecycle>` key on a workspace's subdoc recording a
+ * card's lifecycle state (#20, PD-012). Mirrors the kind/provenance/ref maps —
+ * namespaced, persisted with the block content so the state survives reload.
+ * Absence of an id ⇒ `'active'` (the default; we only ever write the non-default
+ * `'superseded'`). Today the only writer is {@link CanvasService.applyIdeas}
+ * when it records a `supersedes` edge; the full #20 state machine extends this.
+ */
+const LIFECYCLE_MAP_KEY = 'ai-storm:lifecycle';
+
+/**
+ * Visual treatment of a superseded card (#20, PD-012): a small, grey,
+ * dashed-border "ghost" — recessive enough to read as retired, but kept on the
+ * board (never deleted) so the path the argument took stays visible. The card
+ * shrinks to {@link SUPERSEDED_WIDTH}×{@link SUPERSEDED_HEIGHT}; a non-collapsed
+ * note has `overflow-y: clip`, so the now-overflowing body is hidden while the
+ * title still shows. BlockSuite notes expose no opacity, so "dim" is built from
+ * the props that do render: `background`, `edgeless.style.border*`, `xywh`.
+ */
+const SUPERSEDED_BACKGROUND = '--affine-note-background-grey';
+/** `StrokeStyle.Dash` value (the render compares `borderStyle === 'dash'`); kept
+ * as a literal to avoid depending on an enum not in the public typings. */
+const SUPERSEDED_BORDER_STYLE = 'dash';
+const SUPERSEDED_BORDER_SIZE = 2;
+const SUPERSEDED_WIDTH = 220;
+const SUPERSEDED_HEIGHT = 96;
 
 /**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
@@ -442,6 +470,7 @@ export class CanvasService {
     const kindMap = this.#kindMap(doc);
     const refMap = this.#refMap(doc);
     const edges = this.#edgesMap(doc);
+    const lifecycle = this.#lifecycleMap(doc);
     const surface = this.#surfaceModel(doc);
     // Seed the ref counter from the persisted map (not the in-memory tile count,
     // which resets on reload) so minted refs never collide across sessions (§4).
@@ -450,6 +479,10 @@ export class CanvasService {
     // card fan out instead of stacking exactly (minimal offset — full semantic
     // layout is #16).
     const childOffset = new Map<string, number>();
+    // Cards retired by a `supersedes` edge this batch — their ghost treatment is
+    // applied AFTER the block-creation transaction (it mutates `edgeless` sub-
+    // props via updateBlock, which doesn't compose with the outer transact).
+    const superseded = new Set<string>();
     doc.transact(() => {
       for (const idea of ideas) {
         // Resolve the first link whose target ref exists on this canvas (§5). An
@@ -484,17 +517,25 @@ export class CanvasService {
         // Draw the connector + record the edge (idea-graph §5/§6). The new card
         // is the source so the arrow reads "this card → the idea it's about".
         if (targetNoteId && surface) {
+          const relation = link?.relation ?? 'about';
           const connectorId = this.#drawConnector(surface, noteId, targetNoteId);
           if (connectorId) {
-            edges.set(connectorId, {
-              from: noteId,
-              to: targetNoteId,
-              relation: link?.relation ?? 'about',
-            });
+            edges.set(connectorId, { from: noteId, to: targetNoteId, relation });
+          }
+          // A `supersedes` edge retires its target (#20, PD-012): the refined
+          // card replaces the original, which becomes `superseded` — greyed,
+          // dashed and shrunk, but never deleted (history kept). The lifecycle
+          // state is recorded even if the connector failed to draw, so the data
+          // is independent of the visual.
+          if (relation === 'supersedes') {
+            lifecycle.set(targetNoteId, 'superseded');
+            superseded.add(targetNoteId);
           }
         }
       }
     });
+    // Apply the ghost treatment outside the creation transaction (see above).
+    for (const noteId of superseded) this.#markSuperseded(doc, noteId);
     // Signal that the kind set may have changed so filter chips recompute (#21).
     this.#ideasTick.update((n) => n + 1);
   }
@@ -572,6 +613,24 @@ export class CanvasService {
     return doc.spaceDoc.getMap<EdgeRecord>(EDGES_MAP_KEY);
   }
 
+  /** The workspace subdoc's top-level note-lifecycle map (#20, PD-012). */
+  #lifecycleMap(doc: Doc) {
+    return doc.spaceDoc.getMap<IdeaLifecycle>(LIFECYCLE_MAP_KEY);
+  }
+
+  /**
+   * The lifecycle state of a canvas note (#20, PD-012). Returns `'superseded'`
+   * iff the note has been replaced by a refined card via a `supersedes` edge
+   * (recorded by {@link applyIdeas}); every other note — including user-drawn
+   * notes and still-active AI cards — defaults to `'active'`. Safe before the
+   * doc exists. Phase B reads this to dim superseded cards.
+   */
+  noteLifecycle(workspaceId: string, noteId: string): IdeaLifecycle {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return 'active';
+    return this.#lifecycleMap(doc).get(noteId) === 'superseded' ? 'superseded' : 'active';
+  }
+
   /** The edgeless surface model (host of connector elements), or null. */
   #surfaceModel(doc: Doc): { addElement(props: Record<string, unknown>): string } | null {
     const block = doc.getBlocksByFlavour('affine:surface')[0] as { model?: unknown } | undefined;
@@ -615,6 +674,40 @@ export class CanvasService {
     const n = childOffset.get(targetNoteId) ?? 0;
     childOffset.set(targetNoteId, n + 1);
     return `[${tx + tw + 80},${ty + n * 270},320,240]`;
+  }
+
+  /**
+   * Give a superseded card its "ghost" treatment (#20, PD-012): grey background,
+   * dashed border, and a shrunk box (`overflow-y: clip` on a non-collapsed note
+   * hides the overflowing body while the title still shows). All blocks are kept
+   * — only the rendered box shrinks — so the full history survives and the card
+   * can be resized back open. Defensive: the `edgeless` sub-props aren't in the
+   * published note typings (bundled/internal), so the model is cast and guarded,
+   * and a failure must never abort idea creation.
+   */
+  #markSuperseded(doc: Doc, noteId: string): void {
+    const model = doc.getBlockById(noteId) as
+      | {
+          xywh?: string;
+          background?: string;
+          edgeless?: { style?: { borderStyle?: string; borderSize?: number } };
+        }
+      | null;
+    const bound = this.#parseXYWH(model?.xywh);
+    if (!model || !bound) return;
+    const [x, y] = bound;
+    try {
+      doc.updateBlock(model as never, () => {
+        model.background = SUPERSEDED_BACKGROUND;
+        if (model.edgeless?.style) {
+          model.edgeless.style.borderStyle = SUPERSEDED_BORDER_STYLE;
+          model.edgeless.style.borderSize = SUPERSEDED_BORDER_SIZE;
+        }
+        model.xywh = `[${x},${y},${SUPERSEDED_WIDTH},${SUPERSEDED_HEIGHT}]`;
+      });
+    } catch (err) {
+      console.warn('canvas: failed to mark superseded note', err);
+    }
   }
 
   /** Parse a serialized `[x,y,w,h]` xywh string, or null if malformed. */

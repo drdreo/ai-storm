@@ -96,6 +96,16 @@ export function decorateTitle(title: string, kind?: string): string {
 export type NoteOrigin = 'ai' | 'user';
 
 /**
+ * Lifecycle state of an idea card (#20, PD-012). Minimal for now: a card is
+ * `active` until something *supersedes* it (a Challenge's refined version, via a
+ * `supersedes` edge), at which point it becomes `superseded` — dimmed/archived
+ * on the canvas but never deleted, so the path the argument took stays visible.
+ * The full captured→exploring→decided→parked/killed machine (#20) extends this
+ * union later; `superseded` is the one state PD-012 requires.
+ */
+export type IdeaLifecycle = 'active' | 'superseded';
+
+/**
  * Distinct provenance glyph prepended to AI-created card headings (#31, PD-009).
  * Deliberately different from the `kind` badges in {@link KIND_REGISTRY} (✨/⚠/…)
  * so a reader can separate "who made this" from "what kind it is" at a glance.

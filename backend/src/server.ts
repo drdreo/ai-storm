@@ -44,6 +44,10 @@ When you are responding about a specific existing card whose ref you were given 
 
   «IDEA:risk@a1» <short title> :: <one-line description>
 
+If your idea is a stronger version that REPLACES (supersedes) that card, put a ! right after the ref — the original then recedes on the canvas while yours takes its place:
+
+  «IDEA:feature@a1!» <short title> :: <one-line description>
+
 For an idea that truly needs several lines, use a fenced block instead:
 
   \`\`\`idea kind=<kind>

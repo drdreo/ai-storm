@@ -202,13 +202,19 @@ The extraction contract is a deliberately constrained, **reflow-resilient single
 the marker (`«IDEA:risk»`). The target ref slots into the same pattern:
 
 ```
-«IDEA:risk@a1» <title> :: <body>        # kind=risk, link to a1
+«IDEA:risk@a1» <title> :: <body>        # kind=risk, link to a1 (relation 'about')
 «IDEA@a1» <title> :: <body>             # no kind, link to a1
+«IDEA:feature@a1!» <title> :: <body>    # trailing ! → 'supersedes' a1 (PD-012)
 ```
 
 Grammar delta (see `ai-response-extraction-contract.md` §3.2): the in-marker tag becomes
-`[:kind][@ref]`. The fenced form gains recognized keys `id:`, `link:` (alias `parent:`),
-and `rel:`. The dedup key (`ideaKey`) extends to include links so the same marker isn't
+`[:kind][@ref[!]]`. A **trailing `!`** on the ref makes the link `supersedes` instead of
+the default `about` (PD-012) — keeping the one structural relation on the robust single-line
+marker. The fenced form *also* expresses it via `rel: supersedes`, but the agent's TUI
+renders the code fence away before the backend captures the screen (PD-008), so in practice
+the inline `!` is the form that reaches the parser; the Challenge verb emits `!`, not a
+fence. The fenced form additionally has keys `id:`, `link:` (alias `parent:`), and `rel:`.
+The dedup key (`ideaKey`) includes links (target + relation) so the same marker isn't
 delivered twice.
 
 ### 5.2 Graceful degradation

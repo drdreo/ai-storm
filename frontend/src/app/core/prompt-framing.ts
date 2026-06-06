@@ -33,7 +33,7 @@ export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => strin
   expand: (selection) =>
     `Expand on this idea from the canvas — flesh it out with detail, concrete examples, and next steps:\n\n${selection}\n\nMy angle: `,
   challenge: (selection) =>
-    `Play devil's advocate on this idea from the canvas — give the strongest counter-arguments and where it breaks down:\n\n${selection}\n\nPush hardest on: `,
+    `Challenge this idea from the canvas — stress-test it for the strongest objections, then give me a refined, stronger version that addresses them and supersedes the original:\n\n${selection}\n\nPush hardest on: `,
   'find-risks': (selection) =>
     `Find the risks, failure modes, and hidden assumptions in this idea from the canvas:\n\n${selection}\n\nI'm most worried about: `,
 };
@@ -58,16 +58,51 @@ export function framePrompt(
   const trimmed = selection.trim();
   if (!trimmed) return '';
   const body = PROMPT_TEMPLATES[intent](trimmed);
-  return sourceRef ? `${refDirective(sourceRef)}\n\n${body}` : body;
+  return sourceRef ? `${refDirective(sourceRef, intent)}\n\n${body}` : body;
 }
 
 /**
- * A directive (idea-graph design §5) telling the agent to tag the ideas this
- * turn produces with the source card's short ref, so the backend parses
- * `«IDEA@<ref>»` into a link and the canvas draws a connector back to the card
- * the verb fired from. Prepended (never appended) so the open clause and cursor
- * stay at the end.
+ * A directive (idea-graph design §5) telling the agent how to link the ideas
+ * this turn produces back to the source card, so the backend parses the link
+ * and the canvas draws a connector. Prepended (never appended) so the verb's
+ * open clause and the cursor stay at the very end.
+ *
+ * The relation depends on the verb (PD-012): {@link supersedeDirective} for
+ * `challenge` (the refined idea *replaces* the source — a `supersedes` edge);
+ * {@link aboutDirective} for every other verb (the idea is simply *about* it).
+ *
+ * CRITICAL: neither directive may contain the `«IDEA»` marker token. The
+ * directive is typed into the terminal and echoed onto the screen, and the
+ * backend scans every screen line for markers (PD-008 — it deliberately does
+ * NOT try to isolate the agent's reply region). A literal marker here is echoed
+ * and re-extracted as a bogus card. The marker grammar (including the `@ref` and
+ * `!` forms) is taught instead by the session priming, which is delivered as a
+ * system prompt and never echoed. So a directive only ever supplies the *ref*.
  */
-function refDirective(sourceRef: string): string {
-  return `(When you capture ideas from this, tag each «IDEA» line with @${sourceRef} so they link back to this card on the canvas.)`;
+function refDirective(sourceRef: string, intent: PromptIntent): string {
+  return intent === 'challenge' ? supersedeDirective(sourceRef) : aboutDirective(sourceRef);
+}
+
+/**
+ * Generic `about`-link directive (#42): supplies the source ref so the agent
+ * links the ideas it captures back to this card (priming already tells it to
+ * append a given ref to the marker → `{ to, relation: 'about' }`). No `«IDEA»`
+ * token — see {@link refDirective}.
+ */
+function aboutDirective(sourceRef: string): string {
+  return `(These notes are from card @${sourceRef} — link the ideas you capture back to it.)`;
+}
+
+/**
+ * Challenge-as-supersede directive (PD-012): supplies the ref AND asks for the
+ * `supersedes` relation via the `@ref!` form (priming defines what `!` means).
+ * The refined, stronger version replaces the original, which recedes to a grey
+ * ghost — history kept. No `«IDEA»` token — see {@link refDirective}.
+ */
+function supersedeDirective(sourceRef: string): string {
+  return (
+    `(This challenges card @${sourceRef}. Capture your refined, stronger version as a single idea and ` +
+    `link it back as a REPLACEMENT using the @${sourceRef}! form — the trailing ! right after the ref — ` +
+    `so it supersedes the original rather than just relating to it.)`
+  );
 }

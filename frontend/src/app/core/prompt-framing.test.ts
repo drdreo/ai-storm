@@ -69,7 +69,8 @@ describe('framePrompt', () => {
     expect(expand).not.toBe(challenge);
     expect(challenge).not.toBe(risks);
     expect(expand).toContain('Expand on this idea');
-    expect(challenge).toContain("devil's advocate");
+    expect(challenge).toContain('stress-test');
+    expect(challenge).toContain('stronger version');
     expect(risks).toContain('risks');
   });
 });
@@ -78,7 +79,6 @@ describe('framePrompt — source ref injection (#42)', () => {
   it('prepends a tagging directive carrying the source ref', () => {
     const out = framePrompt('Use a CRDT store', 'find-risks', 'a1');
     expect(out).toContain('@a1');
-    expect(out).toContain('«IDEA»');
     // The directive leads; the selection + open clause still follow.
     expect(out.indexOf('@a1')).toBeLessThan(out.indexOf('Use a CRDT store'));
   });
@@ -95,6 +95,63 @@ describe('framePrompt — source ref injection (#42)', () => {
 
   it('still yields nothing for an empty selection even with a ref', () => {
     expect(framePrompt('   ', 'discuss', 'a1')).toBe('');
+  });
+
+  it('uses the generic about directive for non-challenge verbs (#42)', () => {
+    for (const intent of ['discuss', 'expand', 'find-risks'] as PromptIntent[]) {
+      const out = framePrompt('S', intent, 'a1');
+      expect(out).toContain('@a1');
+      // The about directive supplies the ref; it never asks for a supersede.
+      expect(out).not.toContain('@a1!');
+    }
+  });
+
+  it('NO verb echoes an «IDEA» marker token the backend would re-extract', () => {
+    // The directive is echoed onto the terminal and re-scanned for markers, so
+    // it must contain NO «IDEA»/<<IDEA token at all (not just not line-leading —
+    // terminal wrapping can push any inline token to a row start). The marker
+    // grammar is taught by the (never-echoed) priming instead.
+    const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
+    for (const intent of intents) {
+      const out = framePrompt('Use a CRDT store', intent, 'a1');
+      expect(out).not.toContain('«IDEA');
+      expect(out).not.toContain('<<IDEA');
+    }
+  });
+});
+
+describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () => {
+  it('instructs the supersedes relation via the trailing `!` ref token', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    // The supersede relation rides the single-line marker via a trailing `!`
+    // (the fenced form is unreliable — the TUI renders the fence away, PD-008).
+    expect(out).toContain('@a1!');
+    expect(out).not.toContain('```idea');
+    expect(out).not.toContain('rel: supersedes');
+  });
+
+  it('carries the ref but NO «IDEA» marker token (would be re-extracted)', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    expect(out).toContain('@a1!');
+    expect(out).not.toContain('«IDEA');
+    expect(out).not.toContain('<<IDEA');
+  });
+
+  it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
+    const out = framePrompt('S', 'challenge', 'a2');
+    expect(out.endsWith(' ')).toBe(true);
+    expect(out.endsWith('\n')).toBe(false);
+  });
+
+  it('the directive leads; the selection + open clause still follow', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    expect(out.indexOf('@a1!')).toBeLessThan(out.indexOf('Use a CRDT store'));
+  });
+
+  it('does NOT emit the supersede directive without a source ref', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge');
+    expect(out).not.toContain('@a1!');
+    expect(out).not.toContain('«IDEA');
   });
 });
 
