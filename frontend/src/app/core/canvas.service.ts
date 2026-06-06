@@ -9,6 +9,8 @@ import {
   type CanvasBridge,
   applyIdeas,
   arrangeMindMap,
+  markSelected,
+  selectMarked,
   serializeEditor,
   selectedText,
   kindsPresent,
@@ -146,6 +148,17 @@ export class CanvasService {
     if (this.#editor && workspaceId === this.#activeId) {
       arrangeMindMap(this.#editor);
     }
+  }
+
+  /** Mark/unmark the selected idea cards (#29) — the "★ Mark" toolbar action. */
+  markSelected(workspaceId: string): void {
+    if (this.#editor && workspaceId === this.#activeId) markSelected(this.#editor);
+  }
+
+  /** Select every marked card (#29); returns the count so the UI can hint. */
+  selectMarked(workspaceId: string): number {
+    if (this.#editor && workspaceId === this.#activeId) return selectMarked(this.#editor);
+    return 0;
   }
 
   /** Serialize the workspace canvas to normalized markdown (PRD §3.2). */

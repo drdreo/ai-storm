@@ -90,6 +90,8 @@ export type IdeaCardShape = TLBaseShape<
  */
 interface IdeaCardMeta {
   ref?: string;
+  /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
+  starred?: boolean;
   [key: string]: unknown;
 }
 
@@ -184,6 +186,18 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
     normalized ? kindLabel(normalized) : ''
   }`.trim();
 
+  // User mark (#29): "keep this one for later". Stored in meta (no schema
+  // migration), persists with the card, toggled by the ★ in the corner.
+  const starred = !!(shape.meta as IdeaCardMeta).starred;
+  const toggleStar = (e: React.SyntheticEvent) => {
+    stopEventPropagation(e);
+    editor.updateShape({
+      id: shape.id,
+      type: 'idea-card',
+      meta: { ...shape.meta, starred: !starred },
+    });
+  };
+
   return (
     <HTMLContainer
       style={{
@@ -205,6 +219,28 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         opacity: superseded ? 0.85 : 1,
       }}
     >
+      <button
+        type="button"
+        title={starred ? 'Marked — keep for later (click to unmark)' : 'Mark this idea for later'}
+        aria-pressed={starred}
+        onPointerDown={stopEventPropagation}
+        onClick={toggleStar}
+        style={{
+          position: 'absolute',
+          top: 6,
+          right: 8,
+          border: 'none',
+          background: 'transparent',
+          cursor: 'pointer',
+          padding: 0,
+          lineHeight: 1,
+          fontSize: 15,
+          color: starred ? '#f5b301' : accent,
+          opacity: starred ? 1 : 0.35,
+        }}
+      >
+        {starred ? '★' : '☆'}
+      </button>
       {badge ? (
         <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: '0.02em' }}>
           {badge}
@@ -459,6 +495,40 @@ export function arrangeMindMap(editor: Editor): void {
   });
   // Frame the freshly-tidied board so the new grouping is visible at a glance.
   editor.zoomToFit({ animation: { duration: 200 } });
+}
+
+/**
+ * Mark/unmark every selected idea card (#29) — the multi-select "★ Mark" action.
+ * Toggles as a group: if all selected cards are already marked, this clears them;
+ * otherwise it marks them all. No-op when no idea card is selected.
+ */
+export function markSelected(editor: Editor): void {
+  const sel = editor
+    .getSelectedShapes()
+    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  if (sel.length === 0) return;
+  const allStarred = sel.every((s) => (s.meta as IdeaCardMeta).starred);
+  editor.run(() =>
+    editor.updateShapes(
+      sel.map((s) => ({
+        id: s.id,
+        type: 'idea-card' as const,
+        meta: { ...s.meta, starred: !allStarred },
+      })),
+    ),
+  );
+}
+
+/**
+ * Select every marked idea card (#29) so the user can act on them as a batch
+ * (Send to agent / Inject context). Returns how many were selected.
+ */
+export function selectMarked(editor: Editor): number {
+  const ids = ideaCards(editor)
+    .filter((c) => (c.meta as IdeaCardMeta).starred)
+    .map((c) => c.id);
+  editor.select(...ids);
+  return ids.length;
 }
 
 /**
