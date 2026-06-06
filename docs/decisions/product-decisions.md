@@ -184,6 +184,30 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-011 — The edgeless canvas is the primary surface; the doc view is a bonus
+
+`(2026-06-06, accepted)`
+
+- **Decision:** The edgeless **Canvas** view is the primary interaction surface; the linear
+  **Document** (page) view is a secondary bonus. All brainstorm-UX affordances — card verbs,
+  selection-based context, connectors/graph, layout, lifecycle — are designed for and built on
+  the edgeless surface. We build **no** UX specifically for the doc view; it stays a plain
+  alternate rendering of the same CRDT data (PD-004) with no dedicated affordances. Concretely,
+  selection-based features read the **edgeless gfx selection** (`GfxControllerIdentifier` →
+  `selection.selectedElements`), not the page/text selection.
+- **Why:** Ideation is spatial — the product's value is the infinite canvas, where space carries
+  meaning (#16/#17). Building every affordance twice (doc + edgeless) is wasted effort, and the
+  doc view is best understood as a convergent *reading* of the same data (a natural home for
+  synthesis, #28), not a place to author the divergent brainstorm. Committing to one primary
+  surface keeps the UX coherent and the implementation focused.
+- **Affects:** Re-scopes #14 (reply-to-card) from spatial-proximity guessing to an explicit
+  **edgeless multi-note selection** as context (a top-toolbar "Discuss selection" that frames the
+  selected cards into the editable terminal prompt — replacing the radius heuristic, which guessed
+  relevance from position). Guides #42 (graph), #16/#17 (layout), #20 (lifecycle): all target the
+  edgeless surface. The element-toolbar verbs (#13/#15) remain single-card; a custom multi-select
+  toolbar may come later, but multi-select context lives on the top toolbar for now. Builds on
+  PD-004 (page+edgeless over one model) — the doc view persists, it just gets no bespoke UX.
+
 ### PD-010 — Ideas are a graph: uniform node + typed edges + kind registry
 
 `(2026-06-06, accepted)`
