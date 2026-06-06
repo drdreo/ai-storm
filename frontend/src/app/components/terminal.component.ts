@@ -134,6 +134,9 @@ export class TerminalComponent implements OnDestroy {
     entry.unregister = this.#ingestion.registerTerminal(workspaceId, {
       write: (b64) => entry.term.write(decodeBase64(b64)),
       clear: () => entry.term.clear(),
+      // Bidirectional canvas (#13): focus the terminal after a framed prompt is
+      // typed in, so the user can edit/submit it without clicking first.
+      focus: () => entry.term.focus(),
     });
     entry.wired = true;
   }

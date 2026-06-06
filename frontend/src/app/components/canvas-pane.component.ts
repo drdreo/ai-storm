@@ -12,6 +12,7 @@ import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
+import { IngestionService } from '../core/ingestion.service';
 import type { CanvasMode } from '../core/models';
 
 /**
@@ -60,6 +61,16 @@ import type { CanvasMode } from '../core/models';
           title="Send selection to the local agent (PRD 3.6)"
         >
           Send to agent ▸
+        </button>
+        <button
+          ngToolbarWidget
+          value="discuss"
+          class="ghost"
+          [disabled]="!canDiscuss()"
+          (click)="discuss()"
+          title="Discuss the selection in the terminal (#13)"
+        >
+          Discuss ▸
         </button>
       </div>
     </div>
@@ -190,6 +201,7 @@ import type { CanvasMode } from '../core/models';
 })
 export class CanvasPaneComponent {
   readonly workspaces = inject(WorkspaceService);
+  readonly ingestion = inject(IngestionService);
   readonly #canvas = inject(CanvasService);
   readonly #agent = inject(AgentService);
   readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
@@ -206,6 +218,15 @@ export class CanvasPaneComponent {
 
   /** The active workspace's current canvas mode, defaulting to 'page'. */
   readonly activeMode = computed<CanvasMode>(() => this.workspaces.active()?.mode ?? 'page');
+
+  /**
+   * Whether the bidirectional "Discuss ▸" action is available (#13): only when
+   * the active workspace has a live interactive terminal session to type into.
+   */
+  readonly canDiscuss = computed<boolean>(() => {
+    const active = this.workspaces.active();
+    return !!active && this.ingestion.isAttached(active.id);
+  });
 
   /** React to the tablist selection (Document/Canvas) changing. */
   onModeChange(value: string | undefined): void {
@@ -227,5 +248,14 @@ export class CanvasPaneComponent {
   dispatchSelection(): void {
     const active = this.workspaces.active();
     if (active) this.#agent.dispatch(active.id, active.terminal);
+  }
+
+  /**
+   * Bidirectional canvas (#13): type the current selection into the live
+   * terminal as an editable prompt (does not auto-submit), then focus it.
+   */
+  discuss(): void {
+    const active = this.workspaces.active();
+    if (active) this.#agent.discussSelection(active.id);
   }
 }
