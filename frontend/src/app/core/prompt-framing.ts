@@ -89,17 +89,22 @@ function aboutDirective(sourceRef: string): string {
 /**
  * Challenge-as-supersede directive (PD-012): instruct the agent to capture its
  * refined, stronger version as a *superseding* idea. The relation rides on the
- * single-line marker via a trailing `!` after the ref (`«IDEA@a1!»`,
+ * single-line marker via a trailing `!` after the ref (`@a1!`,
  * extraction-contract §3.2) — NOT the fenced `rel:` form, whose code fence the
  * agent's TUI renders away before the backend captures the screen (PD-008), so
- * it never reaches the parser. Once it lands, the original card folds away on
- * the canvas while the refined one takes its place — history kept.
+ * it never reaches the parser. Once it lands, the original card recedes to a
+ * grey ghost while the refined one takes its place — history kept.
+ *
+ * Crucially this references `«IDEA»` and the ref **inline**, never as a
+ * fully-formed line-leading marker: the directive is echoed onto the terminal,
+ * and the backend scans every screen line for markers, so a literal
+ * `«IDEA@ref!» … :: …` example here would itself be extracted as a bogus card.
+ * Mirrors {@link aboutDirective}'s proven phrasing.
  */
 function supersedeDirective(sourceRef: string): string {
   return (
-    `(This challenges the card @${sourceRef}. Emit your refined, stronger version on its OWN line in exactly this form — ` +
-    `the trailing ! after @${sourceRef} marks it as REPLACING the original, which then folds away on the canvas:\n` +
-    `«IDEA@${sourceRef}!» <refined title> :: <what makes it stronger>\n` +
-    `You may tag a kind too, e.g. «IDEA:feature@${sourceRef}!».)`
+    `(This challenges the card @${sourceRef}. When you capture your refined, stronger version, ` +
+    `tag its «IDEA» line @${sourceRef}! — keep the trailing ! right after the ref — so the canvas ` +
+    `treats it as REPLACING the original rather than just relating to it.)`
   );
 }

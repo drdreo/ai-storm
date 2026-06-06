@@ -8,7 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Tab, TabList, Tabs } from '@angular/aria/tabs';
+import { Tab, TabContent, TabList, TabPanel, Tabs } from '@angular/aria/tabs';
 import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
@@ -24,10 +24,11 @@ import type { CanvasMode } from '../core/models';
  */
 @Component({
   selector: 'as-canvas-pane',
-  imports: [Tabs, TabList, Tab, Toolbar, ToolbarWidget],
+  imports: [Tabs, TabList, Tab, TabPanel, TabContent, Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="toolbar" ngTabs>
+    <div class="pane" ngTabs>
+    <div class="toolbar">
       <div
         class="modes"
         ngTabList
@@ -81,7 +82,22 @@ import type { CanvasMode } from '../core/models';
         </button>
       </div>
     </div>
-    <div class="host" #host></div>
+
+      <!--
+        Aria Tabs requires one ngTabPanel per ngTab (and each panel an
+        ngTabContent template). There is a SINGLE shared BlockSuite editor (the
+        .host below) that renders the same doc as either a linear page or a
+        spatial edgeless surface, switched imperatively by setMode(). It cannot
+        live inside a panel: Aria marks the non-selected panel inert, which would
+        leave the one editor non-interactive on the other tab. So the panels are
+        the accessible targets the tabs control, and the shared editor sits below
+        them as the surface they describe (#42).
+      -->
+      <div ngTabPanel value="page"><ng-template ngTabContent></ng-template></div>
+      <div ngTabPanel value="edgeless"><ng-template ngTabContent></ng-template></div>
+
+      <div class="host" #host></div>
+    </div>
   `,
   styles: [
     `
@@ -89,6 +105,14 @@ import type { CanvasMode } from '../core/models';
         display: flex;
         flex-direction: column;
         height: 100%;
+      }
+      /* ngTabs wrapper: own the column layout so the editor host can flex-fill
+         while the (zero-height) tab panels sit between the toolbar and host. */
+      .pane {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
       }
       .toolbar {
         display: flex;

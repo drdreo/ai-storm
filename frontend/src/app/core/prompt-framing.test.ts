@@ -106,16 +106,38 @@ describe('framePrompt — source ref injection (#42)', () => {
       expect(out).not.toContain('@a1!');
     }
   });
+
+  it('NO verb produces a line-leading «IDEA» marker the backend would re-extract', () => {
+    // Any directive is echoed onto the terminal and re-scanned for markers, so a
+    // fully-formed line-leading «IDEA … :: …» example would spawn a bogus card.
+    const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
+    for (const intent of intents) {
+      const out = framePrompt('Use a CRDT store', intent, 'a1');
+      for (const line of out.split('\n')) {
+        expect(/^\s*(?:«IDEA|<<IDEA)/u.test(line)).toBe(false);
+      }
+    }
+  });
 });
 
 describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () => {
-  it('instructs a single-line superseding marker when challenge fires from a card', () => {
+  it('instructs the supersedes relation via the trailing `!` ref token', () => {
     const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
     // The supersede relation rides the single-line marker via a trailing `!`
     // (the fenced form is unreliable — the TUI renders the fence away, PD-008).
-    expect(out).toContain('«IDEA@a1!»');
+    expect(out).toContain('@a1!');
     expect(out).not.toContain('```idea');
     expect(out).not.toContain('rel: supersedes');
+  });
+
+  it('references «IDEA» and the ref INLINE, never as a line-leading marker', () => {
+    // A fully-formed `«IDEA@ref!» … :: …` example would be echoed onto the
+    // terminal and re-extracted by the backend as a bogus card. Guard against it:
+    // no line in the prompt may start with an «IDEA / <<IDEA marker.
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    for (const line of out.split('\n')) {
+      expect(/^\s*(?:«IDEA|<<IDEA)/u.test(line)).toBe(false);
+    }
   });
 
   it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
@@ -126,7 +148,7 @@ describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () =
 
   it('the directive leads; the selection + open clause still follow', () => {
     const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
-    expect(out.indexOf('«IDEA@a1!»')).toBeLessThan(out.indexOf('Use a CRDT store'));
+    expect(out.indexOf('@a1!')).toBeLessThan(out.indexOf('Use a CRDT store'));
   });
 
   it('does NOT emit the supersede directive without a source ref', () => {
