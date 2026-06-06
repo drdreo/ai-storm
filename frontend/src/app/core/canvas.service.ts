@@ -7,7 +7,13 @@ import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import type { Idea } from '@ai-storm/shared';
 import type { BlockDescriptor } from './markdown-block-parser';
-import { decorateProvenance, ideaToDescriptors, type NoteOrigin } from './idea-descriptors';
+import {
+  decorateProvenance,
+  ideaToDescriptors,
+  kindBackground,
+  normalizeKind,
+  type NoteOrigin,
+} from './idea-descriptors';
 import { shouldSeedDoc } from './canvas-seed';
 import type { CanvasMode } from './models';
 
@@ -41,6 +47,24 @@ const PROVENANCE_MAP_KEY = 'ai-storm:provenance';
 const AI_NOTE_BACKGROUND = NoteBackgroundColor.Blue;
 
 /**
+ * Top-level `Y.Map<string>` key on a workspace's subdoc (`doc.spaceDoc`)
+ * recording each AI-created note's normalized `kind` (#21). Mirrors the
+ * provenance map exactly — namespaced so it can't collide with BlockSuite's own
+ * maps, and persisted with the block content via the subdoc's IndexedDB store so
+ * kinds survive reload. Absence of an id ⇒ the note has no recorded kind.
+ */
+const KIND_MAP_KEY = 'ai-storm:kind';
+
+/**
+ * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
+ * shows the note in both the page (doc) and edgeless (Canvas) views; `'doc'`
+ * hides it from the edgeless surface only — values confirmed against
+ * `@blocksuite/affine-model` `NoteDisplayMode` (both|doc|edgeless).
+ */
+const DISPLAY_MODE_VISIBLE = 'both';
+const DISPLAY_MODE_EDGELESS_HIDDEN = 'doc';
+
+/**
  * BlockSuite canvas integration (PRD §3.1, §3.3, §3.5, §4.1).
  *
  * Treats BlockSuite strictly as browser-native web components: a single
@@ -54,6 +78,15 @@ const AI_NOTE_BACKGROUND = NoteBackgroundColor.Blue;
 export class CanvasService {
   /** True once IndexedDB has rehydrated the CRDT store (PRD §3.5 boot). */
   readonly ready = signal(false);
+
+  /**
+   * Monotonic counter bumped whenever {@link applyIdeas} mutates a workspace's
+   * canvas (#21). Read-only to consumers; the canvas toolbar reads it so its
+   * kind-filter chips recompute reactively as new AI cards land (the underlying
+   * Y.Maps are not Angular signals, so this is the reactive trigger).
+   */
+  readonly #ideasTick = signal(0);
+  readonly ideasTick = this.#ideasTick.asReadonly();
 
   #schema = new Schema();
   #collection!: DocCollection;
@@ -309,6 +342,7 @@ export class CanvasService {
     if (!pageId) return;
 
     const provenance = this.#provenanceMap(doc);
+    const kindMap = this.#kindMap(doc);
     doc.transact(() => {
       for (const idea of ideas) {
         const index = this.#noteCounts.get(workspaceId) ?? 0;
@@ -317,12 +351,13 @@ export class CanvasService {
         const col = index % 4;
         const row = Math.floor(index / 4);
         const xywh: `[${number},${number},${number},${number}]` = `[${col * 360},${row * 280},320,240]`;
-        const noteId = doc.addBlock(
-          'affine:note',
-          { xywh, background: AI_NOTE_BACKGROUND },
-          pageId,
-        );
+        // Kind tint wins over the generic AI blue (#21); a kindless or
+        // unknown-kind AI card keeps the provenance blue (#31).
+        const kind = normalizeKind(idea.kind);
+        const background = kindBackground(kind) ?? AI_NOTE_BACKGROUND;
+        const noteId = doc.addBlock('affine:note', { xywh, background }, pageId);
         provenance.set(noteId, 'ai');
+        if (kind) kindMap.set(noteId, kind);
         for (const d of ideaToDescriptors(idea)) {
           // Skip empty paragraphs so cards stay clean (blank-body ideas, blank
           // lines between markdown blocks).
@@ -334,6 +369,8 @@ export class CanvasService {
         }
       }
     });
+    // Signal that the kind set may have changed so filter chips recompute (#21).
+    this.#ideasTick.update((n) => n + 1);
   }
 
   /**
@@ -351,6 +388,58 @@ export class CanvasService {
   /** The workspace subdoc's top-level provenance map (#31, PD-009). */
   #provenanceMap(doc: Doc) {
     return doc.spaceDoc.getMap<NoteOrigin>(PROVENANCE_MAP_KEY);
+  }
+
+  /** The workspace subdoc's top-level note-kind map (#21). */
+  #kindMap(doc: Doc) {
+    return doc.spaceDoc.getMap<string>(KIND_MAP_KEY);
+  }
+
+  /**
+   * The recorded `kind` of a canvas note (#21), or `undefined` if the note has
+   * none (user-drawn notes and kindless AI cards). Only {@link applyIdeas} writes
+   * the kind map. Safe before the doc exists.
+   */
+  noteKind(workspaceId: string, noteId: string): string | undefined {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return undefined;
+    return this.#kindMap(doc).get(noteId);
+  }
+
+  /**
+   * The distinct kinds with at least one note on the workspace canvas (#21),
+   * derived from the persisted kind map. Drives the toolbar's filter chips;
+   * recompute it against {@link ideasTick} for reactivity. Empty before the doc
+   * exists or when no kinded AI cards have been created.
+   */
+  kindsPresent(workspaceId: string): string[] {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return [];
+    return [...new Set(this.#kindMap(doc).values())];
+  }
+
+  /**
+   * Show or hide every note of a given `kind` on the edgeless (Canvas) surface
+   * (#21) by toggling each matching note's `displayMode` between `'both'`
+   * (visible) and `'doc'` (hidden from edgeless, still in the page view). The
+   * kind is normalized to match how {@link applyIdeas} records it. No-op before
+   * the doc exists. Runs in one transaction so the change is a single CRDT
+   * mutation (§5.1).
+   */
+  setKindVisible(workspaceId: string, kind: string, visible: boolean): void {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return;
+    const target = normalizeKind(kind);
+    if (!target) return;
+    const kindMap = this.#kindMap(doc);
+    const displayMode = visible ? DISPLAY_MODE_VISIBLE : DISPLAY_MODE_EDGELESS_HIDDEN;
+    doc.transact(() => {
+      for (const note of doc.getBlocksByFlavour('affine:note')) {
+        if (kindMap.get(note.id) === target) {
+          doc.updateBlock(note.model, { displayMode });
+        }
+      }
+    });
   }
 
   #appendDescriptor(doc: Doc, noteId: string, d: BlockDescriptor): void {

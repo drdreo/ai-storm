@@ -4,7 +4,15 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { AI_PROVENANCE_BADGE, decorateProvenance, ideaToDescriptors } from "./idea-descriptors";
+import {
+  AI_PROVENANCE_BADGE,
+  KIND_BACKGROUND,
+  KIND_LABEL,
+  decorateProvenance,
+  ideaToDescriptors,
+  kindBackground,
+  normalizeKind,
+} from "./idea-descriptors";
 
 describe("ideaToDescriptors", () => {
   it("maps a bare idea to a single decorated heading", () => {
@@ -66,5 +74,46 @@ describe("decorateProvenance (#31, PD-009)", () => {
   it("is idempotent — never double-prefixes an already-badged heading", () => {
     const once = decorateProvenance("Token rotation", "ai");
     expect(decorateProvenance(once, "ai")).toBe(once);
+  });
+});
+
+describe("normalizeKind (#21)", () => {
+  it("trims and lowercases a kind", () => {
+    expect(normalizeKind("  Risk  ")).toBe("risk");
+    expect(normalizeKind("FEATURE")).toBe("feature");
+  });
+
+  it("returns undefined for missing, empty, or whitespace-only input", () => {
+    expect(normalizeKind(undefined)).toBeUndefined();
+    expect(normalizeKind("")).toBeUndefined();
+    expect(normalizeKind("   ")).toBeUndefined();
+  });
+});
+
+describe("kindBackground (#21)", () => {
+  it("maps a known kind (case/space-insensitive) to its palette value", () => {
+    expect(kindBackground("risk")).toBe("--affine-note-background-red");
+    expect(kindBackground("  Feature ")).toBe("--affine-note-background-green");
+  });
+
+  it("returns undefined for an unknown kind", () => {
+    expect(kindBackground("experiment")).toBeUndefined();
+  });
+
+  it("returns undefined for a missing or blank kind", () => {
+    expect(kindBackground(undefined)).toBeUndefined();
+    expect(kindBackground("  ")).toBeUndefined();
+  });
+});
+
+describe("KIND_LABEL ↔ KIND_BACKGROUND key parity (#21)", () => {
+  it("defines the same set of known kinds in both maps", () => {
+    expect(Object.keys(KIND_BACKGROUND).sort()).toEqual(Object.keys(KIND_LABEL).sort());
+  });
+
+  it("maps every known kind to a valid note-background palette string", () => {
+    for (const value of Object.values(KIND_BACKGROUND)) {
+      expect(value).toMatch(/^--affine-note-background-[a-z]+$/);
+    }
   });
 });
