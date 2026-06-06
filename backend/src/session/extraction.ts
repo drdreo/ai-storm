@@ -19,7 +19,7 @@
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
 
-import type { Idea } from "@ai-storm/shared";
+import type { Idea, IdeaLink, IdeaRelation } from "@ai-storm/shared";
 
 export type { Idea };
 
@@ -110,14 +110,23 @@ export function commandProfileName(command: string): string | undefined {
 
 // ── Contract grammar (extraction-contract Appendix B — single source of truth) ──
 
-/** `«IDEA[:kind]»` / `<<IDEA[:kind]>>` at line start; group 3 is the remainder. */
-const IDEA_MARKER = /^\s*(?:«IDEA(?::([a-z][\w-]*))?»|<<IDEA(?::([a-z][\w-]*))?>>)\s*(.*)$/u;
+/**
+ * `«IDEA[:kind][@ref]»` / `<<IDEA[:kind][@ref]>>` at line start. The in-marker
+ * tag is `[:kind][@ref]` (idea-graph design §5.1): an optional `@ref` links this
+ * idea to the card with that short ref. Groups: 1/3 = kind (guillemet/ASCII),
+ * 2/4 = ref (guillemet/ASCII), 5 = the remainder (`title :: body`).
+ */
+const IDEA_MARKER =
+  /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?>>)\s*(.*)$/u;
 /** ` ```idea [kind=…] ` opens a fenced (multi-line body) idea. */
 const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 /** A bare ` ``` ` closes a fenced idea. */
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
-/** Fenced-body recognised keys (case-insensitive): title / body / kind. */
-const FENCE_KEY = /^(title|body|kind)\s*:\s*(.*)$/i;
+/**
+ * Fenced-body recognised keys (case-insensitive): title / body / kind, plus the
+ * idea-graph keys id / link (alias parent) / rel (idea-graph design §5.1).
+ */
+const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;
 
 /**
  * A line that LOOKS like an attempted idea marker but did not parse — used to
@@ -137,13 +146,25 @@ const MARKER_NEAR_MISS = /^\s*[^\w\s]{0,4}\s*idea\b/iu;
  */
 const CHROME_BOUNDARY = /^\s*(?:[─-╿\s]+|[>❯].*)$/u;
 
-/** Parse a single-line idea: `title :: body`, split on the FIRST `::`. */
-function ideaFromLine(kind: string | undefined, logical: string): Idea {
-  const rest = logical.replace(IDEA_MARKER, "$3").trim(); // remainder after marker
+/** Coerce a relation token to a known {@link IdeaRelation}, else undefined. */
+function parseRelation(value: string): IdeaRelation | undefined {
+  const v = value.trim().toLowerCase();
+  return v === "about" || v === "supersedes" ? v : undefined;
+}
+
+/**
+ * Parse a single-line idea: `title :: body`, split on the FIRST `::`. An in-marker
+ * `@ref` (group 2/4) becomes a single `about` link to that card (idea-graph §5.1).
+ */
+function ideaFromLine(kind: string | undefined, ref: string | undefined, logical: string): Idea {
+  const rest = logical.replace(IDEA_MARKER, "$5").trim(); // remainder after marker
   const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
   const body = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
-  return kind ? { title, body, kind } : { title, body };
+  const idea: Idea = { title, body };
+  if (kind) idea.kind = kind;
+  if (ref) idea.links = [{ to: ref, relation: "about" }];
+  return idea;
 }
 
 /**
@@ -155,11 +176,14 @@ function ideaFromLine(kind: string | undefined, logical: string): Idea {
 function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
   let title: string | undefined;
   let kindV = kind;
+  let id: string | undefined;
+  let linkTo: string | undefined;
+  let relation: IdeaRelation | undefined;
   const bodyParts: string[] = [];
   let inBody = false;
 
   // claude indents the whole assistant message (and thus the fenced block) by a
-  // left margin, so trim each line before recognising `title:`/`body:`/`kind:`.
+  // left margin, so trim each line before recognising the `key:` lines.
   const bodyLines = rawBodyLines.map((l) => l.trim());
   for (const line of bodyLines) {
     if (inBody) {
@@ -169,13 +193,29 @@ function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
     const km = FENCE_KEY.exec(line);
     if (km) {
       const key = km[1].toLowerCase();
-      const value = km[2];
-      if (key === "title") title = value.trim();
-      else if (key === "kind") kindV = value.trim() || kindV;
-      else {
-        // body:
-        inBody = true;
-        if (value.trim() !== "") bodyParts.push(value);
+      const value = km[2].trim();
+      switch (key) {
+        case "title":
+          title = value;
+          break;
+        case "kind":
+          kindV = value || kindV;
+          break;
+        case "id":
+          id = value || id;
+          break;
+        case "link":
+        case "parent":
+          linkTo = value || linkTo;
+          break;
+        case "rel":
+          relation = parseRelation(value) ?? relation;
+          break;
+        default:
+          // body:
+          inBody = true;
+          if (km[2].trim() !== "") bodyParts.push(km[2]);
+          break;
       }
       continue;
     }
@@ -189,7 +229,10 @@ function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
 
   const finalTitle = (title ?? "").trim();
   const body = bodyParts.join("\n").trim();
-  return kindV ? { title: finalTitle, body, kind: kindV } : { title: finalTitle, body };
+  const idea: Idea = kindV ? { title: finalTitle, body, kind: kindV } : { title: finalTitle, body };
+  if (id) idea.id = id;
+  if (linkTo) idea.links = [{ to: linkTo, relation: relation ?? "about" }];
+  return idea;
 }
 
 /**
@@ -234,7 +277,8 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
     // Form 1 — single-line marker, rejoining word-wrapped continuation rows.
     const m = IDEA_MARKER.exec(line);
     if (m) {
-      const kind = m[1] ?? m[2];
+      const kind = m[1] ?? m[3];
+      const ref = m[2] ?? m[4];
       let logical = line;
       let k = i;
       // Absorb continuation rows until a blank line / next marker / fence /
@@ -250,7 +294,7 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
         logical += " " + region[k].trim(); // re-insert the space consumed at the wrap
       }
       if (!final && k >= lastNonBlank) break; // growing idea at the tail → hold back
-      ideas.push(ideaFromLine(kind, logical));
+      ideas.push(ideaFromLine(kind, ref, logical));
       i = k + 1;
       continue;
     }
@@ -262,9 +306,22 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
   return ideas;
 }
 
-/** Stable per-idea identity key for session-scoped dedupe (§7.1). */
+/**
+ * Stable per-idea identity key for session-scoped dedupe (§7.1). Links are part
+ * of identity (idea-graph design §5.1): the same title/body pointed at a
+ * different target is a distinct edge and must not dedupe away.
+ */
 function ideaKey(idea: Idea): string {
-  return `${idea.title} ${idea.body} ${idea.kind ?? ""}`;
+  return `${idea.title} ${idea.body} ${idea.kind ?? ""} ${linkKey(idea.links)}`;
+}
+
+/** Order-independent identity of an idea's links, for the dedupe key (§5.1). */
+function linkKey(links: IdeaLink[] | undefined): string {
+  if (!links || links.length === 0) return "";
+  return links
+    .map((l) => `${l.to}:${l.relation ?? "about"}`)
+    .sort()
+    .join(",");
 }
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */

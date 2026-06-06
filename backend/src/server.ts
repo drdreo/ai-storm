@@ -39,6 +39,11 @@ Whenever you produce a brainstorming idea or ideation note worth capturing on th
   «IDEA» <short title> :: <one-line description>
 
 Optionally tag the kind: «IDEA:risk», «IDEA:feature», «IDEA:question», «IDEA:decision».
+
+When you are responding about a specific existing card whose ref you were given (it looks like @a1), link your idea to it by appending that ref to the marker, after any kind:
+
+  «IDEA:risk@a1» <short title> :: <one-line description>
+
 For an idea that truly needs several lines, use a fenced block instead:
 
   \`\`\`idea kind=<kind>

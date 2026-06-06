@@ -129,6 +129,70 @@ describe("scanIdeas — fenced ideas", () => {
   });
 });
 
+describe("scanIdeas — idea-graph links (#42)", () => {
+  it("parses an in-marker @ref into a single 'about' link", () => {
+    expect(ideasOf(cap("  «IDEA:risk@a1» Token leak :: refresh races the reattach"))).toEqual([
+      {
+        title: "Token leak",
+        body: "refresh races the reattach",
+        kind: "risk",
+        links: [{ to: "a1", relation: "about" }],
+      },
+    ]);
+  });
+
+  it("parses @ref with no kind", () => {
+    expect(ideasOf(cap("  «IDEA@a1» Offline-first canvas :: cache CRDT ops"))).toEqual([
+      { title: "Offline-first canvas", body: "cache CRDT ops", links: [{ to: "a1", relation: "about" }] },
+    ]);
+  });
+
+  it("accepts @ref on the ASCII <<IDEA>> alias", () => {
+    expect(ideasOf(cap("  <<IDEA:feature@b2>> Edgeless cards :: one note per idea"))).toEqual([
+      {
+        title: "Edgeless cards",
+        body: "one note per idea",
+        kind: "feature",
+        links: [{ to: "b2", relation: "about" }],
+      },
+    ]);
+  });
+
+  it("leaves an unlinked idea without links (graceful degradation)", () => {
+    expect(ideasOf(cap("  «IDEA» Plain idea :: no ref"))).toEqual([{ title: "Plain idea", body: "no ref" }]);
+  });
+
+  it("reads fenced id / link / rel keys (rel selects the relation)", () => {
+    expect(
+      ideasOf(
+        cap(
+          "  ```idea kind=decision",
+          "  id: c3",
+          "  link: a1",
+          "  rel: supersedes",
+          "  title: Adopt event sourcing",
+          "  body: replaces the snapshot approach",
+          "  ```",
+        ),
+      ),
+    ).toEqual([
+      {
+        title: "Adopt event sourcing",
+        body: "replaces the snapshot approach",
+        kind: "decision",
+        id: "c3",
+        links: [{ to: "a1", relation: "supersedes" }],
+      },
+    ]);
+  });
+
+  it("treats fenced `parent:` as an alias for `link:` (defaults to about)", () => {
+    expect(
+      ideasOf(cap("  ```idea", "  title: Child", "  parent: a1", "  body: branches off a1", "  ```")),
+    ).toEqual([{ title: "Child", body: "branches off a1", links: [{ to: "a1", relation: "about" }] }]);
+  });
+});
+
 describe("scanIdeas — no markers", () => {
   it("returns nothing for a chrome/chat-only capture", () => {
     expect(ideasOf(fixture("chrome-and-chat.txt"))).toEqual([]);
@@ -159,6 +223,18 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     // content-keyed dedupe means it is never delivered to the canvas twice.
     expect(scanner.scan(frame)).toEqual([]);
     expect(scanner.scan(frame)).toEqual([]);
+  });
+
+  it("dedupes a re-rendered linked idea but keeps distinct link targets apart (#42)", () => {
+    const scanner = new IdeaScanner();
+    const linked = { title: "Leak", body: "races", kind: "risk", links: [{ to: "a1", relation: "about" }] };
+    expect(scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "❯"))).toEqual([linked]);
+    // Same content AND same target re-rendered → not delivered twice.
+    expect(scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "❯"))).toEqual([]);
+    // Same content, DIFFERENT target → a distinct edge → emitted.
+    expect(
+      scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "  «IDEA:risk@b2» Leak :: races", "❯")),
+    ).toEqual([{ title: "Leak", body: "races", kind: "risk", links: [{ to: "b2", relation: "about" }] }]);
   });
 
   it("treats a different title/body/kind as a distinct idea", () => {
