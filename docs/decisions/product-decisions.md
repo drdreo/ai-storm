@@ -184,44 +184,51 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
-### PD-013 — Keep BlockSuite for now; tldraw is a revisit-later, not a replace
+### PD-013 — Replace the BlockSuite canvas with tldraw, starting now (v0)
 
 `(2026-06-06, accepted)`
 
-- **Decision:** **Do not replace the BlockSuite canvas with tldraw now.** The
+- **Decision:** **Adopt tldraw and retire the BlockSuite canvas, starting now.** The
   spike (#52, [`tldraw-spike.md`](../design/tldraw-spike.md)) confirms tldraw is the
   better *spatial-canvas foundation* on the merits — its shapes-+-typed-bindings
   model maps directly onto the idea-graph (nodes + typed edges), its canvas UX/perf
   and SDK DX are stronger, connectors are a built-in (vs. the one unknown the
-  idea-graph plan flagged), and a replacement would likely *shrink* the bundle.
-  Critically, the spike also proves the **React→Angular integration is cheap and
+  idea-graph plan flagged, idea-graph §7), and a replacement would likely *shrink*
+  the bundle. It also proves the **React→Angular integration is cheap and
   de-risked**: a ~70-line React island under an Angular host (`createRoot` in
   `afterNextRender`, `unmount` in `ngOnDestroy`), no `@angular/elements`/Zone
-  bridging, lazy-loaded so React+tldraw stay out of the main bundle. So the decision
-  can be **deferred without penalty**. We revisit when a concrete BlockSuite
-  limitation actually bites — most plausibly during **#16/#17** (layout, where the
-  connector/surface API is the flagged unknown), **#40** (per-kind shapes
-  `affine:note` can't express), a canvas perf/UX wall, or a **persistence pivot** to
-  a backend store (the ticket's SQLite idea — easier on tldraw's plain-snapshot
-  record model than on a Yjs subdoc).
-- **Why:** "Better foundation" does not justify rewriting a **working, freshly-
-  shipped** graph layer pre-emptively. The idea-graph (#42, PD-010) and the
-  brainstorm-ux epic — including the supersede mechanic (PD-012, merged in
-  `b2bcd31`) — were just built on BlockSuite and *work*. Replacing now means
-  re-implementing `canvas.service.ts` (941 lines) + the kind registry + the card
-  verbs on tldraw to fix problems we don't yet have, while giving up the local-first
-  **CRDT** story and the incremental path to multiplayer (PD-005/PD-001), losing
-  rich-text note bodies, and trading the framework-agnostic principle (PD-004 §4.1)
-  for a hard React dependency. The cost-to-switch is the decisive axis, and it
-  favours staying put — for now.
-- **Affects:** Closes #52 with a recommendation (no merge; `spike/tldraw-eval` is
-  throwaway). Records the **migration sequencing** for if/when we do switch
-  (`tldraw-spike.md` §7.1): the shared `Idea`/`IdeaRelation`/`IdeaLink` types and the
-  `«IDEA…@ref!»` extraction contract are framework-neutral and port verbatim — only
-  the *rendering + persistence* layer changes — so the switch slots cleanly **after**
-  #42's model stabilizes. Re-affirms PD-004/PD-005/PD-008/PD-011 as the basis to
-  revisit against. Builds on PD-010 (the graph model the spike validated tldraw maps
-  onto) and PD-011 (edgeless-primary, which erodes BlockSuite's dual-view edge).
+  bridging (the app is zoneless), lazy-loaded so React+tldraw stay out of the main
+  bundle. The spike renders **our** cards — driven by the shared `Idea` type and the
+  real `KIND_REGISTRY`, via a near-1:1 port of `CanvasService.applyIdeas` — including
+  every kind, AI/user provenance, typed `about`/`supersedes` edges, and the PD-012
+  supersede ghost, all surviving reload.
+- **Why:** ai-storm is **still v0 — nothing is in production, no users.** The
+  "don't rewrite a working, shipped foundation" argument therefore does **not**
+  apply: the BlockSuite canvas work is sunk either way, and the only question is
+  *forward* cost. Forward cost is **lowest now**: the canvas surface is still
+  contained (`canvas.service.ts` is 941 lines), and every brainstorm-ux feature
+  built next on BlockSuite (#16/#17 layout, #40 shapes, #19 connectors) only adds to
+  an eventual rewrite. Switching pre-emptively, while small, beats accreting more on
+  a foundation we've judged inferior. The trade-offs are real but acceptable at v0:
+  losing the Yjs **CRDT**/multiplayer-incremental path (PD-005/PD-001) is fine while
+  PD-001 keeps us single-user (tldraw `persistenceKey` covers local-first; tldraw
+  sync or a yjs↔tldraw adapter is a later option); rich-text card bodies can wait;
+  and the React dependency (nicking PD-004 §4.1) is contained by the island, with
+  PD-011 already committing us to the edgeless surface tldraw is built for.
+- **Affects:** Closes #52 with a **replace** recommendation; `spike/tldraw-eval` is
+  the proving branch (not the production migration). The migration (`tldraw-spike.md`
+  §7.1) is **rendering + persistence only** — the shared `Idea`/`IdeaRelation`/
+  `IdeaLink` types and the `«IDEA…@ref!»` extraction contract are framework-neutral
+  and port verbatim — and is sequenced **against #42**: land/stabilize #42's model,
+  port the kind registry → tldraw styling, nodes → shapes + edges → bindings,
+  `applyIdeas` → `createShapes`/`createBinding`, `serializeToText` → a shape-store
+  walk, and move the card verbs (#13/#15) to tldraw UI overrides. A **persistence
+  decision** is made deliberately at that point (tldraw `persistenceKey` vs. a
+  yjs↔tldraw adapter vs. the ticket's backend-SQLite snapshot store, §4.2). Builds on
+  PD-010 (the graph model tldraw maps onto) and PD-011 (edgeless-primary). Supersedes
+  the standing assumption in PD-004/PD-005 that BlockSuite + Yjs is the canvas/
+  persistence substrate — those are re-opened by this decision; PD-008 (terminal
+  passthrough) and the `«IDEA»` contract are unaffected.
 
 ### PD-012 — A challenge is a supersede operation, not a kind
 

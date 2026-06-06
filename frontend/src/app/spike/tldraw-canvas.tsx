@@ -1,21 +1,23 @@
 /**
  * Spike (#52): a tldraw canvas rendered as a React island inside the Angular
- * shell. This file is the React half — the Angular wrapper
- * ({@link ../spike/tldraw-spike.component.ts}) mounts it with `createRoot`.
+ * shell, rendering **our** idea cards — driven by the shared `Idea` wire type and
+ * the real `KIND_REGISTRY` (via `idea-descriptors.ts`), not invented data. The
+ * Angular wrapper ({@link ./tldraw-spike.component.ts}) mounts it with `createRoot`.
  *
- * It proves the three things the ticket asks for end-to-end:
+ * It proves the path the replacement decision (PD-013) hinges on:
  *   1. a custom **card shape** (`idea-card`) carrying the idea-graph node fields
- *      (title / body / kind) — the tldraw analogue of an `affine:note`;
- *   2. a **typed edge** between two cards — a native tldraw arrow *bound* to both
- *      cards (so it tracks them on move) whose `relation` (`about` | `supersedes`)
- *      lives in the arrow's `meta` and drives its styling — the analogue of our
- *      `ai-storm:edges` map + `affine:connector`;
- *   3. **persistence** — `persistenceKey` transparently mirrors the whole store to
- *      IndexedDB, so the seeded graph survives a reload (the data-model concern the
- *      ticket flags about coupling persistence to canvas layers).
+ *      (kind / title / body / origin / lifecycle) — the tldraw analogue of an
+ *      `affine:note` — tinted by the SAME kind registry the BlockSuite canvas uses;
+ *   2. a **typed edge** — a native tldraw arrow *bound* to two cards (so it tracks
+ *      them on move) whose `relation` (`about` | `supersedes`) lives in the arrow's
+ *      `meta` and drives its styling — the analogue of `ai-storm:edges` +
+ *      `affine:connector`;
+ *   3. `applyIdeas(editor, ideas)` — a direct port of `CanvasService.applyIdeas`
+ *      (ref resolution → near-target placement → relation edge → supersede ghost →
+ *      AI provenance badge), showing the migration is rendering-only;
+ *   4. **persistence** via `persistenceKey` → IndexedDB, surviving reload.
  *
- * Nothing here is production code; it is a throwaway probe to inform the
- * replace/don't-replace decision in `docs/design/tldraw-spike.md`.
+ * Throwaway probe for `docs/design/tldraw-spike.md`; not production code.
  */
 import {
   Tldraw,
@@ -30,15 +32,21 @@ import {
   type RecordProps,
   type TLBaseShape,
   type TLResizeInfo,
+  type TLShapeId,
 } from 'tldraw';
 import 'tldraw/tldraw.css';
+import type { Idea, IdeaRelation } from '@ai-storm/shared';
+import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from '../core/idea-descriptors';
 
 /** Stable IndexedDB room for the spike (separate from the BlockSuite canvas). */
 const PERSISTENCE_KEY = 'ai-storm:tldraw-spike';
 
 /* -------------------------------------------------------------------------- */
-/* Custom card shape — the idea-graph node (idea-graph.md §3, kind registry).  */
+/* Custom card shape — the idea-graph node (idea-graph.md §3).                 */
 /* -------------------------------------------------------------------------- */
+
+/** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
+type Origin = 'ai' | 'user';
 
 /** A spatial idea card: the tldraw analogue of an `affine:note` (idea-graph §2.1). */
 type IdeaCardShape = TLBaseShape<
@@ -50,6 +58,8 @@ type IdeaCardShape = TLBaseShape<
     kind: string;
     title: string;
     body: string;
+    /** Who made it (#31, PD-009) — AI cards get the 🤖 badge + a default tint. */
+    origin: Origin;
     /** Lifecycle (#20, PD-012): a supersede target becomes a grey/dashed ghost. */
     superseded: boolean;
   }
@@ -69,24 +79,23 @@ declare module 'tldraw' {
 }
 
 /**
- * Per-kind presentation, the tldraw mirror of the client-only `KIND_REGISTRY`
- * (idea-graph §3.2). One entry per kind = the whole styling story; an unknown
- * kind falls back to a plain white card, exactly as in the BlockSuite impl.
+ * Per-kind tint — the concrete light-mode values of BlockSuite's
+ * `--affine-note-background-*` palette (read from `@toeverything/theme`), so the
+ * cards render in tldraw with the EXACT colours `KIND_REGISTRY` (idea-graph §3.2)
+ * gives them today. The labels/badges come straight from `kindLabel`, so this map
+ * is the only kind-specific thing the spike re-states — and only because tldraw
+ * has no BlockSuite CSS vars to resolve.
  */
 const KIND_TINT: Record<string, string> = {
-  idea: '#eef2ff',
-  risk: '#fdecec',
-  feature: '#eafaf0',
-  question: '#fff7e6',
-  decision: '#e9f1fb',
+  risk: '#fab6b6', // --affine-note-background-red
+  feature: '#c9f8c1', // --affine-note-background-green
+  question: '#fde68a', // --affine-note-background-yellow
+  decision: '#cdebff', // --affine-note-background-blue
+  todo: '#c7f8f2', // --affine-note-background-teal
+  heuristic: '#ddd6fe', // --affine-note-background-purple
 };
-const KIND_LABEL: Record<string, string> = {
-  idea: '💡 Idea',
-  risk: '⚠ Risk',
-  feature: '✨ Feature',
-  question: '❓ Question',
-  decision: '✅ Decision',
-};
+/** Default tint for a kindless AI card (mirrors `AI_NOTE_BACKGROUND` = Blue). */
+const AI_DEFAULT_TINT = '#cdebff';
 
 class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   static override type = 'idea-card' as const;
@@ -96,11 +105,12 @@ class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
     kind: T.string,
     title: T.string,
     body: T.string,
+    origin: T.literalEnum('ai', 'user'),
     superseded: T.boolean,
   };
 
   override getDefaultProps(): IdeaCardShape['props'] {
-    return { w: 240, h: 132, kind: 'idea', title: 'Untitled idea', body: '', superseded: false };
+    return { w: 250, h: 132, kind: '', title: 'Untitled idea', body: '', origin: 'user', superseded: false };
   }
 
   override getGeometry(shape: IdeaCardShape): Geometry2d {
@@ -115,9 +125,14 @@ class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   }
 
   override component(shape: IdeaCardShape) {
-    const { kind, title, body, superseded } = shape.props;
-    const tint = superseded ? '#f2f2f2' : (KIND_TINT[kind] ?? '#ffffff');
-    const badge = KIND_LABEL[kind] ?? `#${kind}`;
+    const { kind, title, body, origin, superseded } = shape.props;
+    const normalized = normalizeKind(kind);
+    const tint = superseded
+      ? '#f2f2f2'
+      : (normalized && KIND_TINT[normalized]) ?? (origin === 'ai' ? AI_DEFAULT_TINT : '#ffffff');
+    // The badge line mirrors `decorateProvenance(decorateTitle(...))`: a 🤖 for AI
+    // cards, then the registry's kind label (or `#tag` for an unknown kind).
+    const badge = `${origin === 'ai' ? `${AI_PROVENANCE_BADGE} ` : ''}${normalized ? kindLabel(normalized) : ''}`.trim();
     return (
       <HTMLContainer
         style={{
@@ -133,15 +148,17 @@ class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
           fontFamily: 'system-ui, sans-serif',
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
+          gap: 5,
           overflow: 'hidden',
           pointerEvents: 'all',
         }}
       >
-        <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.7, letterSpacing: '0.02em' }}>
-          {badge}
-          {superseded ? ' · superseded' : ''}
-        </div>
+        {badge ? (
+          <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.72, letterSpacing: '0.02em' }}>
+            {badge}
+            {superseded ? ' · superseded' : ''}
+          </div>
+        ) : null}
         <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{title}</div>
         {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
       </HTMLContainer>
@@ -157,11 +174,11 @@ class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Seeding — build the idea-graph from the docs once, if the store is empty.   */
+/* applyIdeas — a direct port of CanvasService.applyIdeas onto tldraw.          */
 /* -------------------------------------------------------------------------- */
 
-/** Edge relation (mirrors shared `IdeaRelation`, idea-graph §2.3). */
-type Relation = 'about' | 'supersedes';
+const CARD_W = 250;
+const CARD_H = 132;
 
 /**
  * Draw a native arrow bound to both cards and tag it with its relation. The
@@ -170,15 +187,11 @@ type Relation = 'about' | 'supersedes';
  * `relation` lives in the arrow `meta` (the typed-edge payload) and also styles
  * the arrow: `supersedes` is red + dashed, `about` is a plain grey link.
  */
-function connect(editor: Editor, fromId: ReturnType<typeof createShapeId>, toId: ReturnType<typeof createShapeId>, relation: Relation): void {
+function connect(editor: Editor, fromId: TLShapeId, toId: TLShapeId, relation: IdeaRelation): void {
   const arrowId = createShapeId();
   editor.createShape({
     id: arrowId,
     type: 'arrow',
-    // The typed-edge payload: the relation lives in `meta` (the analogue of the
-    // `ai-storm:edges` map's `relation`) and also styles the arrow — `supersedes`
-    // is red + dashed, `about` is a plain grey link. (tldraw 5 arrow labels are
-    // rich-text, omitted here; the relation is carried structurally in meta.)
     meta: { relation },
     props: {
       color: relation === 'supersedes' ? 'red' : 'grey',
@@ -187,8 +200,6 @@ function connect(editor: Editor, fromId: ReturnType<typeof createShapeId>, toId:
       end: { x: 0, y: 0 },
     },
   });
-  // Bind both terminals to the cards. `createBinding` fills the remaining
-  // arrow-binding defaults (snap/edge-hints) from ArrowBindingUtil.getDefaultProps.
   for (const [terminal, target] of [['start', fromId], ['end', toId]] as const) {
     editor.createBinding({
       type: 'arrow',
@@ -200,47 +211,105 @@ function connect(editor: Editor, fromId: ReturnType<typeof createShapeId>, toId:
 }
 
 /**
- * Seed the canonical idea-graph from the design docs (idea-graph §5.1 examples):
- * an idea, a risk *about* it, and a refined feature that *supersedes* the risk —
- * so the supersede ghost treatment (PD-012) and both edge relations are visible.
- * Runs only when the persisted store has no idea cards yet, so a reload restores
- * the user's own graph instead of re-seeding.
+ * Render a batch of extracted {@link Idea}s as cards + typed edges — the tldraw
+ * port of `CanvasService.applyIdeas`. Each idea becomes an AI-origin `idea-card`;
+ * the first link whose target ref already exists places the card near its target
+ * and draws a relation-styled arrow; a `supersedes` link ghosts the target
+ * (#20, PD-012). Refs (`idea.id`, e.g. `a1`) are resolved within the batch — the
+ * same identity layer (idea-graph §4) the BlockSuite impl persists in `ai-storm:ref`.
  */
-function seedGraph(editor: Editor): void {
-  // `type` is the known-shape union; 'idea-card' is custom, so compare via string.
-  const existing = editor.getCurrentPageShapes().some((s) => (s.type as string) === 'idea-card');
-  if (existing) return;
+function applyIdeas(editor: Editor, ideas: Idea[]): void {
+  const refToShape = new Map<string, TLShapeId>();
+  const childOffset = new Map<TLShapeId, number>();
+  const toGhost = new Set<TLShapeId>();
+  let gridIndex = 0;
 
-  const a1 = createShapeId();
-  const a2 = createShapeId();
-  const a3 = createShapeId();
+  for (const idea of ideas) {
+    // Resolve the first link whose target ref already has a card (graceful
+    // degradation: an unresolved link just lands the card on the grid).
+    const link = (idea.links ?? []).find((l) => refToShape.has(l.to));
+    const targetId = link ? refToShape.get(link.to)! : undefined;
 
-  editor.createShapes([
-    {
-      id: a1,
-      type: 'idea-card',
-      x: 160,
-      y: 200,
-      props: { w: 250, h: 120, kind: 'idea', title: 'Offline-first canvas', body: 'Cache CRDT ops in IndexedDB so the board survives a refresh.', superseded: false },
-    },
-    {
-      id: a2,
-      type: 'idea-card',
-      x: 560,
-      y: 120,
-      props: { w: 250, h: 132, kind: 'risk', title: 'Token leak on reconnect', body: 'Refresh races the reattach and double-sends the auth token.', superseded: true },
-    },
-    {
-      id: a3,
-      type: 'idea-card',
-      x: 560,
-      y: 340,
-      props: { w: 250, h: 132, kind: 'feature', title: 'Rotate token on attach', body: 'Mint a fresh token per attach; grace-window the old one.', superseded: false },
-    },
-  ]);
+    let x: number;
+    let y: number;
+    if (targetId) {
+      const target = editor.getShape(targetId) as IdeaCardShape | undefined;
+      const n = childOffset.get(targetId) ?? 0;
+      childOffset.set(targetId, n + 1);
+      x = (target?.x ?? 0) + (target?.props.w ?? CARD_W) + 90;
+      y = (target?.y ?? 0) + n * 165;
+    } else {
+      const col = gridIndex % 3;
+      const row = Math.floor(gridIndex / 3);
+      gridIndex += 1;
+      x = 120 + col * 320;
+      y = 140 + row * 200;
+    }
 
-  connect(editor, a2, a1, 'about'); // the risk is ABOUT the idea
-  connect(editor, a3, a2, 'supersedes'); // the feature SUPERSEDES the risk (→ a2 ghosted)
+    const id = createShapeId();
+    editor.createShape<IdeaCardShape>({
+      id,
+      type: 'idea-card',
+      x,
+      y,
+      props: {
+        w: CARD_W,
+        h: CARD_H,
+        kind: normalizeKind(idea.kind) ?? '',
+        title: idea.title,
+        body: idea.body,
+        origin: 'ai', // applyIdeas is the AI producer (#31, PD-009)
+        superseded: false,
+      },
+    });
+    if (idea.id) refToShape.set(idea.id, id);
+
+    if (targetId && link) {
+      const relation = link.relation ?? 'about';
+      connect(editor, id, targetId, relation);
+      if (relation === 'supersedes') toGhost.add(targetId);
+    }
+  }
+
+  for (const id of toGhost) {
+    editor.updateShape<IdeaCardShape>({ id, type: 'idea-card', props: { superseded: true } });
+  }
+}
+
+/**
+ * A realistic brainstorm in OUR wire format (`Idea` with short refs + typed
+ * links), mirroring what the `«IDEA…@ref!»` extraction (extraction-contract §3.2)
+ * emits — every kind in the registry, an `about` web around one idea, and a
+ * `supersedes` (the Challenge verb's output, PD-012) that ghosts its target.
+ */
+const SEED_IDEAS: Idea[] = [
+  { id: 'a1', kind: 'feature', title: 'Offline-first canvas', body: 'Cache CRDT ops in IndexedDB so the board survives a refresh.' },
+  { id: 'a2', kind: 'risk', title: 'Token leak on reconnect', body: 'Refresh races the reattach and double-sends the auth token.', links: [{ to: 'a1', relation: 'about' }] },
+  { id: 'a3', kind: 'feature', title: 'Rotate token on attach', body: 'Mint a fresh token per attach; grace-window the old one.', links: [{ to: 'a2', relation: 'supersedes' }] },
+  { id: 'a4', kind: 'question', title: 'Multi-device sync later?', body: 'Single-user for v0 (PD-001) — but keep the CRDT seam open.', links: [{ to: 'a1', relation: 'about' }] },
+  { id: 'a5', kind: 'decision', title: 'Local-first, no server store', body: 'CRDT → IndexedDB is the source of truth (PD-005).', links: [{ to: 'a1', relation: 'about' }] },
+  { id: 'a6', kind: 'todo', title: 'Add grace-window timer', body: 'Expire the old token N seconds after a fresh attach.', links: [{ to: 'a3', relation: 'about' }] },
+];
+
+/**
+ * Seed the brainstorm once (when the persisted store has no idea cards), then add
+ * one user-drawn card so the AI/user provenance distinction (#31) is visible.
+ */
+function seed(editor: Editor): void {
+  const has = editor.getCurrentPageShapes().some((s) => (s.type as string) === 'idea-card');
+  if (has) return;
+
+  applyIdeas(editor, SEED_IDEAS);
+
+  // A user-origin note (no 🤖 badge, white) — the kind of card the user draws
+  // directly in the editor, never touched by applyIdeas (PD-009).
+  editor.createShape<IdeaCardShape>({
+    id: createShapeId(),
+    type: 'idea-card',
+    x: 120,
+    y: 560,
+    props: { w: 250, h: 110, kind: '', title: 'Reuse the CRDT for undo?', body: 'My own note — see if Yjs history gives us undo cheaply.', origin: 'user', superseded: false },
+  });
 
   editor.zoomToFit();
 }
@@ -255,7 +324,7 @@ export function TldrawCanvas(): React.JSX.Element {
       <Tldraw
         persistenceKey={PERSISTENCE_KEY}
         shapeUtils={[IdeaCardShapeUtil]}
-        onMount={(editor) => seedGraph(editor)}
+        onMount={(editor) => seed(editor)}
       />
     </div>
   );
