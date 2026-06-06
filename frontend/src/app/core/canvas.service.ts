@@ -8,6 +8,7 @@ import {
   CanvasIsland,
   type CanvasBridge,
   applyIdeas,
+  arrangeMindMap,
   serializeEditor,
   selectedText,
   kindsPresent,
@@ -134,6 +135,16 @@ export class CanvasService {
       const q = this.#pending.get(workspaceId) ?? [];
       q.push(...ideas);
       this.#pending.set(workspaceId, q);
+    }
+  }
+
+  /**
+   * Re-flow the active canvas into a mind map (#16, PD-014) — the on-demand
+   * "Arrange" action. No-op when the target workspace is not the mounted one.
+   */
+  arrange(workspaceId: string): void {
+    if (this.#editor && workspaceId === this.#activeId) {
+      arrangeMindMap(this.#editor);
     }
   }
 

@@ -45,6 +45,7 @@ import {
   AI_PROVENANCE_BADGE,
 } from './idea-descriptors';
 import { cardToText, serializeCards, type CardContent } from './canvas-text';
+import { layoutMindMap, type LayoutEdge, type LayoutRelation } from './idea-layout';
 import type { PromptIntent } from './prompt-framing';
 
 /* -------------------------------------------------------------------------- */
@@ -405,6 +406,59 @@ export function setKindVisible(editor: Editor, kind: string, visible: boolean): 
       ids.map((id) => ({ id, type: 'idea-card' as const, opacity: visible ? 1 : 0, isLocked: !visible })),
     ),
   );
+}
+
+/**
+ * The typed graph behind the cards: one {@link LayoutEdge} per bound arrow whose
+ * endpoints are both idea cards. `connect()` always binds `start` to the source
+ * card and `end` to the target, so the binding terminals recover the edge's
+ * direction; the relation rides in the arrow's `meta`. Arrows with a missing or
+ * non-card endpoint (mid-drag, or a user's plain arrow) are skipped.
+ */
+function ideaEdges(editor: Editor, cardIds: ReadonlySet<TLShapeId>): LayoutEdge[] {
+  const edges: LayoutEdge[] = [];
+  for (const shape of editor.getCurrentPageShapes()) {
+    if (shape.type !== 'arrow') continue;
+    let from: TLShapeId | undefined;
+    let to: TLShapeId | undefined;
+    for (const b of editor.getBindingsFromShape(shape, 'arrow')) {
+      const terminal = (b.props as { terminal?: 'start' | 'end' }).terminal;
+      if (terminal === 'start') from = b.toId;
+      else if (terminal === 'end') to = b.toId;
+    }
+    if (!from || !to || !cardIds.has(from) || !cardIds.has(to)) continue;
+    const relation: LayoutRelation =
+      (shape.meta as { relation?: string }).relation === 'supersedes' ? 'supersedes' : 'about';
+    edges.push({ from, to, relation });
+  }
+  return edges;
+}
+
+/**
+ * Re-flow the idea cards into an organic mind map (#16, PD-014) — the canvas
+ * "Arrange" action. Reads the typed edge graph, computes target positions with the
+ * pure {@link layoutMindMap} helper, and applies them in one transaction: related
+ * cards cluster and fan out from their main idea, superseded originals sit to the
+ * left, loose cards tidy into kind-grouped lanes. Only card `x/y` change; edges are
+ * native arrows bound to both endpoints, so they track their cards for free — "all
+ * relationships preserved" without touching the graph. A no-op on an empty board.
+ * Runs on demand only (PD-014): the user's manual placement is never auto-rewritten.
+ */
+export function arrangeMindMap(editor: Editor): void {
+  const cards = ideaCards(editor);
+  if (cards.length === 0) return;
+  const cardIds = new Set(cards.map((c) => c.id));
+  const positions = layoutMindMap(
+    cards.map((c) => ({ id: c.id, kind: c.props.kind, x: c.x, y: c.y, w: c.props.w, h: c.props.h })),
+    ideaEdges(editor, cardIds),
+  );
+  editor.run(() => {
+    editor.updateShapes(
+      positions.map((p) => ({ id: p.id as TLShapeId, type: 'idea-card' as const, x: p.x, y: p.y })),
+    );
+  });
+  // Frame the freshly-tidied board so the new grouping is visible at a glance.
+  editor.zoomToFit({ animation: { duration: 200 } });
 }
 
 /**

@@ -185,6 +185,48 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-014 — Semantic layout is a manual "Arrange" action, not an automatic mode
+
+`(2026-06-06, accepted, implements #16)`
+
+- **Decision:** Semantic layout (#16) is exposed as an **on-demand "Arrange" action** in the
+  canvas UI — a single click that re-flows the cards into an **organic mind map** — **not** an
+  always-on auto-layout mode. The board never repositions a card on its own: cards land where the
+  producer drops them (a new AI card docks near its linked target, else falls to the grid tail),
+  and the user is free to drag anything anywhere. Arranging is something the user *invokes*;
+  between invocations, manual positions are left untouched. The layout is **graph-driven, not
+  lane-based**: each connected group of related cards becomes a cluster that **radiates out from
+  its main idea** (an `about` child fans outward; same-kind children are grouped together in the
+  fan), a `supersedes` relation reads **left→right** (the greyed original sits to the *left*, the
+  new card is the anchor everything else fans from — PD-012), and unrelated loose cards are tidied
+  into kind-grouped lanes off to the side. Distinct clusters get generous **breathing room** so
+  the board doesn't read as one overloaded wall. Relationships are preserved for free — edges are
+  native tldraw arrows **bound** to both cards, so they track their endpoints as Arrange moves
+  them; Arrange only mutates card `x/y`, never the graph. Default for a new workspace: nothing
+  auto-runs (the action is simply available).
+- **Why:** Space carries meaning on an edgeless canvas, and the user's deliberate placement *is*
+  meaning. An automatic re-layout that fires on every new card would fight the user — snapping a
+  card they just nudged back — which destroys exactly the spatial intent the canvas exists to
+  capture. Making it a click keeps the user in control of *when* the board reorganizes: diverge
+  freely by hand, then converge with one action when the pile needs tidying. Rigid kind-columns
+  (the first cut) aligned everything into hard lanes and read as a spreadsheet, not a brainstorm;
+  a mind map that clusters by *relationship* and fans children around their idea matches how the
+  graph (PD-010) actually reads and leaves cognitive room. A continuous/auto mode, a persisted
+  preference, or model-driven affinity re-clustering (#17) can layer on later without reversing
+  this call.
+- **Affects:** Implements #16. Adds `CanvasService.arrange(workspaceId)` → `arrangeMindMap(editor)`
+  in the canvas island, which extracts the typed edge graph from the bound arrows
+  (`getBindingsFromShape` + the arrow `meta.relation`) and feeds a pure, testable `layoutMindMap`
+  helper (`idea-layout.ts`): union-find clusters → per-cluster branching radial placement
+  (`about` fans out, `supersedes` pins the original left) → shelf-packing with `clusterGap`
+  breathing room; loose cards fall back to kind-grouped lanes. The trigger is an "Arrange" button
+  in the existing canvas-pane toolbar (alongside the #21 kind filters and the Inject/Send
+  actions). The dumb 3-col tiler in `applyIdeas` stays as the *new-card drop* fallback (this PD
+  governs the explicit re-flow, not where a single fresh card lands). Out of scope, deferred: an
+  auto/continuous mode, a persisted setting, labeled cluster frames and model-driven affinity
+  clustering (#17), overlap-free force resolution on dense graphs, docking heuristics beyond the
+  existing linked-target placement (#18).
+
 ### PD-013 — The canvas is tldraw (native edgeless surface)
 
 `(2026-06-06, accepted)`
