@@ -184,9 +184,27 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-009 — Note provenance, not a capture composer
+
+`(2026-06-06, accepted, supersedes the composer approach of PD-002)`
+
+- **Decision:** Humans author notes the way they already do — directly in the BlockSuite editor. We do
+  NOT add a dedicated "add idea" composer. Instead we **track provenance**: AI-created notes (the only
+  programmatic creator, `CanvasService.applyIdeas()` from the `«IDEA»` stream) are tagged
+  `origin: 'ai'`; any note the user draws in the editor is untagged and treated as user-origin by
+  default. AI cards are made visually distinct (background tint **and** a badge marker).
+- **Why:** A second input path is redundant when the editor already creates notes, and a structured
+  composer's value was latent (kind is presentation-only until #21). The genuinely useful, missing
+  signal is *who made this* — at-a-glance separation of AI suggestions from the user's own thinking.
+  Marking only the AI path (and defaulting everything else to user) needs no hook into user editing.
+- **Affects:** Reframes [#31](https://github.com/drdreo/ai-storm/issues/31) (was "human idea-capture",
+  now "note provenance"). The composer work (PR #34) is closed unmerged. Provenance must persist in the
+  CRDT doc (survives reload). Sets up provenance-link (#23) and kind-driven filters (#21), which can
+  query the same origin signal.
+
 ### PD-002 — Humans capture ideas too
 
-`(2026-06-06, accepted)`
+`(2026-06-06, accepted — composer approach superseded by PD-009)`
 
 - **Decision:** Humans can capture ideas directly, not only the AI via the terminal.
 - **Why:** Today the only human path to a card is raw BlockSuite editing. A first-class "add idea"
