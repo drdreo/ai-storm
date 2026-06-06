@@ -69,7 +69,8 @@ describe('framePrompt', () => {
     expect(expand).not.toBe(challenge);
     expect(challenge).not.toBe(risks);
     expect(expand).toContain('Expand on this idea');
-    expect(challenge).toContain("devil's advocate");
+    expect(challenge).toContain('stress-test');
+    expect(challenge).toContain('stronger version');
     expect(risks).toContain('risks');
   });
 });
@@ -95,6 +96,44 @@ describe('framePrompt — source ref injection (#42)', () => {
 
   it('still yields nothing for an empty selection even with a ref', () => {
     expect(framePrompt('   ', 'discuss', 'a1')).toBe('');
+  });
+
+  it('uses the generic about directive for non-challenge verbs (#42)', () => {
+    for (const intent of ['discuss', 'expand', 'find-risks'] as PromptIntent[]) {
+      const out = framePrompt('S', intent, 'a1');
+      expect(out).toContain('@a1');
+      // The about directive tags «IDEA» lines; it never asks for a supersede.
+      expect(out).not.toContain('rel: supersedes');
+    }
+  });
+});
+
+describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () => {
+  it('instructs a fenced superseding idea when challenge fires from a card', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    // The supersede relation is only expressible via the fenced form, so the
+    // directive must spell out the block with link + rel keys.
+    expect(out).toContain('```idea');
+    expect(out).toContain('link: a1');
+    expect(out).toContain('rel: supersedes');
+    expect(out).toContain('@a1');
+  });
+
+  it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
+    const out = framePrompt('S', 'challenge', 'a2');
+    expect(out.endsWith(' ')).toBe(true);
+    expect(out.endsWith('\n')).toBe(false);
+  });
+
+  it('the directive leads; the selection + open clause still follow', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
+    expect(out.indexOf('rel: supersedes')).toBeLessThan(out.indexOf('Use a CRDT store'));
+  });
+
+  it('does NOT emit the supersede directive without a source ref', () => {
+    const out = framePrompt('Use a CRDT store', 'challenge');
+    expect(out).not.toContain('rel: supersedes');
+    expect(out).not.toContain('```idea');
   });
 });
 

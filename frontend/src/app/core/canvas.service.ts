@@ -14,6 +14,7 @@ import {
   ideaToDescriptors,
   kindBackground,
   normalizeKind,
+  type IdeaLifecycle,
   type NoteOrigin,
 } from './idea-descriptors';
 import { shouldSeedDoc } from './canvas-seed';
@@ -86,6 +87,16 @@ interface EdgeRecord {
   to: string;
   relation: IdeaRelation;
 }
+
+/**
+ * Top-level `Y.Map<IdeaLifecycle>` key on a workspace's subdoc recording a
+ * card's lifecycle state (#20, PD-012). Mirrors the kind/provenance/ref maps —
+ * namespaced, persisted with the block content so the state survives reload.
+ * Absence of an id ⇒ `'active'` (the default; we only ever write the non-default
+ * `'superseded'`). Today the only writer is {@link CanvasService.applyIdeas}
+ * when it records a `supersedes` edge; the full #20 state machine extends this.
+ */
+const LIFECYCLE_MAP_KEY = 'ai-storm:lifecycle';
 
 /**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
@@ -442,6 +453,7 @@ export class CanvasService {
     const kindMap = this.#kindMap(doc);
     const refMap = this.#refMap(doc);
     const edges = this.#edgesMap(doc);
+    const lifecycle = this.#lifecycleMap(doc);
     const surface = this.#surfaceModel(doc);
     // Seed the ref counter from the persisted map (not the in-memory tile count,
     // which resets on reload) so minted refs never collide across sessions (§4).
@@ -484,14 +496,17 @@ export class CanvasService {
         // Draw the connector + record the edge (idea-graph §5/§6). The new card
         // is the source so the arrow reads "this card → the idea it's about".
         if (targetNoteId && surface) {
+          const relation = link?.relation ?? 'about';
           const connectorId = this.#drawConnector(surface, noteId, targetNoteId);
           if (connectorId) {
-            edges.set(connectorId, {
-              from: noteId,
-              to: targetNoteId,
-              relation: link?.relation ?? 'about',
-            });
+            edges.set(connectorId, { from: noteId, to: targetNoteId, relation });
           }
+          // A `supersedes` edge retires its target (#20, PD-012): the refined
+          // card replaces the original, which becomes `superseded` (dimmed by
+          // Phase B, never deleted — history kept). Recorded even if the
+          // connector failed to draw, so the lifecycle is independent of the
+          // visual edge.
+          if (relation === 'supersedes') lifecycle.set(targetNoteId, 'superseded');
         }
       }
     });
@@ -570,6 +585,24 @@ export class CanvasService {
   /** The workspace subdoc's top-level graph-edges map (idea-graph §6). */
   #edgesMap(doc: Doc) {
     return doc.spaceDoc.getMap<EdgeRecord>(EDGES_MAP_KEY);
+  }
+
+  /** The workspace subdoc's top-level note-lifecycle map (#20, PD-012). */
+  #lifecycleMap(doc: Doc) {
+    return doc.spaceDoc.getMap<IdeaLifecycle>(LIFECYCLE_MAP_KEY);
+  }
+
+  /**
+   * The lifecycle state of a canvas note (#20, PD-012). Returns `'superseded'`
+   * iff the note has been replaced by a refined card via a `supersedes` edge
+   * (recorded by {@link applyIdeas}); every other note — including user-drawn
+   * notes and still-active AI cards — defaults to `'active'`. Safe before the
+   * doc exists. Phase B reads this to dim superseded cards.
+   */
+  noteLifecycle(workspaceId: string, noteId: string): IdeaLifecycle {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return 'active';
+    return this.#lifecycleMap(doc).get(noteId) === 'superseded' ? 'superseded' : 'active';
   }
 
   /** The edgeless surface model (host of connector elements), or null. */
