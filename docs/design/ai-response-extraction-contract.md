@@ -2,7 +2,7 @@
 
 **Status:** ⚠️ SUPERSEDED (the chat/chrome half) — see the banner below.
 **Author:** ai-storm backend
-**Related:** PRD §3.1, §3.2, §3.3, §3.5, §5.1 · builds directly on [`docs/design/ai-session-layer.md`](./ai-session-layer.md)
+**Related:** [Product decisions](../decisions/product-decisions.md) §3.1, §3.2, §3.3, §3.5, §5.1 (the PRD now lives there) · builds directly on [`docs/design/ai-session-layer.md`](./ai-session-layer.md)
 
 ---
 
