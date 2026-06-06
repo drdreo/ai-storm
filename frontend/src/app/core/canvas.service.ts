@@ -99,12 +99,21 @@ interface EdgeRecord {
 const LIFECYCLE_MAP_KEY = 'ai-storm:lifecycle';
 
 /**
- * Collapsed height (px) a superseded card folds to — enough to show its title
- * bar, body clipped (#20, PD-012). The card is archived in place, not deleted:
- * the collapse arrow re-expands it, so the history of the argument stays one
- * click away. Tuned to the note's heading + child padding; verify live.
+ * Visual treatment of a superseded card (#20, PD-012): a small, grey,
+ * dashed-border "ghost" — recessive enough to read as retired, but kept on the
+ * board (never deleted) so the path the argument took stays visible. The card
+ * shrinks to {@link SUPERSEDED_WIDTH}×{@link SUPERSEDED_HEIGHT}; a non-collapsed
+ * note has `overflow-y: clip`, so the now-overflowing body is hidden while the
+ * title still shows. BlockSuite notes expose no opacity, so "dim" is built from
+ * the props that do render: `background`, `edgeless.style.border*`, `xywh`.
  */
-const SUPERSEDED_COLLAPSED_HEIGHT = 72;
+const SUPERSEDED_BACKGROUND = '--affine-note-background-grey';
+/** `StrokeStyle.Dash` value (the render compares `borderStyle === 'dash'`); kept
+ * as a literal to avoid depending on an enum not in the public typings. */
+const SUPERSEDED_BORDER_STYLE = 'dash';
+const SUPERSEDED_BORDER_SIZE = 2;
+const SUPERSEDED_WIDTH = 220;
+const SUPERSEDED_HEIGHT = 96;
 
 /**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
@@ -470,6 +479,10 @@ export class CanvasService {
     // card fan out instead of stacking exactly (minimal offset — full semantic
     // layout is #16).
     const childOffset = new Map<string, number>();
+    // Cards retired by a `supersedes` edge this batch — their ghost treatment is
+    // applied AFTER the block-creation transaction (it mutates `edgeless` sub-
+    // props via updateBlock, which doesn't compose with the outer transact).
+    const superseded = new Set<string>();
     doc.transact(() => {
       for (const idea of ideas) {
         // Resolve the first link whose target ref exists on this canvas (§5). An
@@ -510,17 +523,19 @@ export class CanvasService {
             edges.set(connectorId, { from: noteId, to: targetNoteId, relation });
           }
           // A `supersedes` edge retires its target (#20, PD-012): the refined
-          // card replaces the original, which becomes `superseded` and folds to
-          // its title bar — archived in place, never deleted (history kept, one
-          // click to re-expand). The lifecycle state is recorded even if the
-          // connector failed to draw, so the data is independent of the visual.
+          // card replaces the original, which becomes `superseded` — greyed,
+          // dashed and shrunk, but never deleted (history kept). The lifecycle
+          // state is recorded even if the connector failed to draw, so the data
+          // is independent of the visual.
           if (relation === 'supersedes') {
             lifecycle.set(targetNoteId, 'superseded');
-            this.#collapseNote(doc, targetNoteId);
+            superseded.add(targetNoteId);
           }
         }
       }
     });
+    // Apply the ghost treatment outside the creation transaction (see above).
+    for (const noteId of superseded) this.#markSuperseded(doc, noteId);
     // Signal that the kind set may have changed so filter chips recompute (#21).
     this.#ideasTick.update((n) => n + 1);
   }
@@ -662,31 +677,36 @@ export class CanvasService {
   }
 
   /**
-   * Fold a superseded card down to its title bar (#20, PD-012), mirroring
-   * BlockSuite's own collapse gesture (`note-edgeless-block` `_setCollapse`):
-   * set `edgeless.collapsedHeight` (so the re-expand arrow appears) and
-   * `edgeless.collapse`, then clamp `xywh.h` to that height. The note keeps all
-   * its blocks — collapse only clips the rendered body — so re-expanding it
-   * restores the full history. Defensive: the `edgeless` sub-props aren't in the
-   * published note typings (bundled/internal), so it is cast and guarded, and a
-   * failure must never abort idea creation.
+   * Give a superseded card its "ghost" treatment (#20, PD-012): grey background,
+   * dashed border, and a shrunk box (`overflow-y: clip` on a non-collapsed note
+   * hides the overflowing body while the title still shows). All blocks are kept
+   * — only the rendered box shrinks — so the full history survives and the card
+   * can be resized back open. Defensive: the `edgeless` sub-props aren't in the
+   * published note typings (bundled/internal), so the model is cast and guarded,
+   * and a failure must never abort idea creation.
    */
-  #collapseNote(doc: Doc, noteId: string): void {
+  #markSuperseded(doc: Doc, noteId: string): void {
     const model = doc.getBlockById(noteId) as
-      | { xywh?: string; edgeless?: { collapse?: boolean; collapsedHeight?: number; scale?: number } }
+      | {
+          xywh?: string;
+          background?: string;
+          edgeless?: { style?: { borderStyle?: string; borderSize?: number } };
+        }
       | null;
     const bound = this.#parseXYWH(model?.xywh);
-    if (!model?.edgeless || !bound) return;
-    const [x, y, w] = bound;
-    const scale = model.edgeless.scale ?? 1;
+    if (!model || !bound) return;
+    const [x, y] = bound;
     try {
       doc.updateBlock(model as never, () => {
-        model.edgeless!.collapsedHeight = SUPERSEDED_COLLAPSED_HEIGHT;
-        model.edgeless!.collapse = true;
-        model.xywh = `[${x},${y},${w},${SUPERSEDED_COLLAPSED_HEIGHT * scale}]`;
+        model.background = SUPERSEDED_BACKGROUND;
+        if (model.edgeless?.style) {
+          model.edgeless.style.borderStyle = SUPERSEDED_BORDER_STYLE;
+          model.edgeless.style.borderSize = SUPERSEDED_BORDER_SIZE;
+        }
+        model.xywh = `[${x},${y},${SUPERSEDED_WIDTH},${SUPERSEDED_HEIGHT}]`;
       });
     } catch (err) {
-      console.warn('canvas: failed to collapse superseded note', err);
+      console.warn('canvas: failed to mark superseded note', err);
     }
   }
 
