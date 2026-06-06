@@ -11,6 +11,8 @@
     "isolatedModules": true,
     "experimentalDecorators": true,
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "importHelpers": true,
     "target": "ES2022",
     "module": "ES2022",
