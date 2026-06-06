@@ -9,3 +9,5 @@ Thumbs.db
 .idea
 .vscode
 agent-orchestrator.yaml
+# Throwaway spike artifacts (screenshots, harnesses)
+frontend/spike-*
