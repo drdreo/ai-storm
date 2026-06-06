@@ -21,9 +21,9 @@ export interface AgentRun {
  * - `dispatch` extracts plain block text and asks the backend to spawn the
  *   local orchestrator subprocess with the payload as a functional argument,
  *   streaming the run's lifecycle back into a signal for the control hub.
- * - `discussSelection` is the bidirectional-canvas seam (#13): it neither
- *   silently injects context nor spawns a subprocess — it types a framed,
- *   EDITABLE prompt into the live interactive session for the user to submit.
+ * - `discussText` is the bidirectional-canvas seam (#13): it neither silently
+ *   injects context nor spawns a subprocess — it types a framed, EDITABLE
+ *   prompt into the live interactive session for the user to submit.
  */
 @Injectable({ providedIn: 'root' })
 export class AgentService {
@@ -75,7 +75,7 @@ export class AgentService {
   }
 
   /**
-   * Bidirectional canvas (#13) — feed the current canvas selection into the LIVE
+   * Bidirectional canvas (#13) — feed the given canvas text into the LIVE
    * interactive terminal session as an EDITABLE prompt.
    *
    * Unlike {@link injectContext} (silent structural memory the user never sees)
@@ -84,13 +84,16 @@ export class AgentService {
    * newline, so the cursor lands ready for the user to edit and submit it
    * themselves. This is the interactive seam #14/#15 build their card verbs on.
    *
+   * The text is supplied by the caller (the canvas service serializes the
+   * selected idea card whose element-toolbar "Discuss" action fired), so this
+   * service no longer reaches into the editor selection itself.
+   *
    * @returns `true` if a prompt was typed; `false` if no session is attached or
-   *   the selection is empty (nothing happens in either case).
+   *   the text is empty (nothing happens in either case).
    */
-  discussSelection(workspaceId: string): boolean {
+  discussText(workspaceId: string, text: string): boolean {
     if (!this.#ingestion.isAttached(workspaceId)) return false;
-    const selection = this.#canvas.getSelectedText().trim();
-    const prompt = framePrompt(selection, 'discuss');
+    const prompt = framePrompt(text.trim() ? text : '', 'discuss');
     if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
     this.#ingestion.sendInput(workspaceId, prompt);

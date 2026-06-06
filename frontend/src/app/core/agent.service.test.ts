@@ -1,10 +1,12 @@
 /**
- * Tests for AgentService.discussSelection — the bidirectional canvas seam (#13).
+ * Tests for AgentService.discussText — the bidirectional canvas seam (#13).
  *
- * The behaviour under test: when a session is attached, the current canvas
- * selection is framed and TYPED into the live PTY as an editable prompt (with NO
- * trailing '\r', so it is not auto-submitted) and the terminal is focused. When
- * nothing is attached, or the selection is empty, nothing is sent.
+ * The behaviour under test: when a session is attached, the supplied card text
+ * is framed and TYPED into the live PTY as an editable prompt (with NO trailing
+ * '\r', so it is not auto-submitted) and the terminal is focused. When nothing
+ * is attached, or the text is empty, nothing is sent. The text is now passed in
+ * by the caller (the canvas service serializes the selected idea card), so the
+ * service no longer reads the editor selection itself.
  *
  * Heavy collaborators (BlockSuite canvas, the WebSocket backend) are mocked so
  * the service runs in the plain Node test env; it is built inside a minimal
@@ -32,10 +34,9 @@ interface Harness {
   focusTerminal: ReturnType<typeof vi.fn>;
 }
 
-function makeService(opts: { attached: boolean; selection: string }): Harness {
+function makeService(opts: { attached: boolean }): Harness {
   const sendInput = vi.fn();
   const focusTerminal = vi.fn();
-  const canvas = { getSelectedText: () => opts.selection };
   const ingestion = {
     isAttached: (_id: string) => opts.attached,
     sendInput,
@@ -43,7 +44,8 @@ function makeService(opts: { attached: boolean; selection: string }): Harness {
   };
   const injector = Injector.create({
     providers: [
-      { provide: CanvasService, useValue: canvas },
+      // Text is supplied to discussText directly — no canvas selection read.
+      { provide: CanvasService, useValue: {} },
       { provide: BackendService, useValue: {} },
       { provide: IngestionService, useValue: ingestion },
       { provide: WorkspaceService, useValue: {} },
@@ -53,20 +55,20 @@ function makeService(opts: { attached: boolean; selection: string }): Harness {
   return { svc, sendInput, focusTerminal };
 }
 
-describe('AgentService.discussSelection (#13)', () => {
+describe('AgentService.discussText (#13)', () => {
   let h: Harness;
 
-  describe('attached with a non-empty selection', () => {
+  describe('attached with non-empty text', () => {
     beforeEach(() => {
-      h = makeService({ attached: true, selection: 'Cache CRDT ops offline' });
+      h = makeService({ attached: true });
     });
 
     it('returns true', () => {
-      expect(h.svc.discussSelection('ws1')).toBe(true);
+      expect(h.svc.discussText('ws1', 'Cache CRDT ops offline')).toBe(true);
     });
 
     it('types the framed prompt into the PTY with NO trailing carriage return', () => {
-      h.svc.discussSelection('ws1');
+      h.svc.discussText('ws1', 'Cache CRDT ops offline');
       expect(h.sendInput).toHaveBeenCalledTimes(1);
       const [id, data] = h.sendInput.mock.calls[0];
       expect(id).toBe('ws1');
@@ -77,30 +79,30 @@ describe('AgentService.discussSelection (#13)', () => {
     });
 
     it('focuses the terminal after typing the prompt', () => {
-      h.svc.discussSelection('ws1');
+      h.svc.discussText('ws1', 'Cache CRDT ops offline');
       expect(h.focusTerminal).toHaveBeenCalledWith('ws1');
     });
   });
 
   describe('not attached', () => {
     beforeEach(() => {
-      h = makeService({ attached: false, selection: 'some notes' });
+      h = makeService({ attached: false });
     });
 
     it('returns false and sends nothing', () => {
-      expect(h.svc.discussSelection('ws1')).toBe(false);
+      expect(h.svc.discussText('ws1', 'some notes')).toBe(false);
       expect(h.sendInput).not.toHaveBeenCalled();
       expect(h.focusTerminal).not.toHaveBeenCalled();
     });
   });
 
-  describe('attached but empty selection', () => {
+  describe('attached but empty text', () => {
     beforeEach(() => {
-      h = makeService({ attached: true, selection: '   \n  ' });
+      h = makeService({ attached: true });
     });
 
     it('returns false and sends nothing', () => {
-      expect(h.svc.discussSelection('ws1')).toBe(false);
+      expect(h.svc.discussText('ws1', '   \n  ')).toBe(false);
       expect(h.sendInput).not.toHaveBeenCalled();
       expect(h.focusTerminal).not.toHaveBeenCalled();
     });

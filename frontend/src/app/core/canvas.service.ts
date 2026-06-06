@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { DocCollection, Schema, Text, type Doc } from '@blocksuite/store';
 import { AffineSchemas, NoteBackgroundColor } from '@blocksuite/blocks';
 import { AffineEditorContainer } from '@blocksuite/presets';
+import { discussToolbarExtension, type DiscussMenuContext } from './discuss-toolbar';
 import { effects as blocksEffects } from '@blocksuite/blocks/effects';
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -72,6 +73,8 @@ export class CanvasService {
   #titleObservers = new Map<string, () => void>();
   /** Fired when a doc's page-title is edited from inside the editor. */
   #onTitleChange: ((workspaceId: string, title: string) => void) | null = null;
+  /** Fired when the user picks "Discuss" on a selected idea card (#13). */
+  #discussHandler: ((text: string) => void) | null = null;
 
   async init(): Promise<void> {
     if (this.ready()) return;
@@ -191,6 +194,13 @@ export class CanvasService {
     const doc = this.ensureDoc(workspaceId);
     if (!this.#editor) {
       this.#editor = new AffineEditorContainer();
+      // Register the card-level "Discuss" verb (#13) on the edgeless element
+      // toolbar's More menu before the first edgeless render — `_std` is
+      // derived from `edgelessSpecs`, so appending here is enough.
+      this.#editor.edgelessSpecs = [
+        ...this.#editor.edgelessSpecs,
+        discussToolbarExtension((ctx) => this.#discussFromToolbar(ctx)),
+      ];
     }
     this.#bindWhenRooted(doc, mode, host);
   }
@@ -270,6 +280,48 @@ export class CanvasService {
   /** Register the reverse-sync sink: editor title edits → workspace rename. */
   onDocTitleChanged(cb: (workspaceId: string, title: string) => void): void {
     this.#onTitleChange = cb;
+  }
+
+  /**
+   * Register the bidirectional-canvas sink (#13): called with the serialized
+   * text of the idea card whose "Discuss" element-toolbar action was clicked.
+   * The component wires this to {@link AgentService.discussText}.
+   */
+  onDiscussCard(cb: (text: string) => void): void {
+    this.#discussHandler = cb;
+  }
+
+  /**
+   * Bridge the element-toolbar "Discuss" action (#13) to the registered sink:
+   * serialize the selected card's blocks to text (reusing {@link #modelToLine}
+   * via {@link #noteToText}) and forward it. The note's own block models are
+   * walked directly — `ctx.selectedBlockModels` is empty for an edgeless
+   * surface selection, so it cannot be used here.
+   */
+  #discussFromToolbar(ctx: DiscussMenuContext): void {
+    const note = ctx.getNoteBlock();
+    if (!note) return;
+    const text = this.#noteToText(note);
+    if (text.trim()) this.#discussHandler?.(text);
+  }
+
+  /**
+   * Serialize an `affine:note` card's block tree to text, reusing the exact
+   * per-block formatting of {@link #modelToLine} (so a card discussed matches
+   * what {@link serializeToText} would emit). Walks children recursively to
+   * cover nested lists. The note model itself yields no line, so only its
+   * descendants contribute.
+   */
+  #noteToText(note: { children: readonly { id: string }[] }): string {
+    const lines: string[] = [];
+    const walk = (model: unknown) => {
+      const m = model as { children?: readonly unknown[] };
+      const line = this.#modelToLine(m);
+      if (line !== null) lines.push(line);
+      for (const child of m.children ?? []) walk(child);
+    };
+    for (const child of note.children) walk(child);
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   /**

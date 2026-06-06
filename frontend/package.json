@@ -19,6 +19,7 @@
     "@angular/compiler": "^22.0.0",
     "@angular/core": "^22.0.0",
     "@angular/platform-browser": "^22.0.0",
+    "@blocksuite/block-std": "0.19.5",
     "@blocksuite/blocks": "0.19.5",
     "@blocksuite/presets": "0.19.5",
     "@blocksuite/store": "0.19.5",
