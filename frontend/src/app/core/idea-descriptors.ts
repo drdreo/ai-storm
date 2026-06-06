@@ -36,7 +36,7 @@ export interface KindSpec {
  * the literal {@link IdeaKind} union, {@link KNOWN_KINDS} ordering, and the
  * registry's key completeness (a missing entry is a compile error).
  */
-const KIND_ORDER = ['risk', 'feature', 'question', 'decision', 'todo', 'heuristic'] as const;
+const KIND_ORDER = ['risk', 'challenge', 'feature', 'question', 'decision', 'todo', 'heuristic'] as const;
 
 /** The kinds AI-Storm recognises (#21). */
 export type IdeaKind = (typeof KIND_ORDER)[number];
@@ -44,6 +44,7 @@ export type IdeaKind = (typeof KIND_ORDER)[number];
 /** The single source of truth for per-kind behaviour (idea-graph design §3.2). */
 export const KIND_REGISTRY: Record<IdeaKind, KindSpec> = {
   risk: { label: '⚠ Risk', background: '--affine-note-background-red' },
+  challenge: { label: '⚔ Challenge', background: '--affine-note-background-orange' },
   feature: { label: '✨ Feature', background: '--affine-note-background-green' },
   question: { label: '❓ Question', background: '--affine-note-background-yellow' },
   decision: { label: '✅ Decision', background: '--affine-note-background-blue' },

@@ -38,7 +38,7 @@ Whenever you produce a brainstorming idea or ideation note worth capturing on th
 
   «IDEA» <short title> :: <one-line description>
 
-Optionally tag the kind: «IDEA:risk», «IDEA:feature», «IDEA:question», «IDEA:decision».
+Optionally tag the kind: «IDEA:risk», «IDEA:challenge», «IDEA:feature», «IDEA:question», «IDEA:decision». Use «IDEA:challenge» for a counter-argument or objection to an existing idea.
 
 When you are responding about a specific existing card whose ref you were given (it looks like @a1), link your idea to it by appending that ref to the marker, after any kind:
 

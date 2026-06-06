@@ -116,6 +116,11 @@ describe("kindLabel (#21)", () => {
   it("falls back to a plain #tag for an unknown kind", () => {
     expect(kindLabel("experiment")).toBe("#experiment");
   });
+
+  it("renders the challenge kind distinctly (⚔, orange)", () => {
+    expect(kindLabel("challenge")).toBe("⚔ Challenge");
+    expect(kindBackground("challenge")).toBe("--affine-note-background-orange");
+  });
 });
 
 describe("KIND_REGISTRY (idea-graph §3.2 — single source of truth)", () => {
