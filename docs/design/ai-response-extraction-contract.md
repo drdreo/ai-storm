@@ -691,11 +691,10 @@ The brief: "pushes ideas straight to `CanvasService.applyBlocks` as cards/notes.
   title, prefixed/decorated by `kind`) + a `paragraph`/list for the body — and feeds the **existing**
   `applyBlocks` (`canvas.service.ts:138`). This is *not* inference: the structure is dictated by the
   `Idea` shape, not guessed from text shape.
-- **Recommended enhancement (true "cards"):** add `applyIdeas(workspaceId, ideas)` that, in edgeless
-  mode, creates **one `affine:note` per idea** (an edgeless note *is* a card) seeded with the
-  title heading + body. This realises "cards/notes on the canvas" rather than appending paragraphs to
-  one growing note. `applyBlocks`'s single-note append remains for the chat-derived path if ever
-  needed. Ship the primary first; the enhancement is additive.
+- **Recommended enhancement (true "cards"):** add `applyIdeas(workspaceId, ideas)` that creates
+  **one card per idea** on the canvas, seeded with the title heading + body. This realises "cards on
+  the canvas" rather than appending paragraphs to one growing note. Ship the primary first; the
+  enhancement is additive.
 
 `kind` styling: known kinds map to a heading badge / note colour (`risk` → red, `question` → amber,
 etc.); unknown kinds render as a plain tag. This is presentation-only and out of scope for the wire.

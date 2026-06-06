@@ -27,7 +27,7 @@ back, so the history stays readable.
 > below. The §3.3 text is retained for reference and because other docs cite it.
 
 **Summary:** ai-storm is a local-first collaborative canvas powered by a Node backend that
-streams local terminal data into a multi-workspace BlockSuite environment.
+streams local terminal data into a multi-workspace spatial idea canvas.
 
 ## 1. Executive summary & core objectives
 
@@ -38,9 +38,9 @@ or cloud-hosted keys. Instead, it reuses existing local command-line interface s
 tapping directly into active pseudo-terminals and headless terminal sessions running on the
 developer's machine.
 
-By integrating BlockSuite into a highly responsive user interface, the system gives the user an
-infinite visual layout to organize notes while concurrently streaming real-time local text
-generation directly into structured document blocks. The backend layer is powered entirely by a
+Through a highly responsive user interface, the system gives the user an infinite visual canvas
+to organize ideas while concurrently streaming real-time local text generation into spatial idea
+cards. The backend layer is powered entirely by a
 lightweight, local-only execution environment built on the Node runtime, using a Hono
 HTTP/WebSocket server and `@lydell/node-pty` for real pseudo-terminals (ConPTY on Windows,
 forkpty on POSIX).
@@ -69,15 +69,14 @@ workflow:
   inputs, terminal execution status logs, session controls, and diagnostic readouts of the
   background terminal stream. It can be the streamed terminal (like gotty) to ease the AI
   conversation, but that is up to complexity.
-- **Structural Workspace Canvas (center/left pane):** An embedded instance of BlockSuite that
-  operates in a framework-agnostic capacity. It must support fluid, client-side toggling between a
-  linear document configuration and a spatial node canvas. Both layouts must read and write to the
-  exact same underlying project data structure.
+- **Structural Workspace Canvas (center/left pane):** A spatial idea canvas (tldraw) embedded as a
+  framework-agnostic surface. Ideas live as spatial cards on an infinite edgeless canvas; there is
+  no separate linear document view (PD-011).
 
 ### 3.2. Contextual document ingestion (input layer)
 
 Prior to dispatching a user command or contextual update to the local terminal loop, a background
-compilation service must serialize the current state of the active BlockSuite canvas into a
+compilation service must serialize the current state of the active canvas into a
 normalized, raw text document. This text representation must automatically inject itself into the
 payload context, providing the local agent terminal execution loop with a complete structural
 memory of the whiteboard state.
@@ -116,8 +115,9 @@ memory of the whiteboard state.
 - **Local state integrity:** Workspace content must completely survive runtime crashes, web
   application refreshes, system restarts, and terminal disconnections. Every data change — whether
   driven by manual user keyboard input or incoming streamed text — must write down immediately.
-- **CRDT binary serialization:** The data layer must rely entirely on Conflict-free Replicated Data
-  Type binary trees mapped to localized data storage via the browser's native IndexedDB directory.
+- **Local IndexedDB persistence:** Workspace state must persist to the browser's native IndexedDB —
+  the tldraw canvas store per workspace (via `persistenceKey`) and a CRDT (Yjs) registry of workspace
+  metadata — so it survives reloads and crashes.
 - **Crash recovery boot sequence:** Upon application boot, an initialization service must scan the
   browser storage engine index, identify the most recently active workspace identifier, rebuild the
   structural data engine from local binary storage logs, and present the workspace exactly as it was
@@ -125,7 +125,7 @@ memory of the whiteboard state.
 
 ### 3.6. Downstream agent execution hook
 
-Every structural node component or multi-selected group of blocks within the BlockSuite canvas must
+Every idea card or multi-selected group of cards on the canvas must
 feature an actionable contextual interaction macro. When executed, the system must extract the plain
 text contents, strip out layout wrappers, and dispatch a structured local loopback event to the Node
 background service. The Node service must interpret the payload and instantly spawn an asynchronous
@@ -136,9 +136,10 @@ payload passed as a clear functional argument.
 
 ### 4.1. Framework-agnostic core principles
 
-The front-end web interface must treat BlockSuite as a set of standard, browser-native web
-components. No framework-specific lifecycle boundaries or proprietary wrapper hooks may be utilized
-for data rendering or view synchronization.
+The canvas is a React (tldraw) island mounted under the Angular shell at a single, framework-agnostic
+boundary (`createRoot` on render, `unmount` on teardown) — no `@angular/elements`, Zone bridging, or
+proprietary wrapper hooks. Angular owns the shell; React owns the canvas subtree; the two communicate
+through a thin service facade (`CanvasService`).
 
 ### 4.2. Local-only Node runtime environment
 
@@ -184,51 +185,26 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
-### PD-013 — Replace the BlockSuite canvas with tldraw, starting now (v0)
+### PD-013 — The canvas is tldraw (native edgeless surface)
 
 `(2026-06-06, accepted)`
 
-- **Decision:** **Adopt tldraw and retire the BlockSuite canvas, starting now.** The
-  spike (#52, [`tldraw-spike.md`](../design/tldraw-spike.md)) confirms tldraw is the
-  better *spatial-canvas foundation* on the merits — its shapes-+-typed-bindings
-  model maps directly onto the idea-graph (nodes + typed edges), its canvas UX/perf
-  and SDK DX are stronger, connectors are a built-in (vs. the one unknown the
-  idea-graph plan flagged, idea-graph §7), and a replacement would likely *shrink*
-  the bundle. It also proves the **React→Angular integration is cheap and
-  de-risked**: a ~70-line React island under an Angular host (`createRoot` in
-  `afterNextRender`, `unmount` in `ngOnDestroy`), no `@angular/elements`/Zone
-  bridging (the app is zoneless), lazy-loaded so React+tldraw stay out of the main
-  bundle. The spike renders **our** cards — driven by the shared `Idea` type and the
-  real `KIND_REGISTRY`, via a near-1:1 port of `CanvasService.applyIdeas` — including
-  every kind, AI/user provenance, typed `about`/`supersedes` edges, and the PD-012
-  supersede ghost, all surviving reload.
-- **Why:** ai-storm is **still v0 — nothing is in production, no users.** The
-  "don't rewrite a working, shipped foundation" argument therefore does **not**
-  apply: the BlockSuite canvas work is sunk either way, and the only question is
-  *forward* cost. Forward cost is **lowest now**: the canvas surface is still
-  contained (`canvas.service.ts` is 941 lines), and every brainstorm-ux feature
-  built next on BlockSuite (#16/#17 layout, #40 shapes, #19 connectors) only adds to
-  an eventual rewrite. Switching pre-emptively, while small, beats accreting more on
-  a foundation we've judged inferior. The trade-offs are real but acceptable at v0:
-  losing the Yjs **CRDT**/multiplayer-incremental path (PD-005/PD-001) is fine while
-  PD-001 keeps us single-user (tldraw `persistenceKey` covers local-first; tldraw
-  sync or a yjs↔tldraw adapter is a later option); rich-text card bodies can wait;
-  and the React dependency (nicking PD-004 §4.1) is contained by the island, with
-  PD-011 already committing us to the edgeless surface tldraw is built for.
-- **Affects:** Closes #52 with a **replace** recommendation; `spike/tldraw-eval` is
-  the proving branch (not the production migration). The migration (`tldraw-spike.md`
-  §7.1) is **rendering + persistence only** — the shared `Idea`/`IdeaRelation`/
-  `IdeaLink` types and the `«IDEA…@ref!»` extraction contract are framework-neutral
-  and port verbatim — and is sequenced **against #42**: land/stabilize #42's model,
-  port the kind registry → tldraw styling, nodes → shapes + edges → bindings,
-  `applyIdeas` → `createShapes`/`createBinding`, `serializeToText` → a shape-store
-  walk, and move the card verbs (#13/#15) to tldraw UI overrides. A **persistence
-  decision** is made deliberately at that point (tldraw `persistenceKey` vs. a
-  yjs↔tldraw adapter vs. the ticket's backend-SQLite snapshot store, §4.2). Builds on
-  PD-010 (the graph model tldraw maps onto) and PD-011 (edgeless-primary). Supersedes
-  the standing assumption in PD-004/PD-005 that BlockSuite + Yjs is the canvas/
-  persistence substrate — those are re-opened by this decision; PD-008 (terminal
-  passthrough) and the `«IDEA»` contract are unaffected.
+- **Decision:** The spatial canvas is **tldraw**, rendered as a React island under the Angular
+  shell. Ideas are custom `idea-card` shapes; typed edges are native arrows bound to cards (the
+  `about`/`supersedes` relation lives in the arrow's `meta`); per-kind color is a tldraw shared
+  style resolved against the active light/dark theme; identity is the card's short ref in its shape
+  `meta`. The board persists per workspace via tldraw `persistenceKey` → IndexedDB (PD-001,
+  local-first; survives reload).
+- **Why:** tldraw's shapes-+-typed-bindings model maps directly onto the idea-graph (PD-010, nodes +
+  typed edges), connectors are built in, the canvas UX/perf and SDK DX are strong, and the
+  React→Angular boundary is a thin island (`createRoot`/`unmount`, no `@angular/elements` or Zone
+  bridging — the app is zoneless). It is the native fit for the edgeless-only surface (PD-011).
+- **Affects:** `CanvasService` is an Angular facade over the island; `applyIdeas` creates cards +
+  bound arrows; `serializeToText` walks the shape store; the card verbs (#13/#15) are a tldraw
+  selection action bar; kind colors come from the kind registry (PD-010). Multiplayer / server
+  storage (tldraw sync or a backend snapshot store) is a later option; single-user (PD-001) stands.
+  The shared `Idea`/`IdeaRelation`/`IdeaLink` types and the `«IDEA…@ref!»` extraction contract are
+  framework-neutral and unaffected.
 
 ### PD-012 — A challenge is a supersede operation, not a kind
 
@@ -248,36 +224,30 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   visible — which is the point of decision capture (#22) and lifecycle (#20). It also keeps the
   kind set about *what a card is*, not *what was done to it* (that's an edge, per PD-010).
 - **Affects:** Implemented by #20 (lifecycle states: e.g. `active` → `superseded`) + #22 (decision
-  capture / snapshot the superseded card). The data home already exists — `ai-storm:edges` stores
-  `relation`, including `supersedes` (idea-graph Phase 3). The Challenge verb's prompt will need to
-  instruct the agent to emit the refined idea with a `supersedes` link back to the source ref
-  (today it emits a plain `about` link). Removes `challenge` from PD-010's kind list and from the
-  `idea-graph.md` §3.2 `KIND_REGISTRY` example. No code change lands with this decision — it scopes
-  #20/#22.
+  capture / snapshot the superseded card). The data home already exists — a typed edge carries its
+  `relation`, including `supersedes`, natively (a tldraw arrow's `meta`). The Challenge verb's prompt
+  instructs the agent to emit the refined idea with a `supersedes` link back to the source ref.
+  Removes `challenge` from PD-010's kind list and from the `idea-graph.md` §3.2 `KIND_REGISTRY`
+  example.
 
-### PD-011 — The edgeless canvas is the primary surface; the doc view is a bonus
+### PD-011 — The edgeless canvas is the only surface
 
 `(2026-06-06, accepted)`
 
-- **Decision:** The edgeless **Canvas** view is the primary interaction surface; the linear
-  **Document** (page) view is a secondary bonus. All brainstorm-UX affordances — card verbs,
-  selection-based context, connectors/graph, layout, lifecycle — are designed for and built on
-  the edgeless surface. We build **no** UX specifically for the doc view; it stays a plain
-  alternate rendering of the same CRDT data (PD-004) with no dedicated affordances. Concretely,
-  selection-based features read the **edgeless gfx selection** (`GfxControllerIdentifier` →
-  `selection.selectedElements`), not the page/text selection.
+- **Decision:** The spatial **edgeless canvas** is the sole interaction surface; there is no linear
+  document/page view. All brainstorm-UX affordances — card verbs, selection-based context, the
+  graph, layout, lifecycle — are designed for and built on it. Selection-based features read the
+  canvas selection (`editor.getSelectedShapes()`).
 - **Why:** Ideation is spatial — the product's value is the infinite canvas, where space carries
-  meaning (#16/#17). Building every affordance twice (doc + edgeless) is wasted effort, and the
-  doc view is best understood as a convergent *reading* of the same data (a natural home for
-  synthesis, #28), not a place to author the divergent brainstorm. Committing to one primary
-  surface keeps the UX coherent and the implementation focused.
+  meaning (#16/#17). A linear document is best understood as a convergent *reading* of the board
+  (the natural home for synthesis, #28, produced on demand), not a second place to author the
+  divergent brainstorm. Committing to one surface keeps the UX coherent and the implementation
+  focused.
 - **Affects:** Re-scopes #14 (reply-to-card) from spatial-proximity guessing to an explicit
-  **edgeless multi-note selection** as context (a top-toolbar "Discuss selection" that frames the
-  selected cards into the editable terminal prompt — replacing the radius heuristic, which guessed
-  relevance from position). Guides #42 (graph), #16/#17 (layout), #20 (lifecycle): all target the
-  edgeless surface. The element-toolbar verbs (#13/#15) remain single-card; a custom multi-select
-  toolbar may come later, but multi-select context lives on the top toolbar for now. Builds on
-  PD-004 (page+edgeless over one model) — the doc view persists, it just gets no bespoke UX.
+  **multi-card selection** as context (a toolbar "Discuss selection" that frames the selected cards
+  into the editable terminal prompt — replacing the radius heuristic, which guessed relevance from
+  position). Guides #42 (graph), #16/#17 (layout), #20 (lifecycle): all target the canvas. The
+  card verbs (#13/#15) remain single-card; a custom multi-select action bar may come later.
 
 ### PD-010 — Ideas are a graph: uniform node + typed edges + kind registry
 
@@ -293,8 +263,8 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   `risk-of`/`challenge-of` relation taxonomy) — you read "risk of X" by following an `about`
   edge from a `risk`-kind card. Per-kind behavior (label, tint, future shape/lifecycle) lives
   in a single client-side **kind registry**, so a new ideation concept is one registry entry
-  (data), not a new wire marker/parser/type (code). Persistence stays the client CRDT (two new
-  namespaced maps: `ai-storm:ref` for short-ref identity, `ai-storm:edges` for the graph) — **no
+  (data), not a new wire marker/parser/type (code). Identity and edges persist on the canvas itself
+  — a card's short ref in its shape `meta`, edges as bound arrows carrying their `relation` — **no
   server-side store**; the shared `@ai-storm/shared` types are the "both sides know it" contract.
 - **Why:** #40 (source-linked responses), #19 (connectors), #20 (lifecycle), #22 (supersede),
   #16/#17 (layout) all need the same two primitives — **stable idea identity** and **typed
@@ -309,34 +279,34 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   [`idea-graph.md`](../design/idea-graph.md). Extends the `«IDEA»` contract with an optional
   `@ref` target (mirrors the existing inline `:kind` tag) and the shared `Idea` type with
   `id`/`links`. Refactors `idea-descriptors.ts` (`KIND_LABEL`/`KIND_BACKGROUND`/`KNOWN_KINDS` →
-  `KIND_REGISTRY`) and `CanvasService` (ref + edges maps, connector drawing in `applyIdeas`).
-  Unblocks #40/#19/#20/#22/#16. Single-user (PD-001) and terminal-passthrough (PD-008) stand.
+  `KIND_REGISTRY`) and `CanvasService` (`applyIdeas` creates cards + bound arrows; refs in shape
+  `meta`). Unblocks #40/#19/#20/#22/#16. Single-user (PD-001) and terminal-passthrough (PD-008) stand.
 
 ### PD-009 — Note provenance, not a capture composer
 
 `(2026-06-06, accepted, supersedes the composer approach of PD-002)`
 
-- **Decision:** Humans author notes the way they already do — directly in the BlockSuite editor. We do
-  NOT add a dedicated "add idea" composer. Instead we **track provenance**: AI-created notes (the only
+- **Decision:** Humans author notes the way they already do — directly on the canvas. We do
+  NOT add a dedicated "add idea" composer. Instead we **track provenance**: AI-created cards (the only
   programmatic creator, `CanvasService.applyIdeas()` from the `«IDEA»` stream) are tagged
-  `origin: 'ai'`; any note the user draws in the editor is untagged and treated as user-origin by
-  default. AI cards are made visually distinct (background tint **and** a badge marker).
+  `origin: 'ai'`; any card the user draws on the canvas is untagged and treated as user-origin by
+  default. AI cards are made visually distinct (kind color **and** a 🤖 badge).
 - **Why:** A second input path is redundant when the editor already creates notes, and a structured
   composer's value was latent (kind is presentation-only until #21). The genuinely useful, missing
   signal is *who made this* — at-a-glance separation of AI suggestions from the user's own thinking.
   Marking only the AI path (and defaulting everything else to user) needs no hook into user editing.
 - **Affects:** Reframes [#31](https://github.com/drdreo/ai-storm/issues/31) (was "human idea-capture",
-  now "note provenance"). The composer work (PR #34) is closed unmerged. Provenance must persist in the
-  CRDT doc (survives reload). Sets up provenance-link (#23) and kind-driven filters (#21), which can
-  query the same origin signal.
+  now "note provenance"). The composer work (PR #34) is closed unmerged. Provenance persists with the
+  card (its shape props, survives reload). Sets up provenance-link (#23) and kind-driven filters (#21),
+  which can query the same origin signal.
 
 ### PD-002 — Humans capture ideas too
 
 `(2026-06-06, accepted — composer approach superseded by PD-009)`
 
 - **Decision:** Humans can capture ideas directly, not only the AI via the terminal.
-- **Why:** Today the only human path to a card is raw BlockSuite editing. A first-class "add idea"
-  affordance is needed. The clean approach reuses the existing AI pipeline: a human-authored idea
+- **Why:** Today the only human path to a card is drawing one directly on the canvas. A first-class
+  "add idea" affordance is needed. The clean approach reuses the existing AI pipeline: a human-authored idea
   produces the same `Idea {title, body, kind}` object and flows through `ideaToDescriptors()` →
   `RenderScheduler` → `CanvasService.applyIdeas()`. So we add a second *producer* to an existing
   pipeline rather than building a parallel system — which also de-risks the bidirectional-canvas
@@ -351,8 +321,8 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 - **Decision:** ai-storm is single-user for now. No real-time co-editing, presence, attribution, or
   multiplayer voting yet.
-- **Why:** Keeps scope focused. The CRDT persistence layer (Yjs/IndexedDB, see §3.5) stays because it
-  is effectively free and already in place — so going multiplayer later is an incremental step, not a
+- **Why:** Keeps scope focused. Local-first persistence stays (the tldraw canvas store + a Yjs
+  workspace registry, §3.5); going multiplayer later (e.g. tldraw sync) is an additive step, not a
   rewrite — but no multiplayer-specific affordances are built now.
 - **Affects:** Closes [#30](https://github.com/drdreo/ai-storm/issues/30) (not planned). De-prioritizes
   presence/attribution/voting across the brainstorm-ux epic. Revisit if/when multiplayer becomes a goal.
@@ -384,7 +354,7 @@ requirements are in Part 1.
 
 `(PRD v3.0 baseline, accepted)`
 
-- **Decision:** Selecting blocks on the canvas dispatches their plain text to the Node daemon, which
+- **Decision:** Selecting cards on the canvas dispatches their plain text to the Node daemon, which
   spawns a local subprocess (the configured agent orchestrator) with the payload as an argument.
 - **Why:** Closes the loop from refined canvas spec → executable developer workflow without leaving
   the app or hand-copying context. (§3.6)
@@ -399,29 +369,18 @@ requirements are in Part 1.
   isolation: each workspace has its own canvas, session binding, history, and config.
 - **Why:** The product is about exploring many ideas concurrently; friction between workspaces kills
   that. (§3.4, §5.2)
-- **Affects:** `WorkspaceService`, editor rebind in `CanvasService`, per-workspace terminal caching.
+- **Affects:** `WorkspaceService`, canvas remount/switch in `CanvasService`, per-workspace terminal caching.
 
-### PD-005 — Local-first persistence via CRDT → IndexedDB
-
-`(PRD v3.0 baseline, accepted)`
-
-- **Decision:** All workspace state persists as CRDT (Yjs) binary in IndexedDB, written immediately on
-  every change, with a crash-recovery boot sequence that restores the last-active workspace exactly.
-- **Why:** Local data privacy + crash resilience without a server. Also makes eventual multiplayer an
-  incremental step (see PD-001). (§3.5)
-- **Affects:** `CanvasService`, workspace registry, subdoc persistence.
-
-### PD-004 — BlockSuite canvas: page + edgeless over one shared model
+### PD-005 — Local-first persistence to IndexedDB
 
 `(PRD v3.0 baseline, accepted)`
 
-- **Decision:** Use BlockSuite as a framework-agnostic web component; support client-side toggling
-  between linear document (page) and spatial node (edgeless) views, both reading/writing the same
-  underlying data structure.
-- **Why:** Ideation needs both divergent spatial layout and convergent document structure over one
-  source of truth. (§3.1, §4.1)
-- **Affects:** `CanvasService`, canvas-pane view toggle; the convergence ideas
-  ([#28](https://github.com/drdreo/ai-storm/issues/28)) lean on this duality.
+- **Decision:** All workspace state persists locally to IndexedDB, written immediately on every
+  change, with a crash-recovery boot sequence that restores the last-active workspace exactly: the
+  **tldraw canvas store** per workspace (via `persistenceKey`) and a **CRDT (Yjs) registry** of
+  workspace metadata.
+- **Why:** Local data privacy + crash resilience without a server. (§3.5)
+- **Affects:** `CanvasService` (the per-workspace tldraw store), the workspace registry.
 
 ### PD-003 — Local-only: reuse local CLI subscriptions via real PTYs
 
