@@ -1,13 +1,13 @@
 import { Injectable, signal } from '@angular/core';
 import { DocCollection, Schema, Text, type Doc } from '@blocksuite/store';
-import { AffineSchemas, NoteBackgroundColor } from '@blocksuite/blocks';
+import { AffineSchemas, ConnectorMode, NoteBackgroundColor } from '@blocksuite/blocks';
 import { AffineEditorContainer } from '@blocksuite/presets';
 import { discussToolbarExtension, type DiscussMenuContext } from './discuss-toolbar';
 import type { PromptIntent } from './prompt-framing';
 import { effects as blocksEffects } from '@blocksuite/blocks/effects';
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import type { Idea } from '@ai-storm/shared';
+import type { Idea, IdeaRelation } from '@ai-storm/shared';
 import type { BlockDescriptor } from './markdown-block-parser';
 import {
   decorateProvenance,
@@ -71,6 +71,23 @@ const KIND_MAP_KEY = 'ai-storm:kind';
 const REF_MAP_KEY = 'ai-storm:ref';
 
 /**
+ * Top-level `Y.Map<EdgeRecord>` key on a workspace's subdoc, keyed by the
+ * `affine:connector` element id (idea-graph design §6). The connector itself is
+ * the visual + lives in the surface, but it carries no `relation`; this map is
+ * the explicit graph edge — `{ from, to, relation }` in noteIds — so a
+ * `supersedes` (vs the default `about`) survives for Phase 4 lifecycle work
+ * (#20/#22). Persisted with the subdoc so the graph survives reload.
+ */
+const EDGES_MAP_KEY = 'ai-storm:edges';
+
+/** One graph edge (idea-graph design §3.1, §6): note → note, with its relation. */
+interface EdgeRecord {
+  from: string;
+  to: string;
+  relation: IdeaRelation;
+}
+
+/**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
  * shows the note in both the page (doc) and edgeless (Canvas) views; `'doc'`
  * hides it from the edgeless surface only — values confirmed against
@@ -121,8 +138,11 @@ export class CanvasService {
   /** Fired when a doc's page-title is edited from inside the editor. */
   #onTitleChange: ((workspaceId: string, title: string) => void) | null = null;
   /** Fired when the user picks a card verb (#13 Discuss, #15 expand/…) on a
-   * selected idea card; carries the card text and the chosen prompt intent. */
-  #cardVerbHandler: ((text: string, intent: PromptIntent) => void) | null = null;
+   * selected idea card; carries the card text, the chosen prompt intent, and the
+   * source card's short ref so the verb's ideas link back to it (#42). */
+  #cardVerbHandler:
+    | ((text: string, intent: PromptIntent, sourceRef?: string) => void)
+    | null = null;
 
   async init(): Promise<void> {
     if (this.ready()) return;
@@ -337,7 +357,7 @@ export class CanvasService {
    * the chosen {@link PromptIntent} (Discuss / Expand / Challenge / Find risks).
    * The component wires this to {@link AgentService.discussText}.
    */
-  onCardVerb(cb: (text: string, intent: PromptIntent) => void): void {
+  onCardVerb(cb: (text: string, intent: PromptIntent, sourceRef?: string) => void): void {
     this.#cardVerbHandler = cb;
   }
 
@@ -352,7 +372,15 @@ export class CanvasService {
     const note = ctx.getNoteBlock();
     if (!note) return;
     const text = this.#noteToText(note);
-    if (text.trim()) this.#cardVerbHandler?.(text, intent);
+    if (!text.trim()) return;
+    // Mint/look up the source card's short ref so the verb's emitted ideas come
+    // back tagged «IDEA@<ref>» and link to this card (#42, idea-graph §5). The
+    // edgeless context's note model carries its block id (not in the narrowed
+    // DiscussMenuContext type, so read it directly).
+    const workspaceId = this.#editor?.doc.id;
+    const noteId = (note as { id?: string }).id;
+    const sourceRef = workspaceId && noteId ? this.cardRef(workspaceId, noteId) : undefined;
+    this.#cardVerbHandler?.(text, intent, sourceRef);
   }
 
   /**
@@ -413,17 +441,27 @@ export class CanvasService {
     const provenance = this.#provenanceMap(doc);
     const kindMap = this.#kindMap(doc);
     const refMap = this.#refMap(doc);
+    const edges = this.#edgesMap(doc);
+    const surface = this.#surfaceModel(doc);
     // Seed the ref counter from the persisted map (not the in-memory tile count,
     // which resets on reload) so minted refs never collide across sessions (§4).
     let nextRef = this.#maxRefIndex(refMap) + 1;
+    // Per-target child counter for this batch, so several ideas linking the same
+    // card fan out instead of stacking exactly (minimal offset — full semantic
+    // layout is #16).
+    const childOffset = new Map<string, number>();
     doc.transact(() => {
       for (const idea of ideas) {
-        const index = this.#noteCounts.get(workspaceId) ?? 0;
-        this.#noteCounts.set(workspaceId, index + 1);
-        // Tile cards in a simple grid on the edgeless surface.
-        const col = index % 4;
-        const row = Math.floor(index / 4);
-        const xywh: `[${number},${number},${number},${number}]` = `[${col * 360},${row * 280},320,240]`;
+        // Resolve the first link whose target ref exists on this canvas (§5). An
+        // unresolved/absent link degrades gracefully to an unlinked grid card.
+        const link = (idea.links ?? []).find((l) => !!this.#resolveRefIn(refMap, l.to));
+        const targetNoteId = link ? this.#resolveRefIn(refMap, link.to) : undefined;
+
+        // Placement: near the linked target, else the fallback grid tiler.
+        const xywh = targetNoteId
+          ? this.#placeNearTarget(doc, targetNoteId, childOffset)
+          : this.#nextGridXywh(workspaceId);
+
         // Kind tint wins over the generic AI blue (#21); a kindless or
         // unknown-kind AI card keeps the provenance blue (#31).
         const kind = normalizeKind(idea.kind);
@@ -432,8 +470,6 @@ export class CanvasService {
         provenance.set(noteId, 'ai');
         if (kind) kindMap.set(noteId, kind);
         // Mint a stable short ref so edges can name this card (idea-graph §4).
-        // Dormant until Phase 3 draws connectors; recorded now so identity is
-        // present from the moment a card is born.
         refMap.set(noteId, `a${nextRef++}`);
         for (const d of ideaToDescriptors(idea)) {
           // Skip empty paragraphs so cards stay clean (blank-body ideas, blank
@@ -443,6 +479,19 @@ export class CanvasService {
           const decorated =
             d.type === 'heading' ? { ...d, text: decorateProvenance(d.text, 'ai') } : d;
           this.#appendDescriptor(doc, noteId, decorated);
+        }
+
+        // Draw the connector + record the edge (idea-graph §5/§6). The new card
+        // is the source so the arrow reads "this card → the idea it's about".
+        if (targetNoteId && surface) {
+          const connectorId = this.#drawConnector(surface, noteId, targetNoteId);
+          if (connectorId) {
+            edges.set(connectorId, {
+              from: noteId,
+              to: targetNoteId,
+              relation: link?.relation ?? 'about',
+            });
+          }
         }
       }
     });
@@ -515,10 +564,89 @@ export class CanvasService {
   resolveRef(workspaceId: string, ref: string): string | undefined {
     const doc = this.#collection.getDoc(workspaceId);
     if (!doc) return undefined;
-    for (const [noteId, r] of this.#refMap(doc).entries()) {
-      if (r === ref) return noteId;
-    }
+    return this.#resolveRefIn(this.#refMap(doc), ref);
+  }
+
+  /** The workspace subdoc's top-level graph-edges map (idea-graph §6). */
+  #edgesMap(doc: Doc) {
+    return doc.spaceDoc.getMap<EdgeRecord>(EDGES_MAP_KEY);
+  }
+
+  /** The edgeless surface model (host of connector elements), or null. */
+  #surfaceModel(doc: Doc): { addElement(props: Record<string, unknown>): string } | null {
+    const block = doc.getBlocksByFlavour('affine:surface')[0] as { model?: unknown } | undefined;
+    return (block?.model as { addElement(props: Record<string, unknown>): string }) ?? null;
+  }
+
+  /**
+   * Reverse-lookup a ref in an already-fetched ref map. Avoids re-resolving the
+   * doc mid-transaction and sees refs minted earlier in the same {@link applyIdeas}
+   * batch (so an idea can link a sibling created moments before it).
+   */
+  #resolveRefIn(
+    refMap: { entries(): IterableIterator<[string, string]> },
+    ref: string,
+  ): string | undefined {
+    for (const [noteId, r] of refMap.entries()) if (r === ref) return noteId;
     return undefined;
+  }
+
+  /** The next non-overlapping grid slot for an unlinked card (the legacy tiler). */
+  #nextGridXywh(workspaceId: string): `[${number},${number},${number},${number}]` {
+    const index = this.#noteCounts.get(workspaceId) ?? 0;
+    this.#noteCounts.set(workspaceId, index + 1);
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    return `[${col * 360},${row * 280},320,240]`;
+  }
+
+  /**
+   * Place a new card just right of its link target, fanned down per sibling so
+   * several children of one card don't stack exactly. Minimal offset only —
+   * proper semantic layout is #16.
+   */
+  #placeNearTarget(
+    doc: Doc,
+    targetNoteId: string,
+    childOffset: Map<string, number>,
+  ): `[${number},${number},${number},${number}]` {
+    const model = doc.getBlockById(targetNoteId) as { xywh?: string } | null;
+    const [tx, ty, tw] = this.#parseXYWH(model?.xywh) ?? [0, 0, 320, 240];
+    const n = childOffset.get(targetNoteId) ?? 0;
+    childOffset.set(targetNoteId, n + 1);
+    return `[${tx + tw + 80},${ty + n * 270},320,240]`;
+  }
+
+  /** Parse a serialized `[x,y,w,h]` xywh string, or null if malformed. */
+  #parseXYWH(xywh?: string): [number, number, number, number] | null {
+    if (!xywh) return null;
+    const m = /^\[(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]$/.exec(xywh);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] : null;
+  }
+
+  /**
+   * Draw an `affine:connector` from one note to another and return its element
+   * id (idea-graph §5). Anchored by note id so it tracks the cards as they move
+   * and persists in the surface CRDT. Wrapped defensively: the connector API is
+   * the one piece the (lost) Phase 0 spike proved, so a drawing failure must
+   * never abort idea creation — the cards still land, just without the edge.
+   */
+  #drawConnector(
+    surface: { addElement(props: Record<string, unknown>): string },
+    fromNoteId: string,
+    toNoteId: string,
+  ): string | null {
+    try {
+      return surface.addElement({
+        type: 'connector',
+        mode: ConnectorMode.Curve,
+        source: { id: fromNoteId },
+        target: { id: toNoteId },
+      });
+    } catch (err) {
+      console.warn('canvas: failed to draw idea connector', err);
+      return null;
+    }
   }
 
   /**

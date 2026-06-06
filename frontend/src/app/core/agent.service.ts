@@ -92,9 +92,14 @@ export class AgentService {
    * @returns `true` if a prompt was typed; `false` if no session is attached or
    *   the text is empty (nothing happens in either case).
    */
-  discussText(workspaceId: string, text: string, intent: PromptIntent = 'discuss'): boolean {
+  discussText(
+    workspaceId: string,
+    text: string,
+    intent: PromptIntent = 'discuss',
+    sourceRef?: string,
+  ): boolean {
     if (!this.#ingestion.isAttached(workspaceId)) return false;
-    const prompt = framePrompt(text.trim() ? text : '', intent);
+    const prompt = framePrompt(text.trim() ? text : '', intent, sourceRef);
     if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
     this.#ingestion.sendInput(workspaceId, prompt);
