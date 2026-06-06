@@ -68,43 +68,41 @@ export function framePrompt(
  * open clause and the cursor stay at the very end.
  *
  * The relation depends on the verb (PD-012): {@link supersedeDirective} for
- * `challenge` (the refined idea *replaces* the source — a `supersedes` edge,
- * expressible only via the fenced form since a single-line `@ref` always
- * resolves to `about`); {@link aboutDirective} for every other verb (the idea
- * is simply *about* the source).
+ * `challenge` (the refined idea *replaces* the source — a `supersedes` edge);
+ * {@link aboutDirective} for every other verb (the idea is simply *about* it).
+ *
+ * CRITICAL: neither directive may contain the `«IDEA»` marker token. The
+ * directive is typed into the terminal and echoed onto the screen, and the
+ * backend scans every screen line for markers (PD-008 — it deliberately does
+ * NOT try to isolate the agent's reply region). A literal marker here is echoed
+ * and re-extracted as a bogus card. The marker grammar (including the `@ref` and
+ * `!` forms) is taught instead by the session priming, which is delivered as a
+ * system prompt and never echoed. So a directive only ever supplies the *ref*.
  */
 function refDirective(sourceRef: string, intent: PromptIntent): string {
   return intent === 'challenge' ? supersedeDirective(sourceRef) : aboutDirective(sourceRef);
 }
 
 /**
- * Tag-each-«IDEA»-line directive for the generic `about` link (#42): the backend
- * parses `«IDEA@<ref>»` into `{ to, relation: 'about' }` and the canvas connects
- * the new card to its source.
+ * Generic `about`-link directive (#42): supplies the source ref so the agent
+ * links the ideas it captures back to this card (priming already tells it to
+ * append a given ref to the marker → `{ to, relation: 'about' }`). No `«IDEA»`
+ * token — see {@link refDirective}.
  */
 function aboutDirective(sourceRef: string): string {
-  return `(When you capture ideas from this, tag each «IDEA» line with @${sourceRef} so they link back to this card on the canvas.)`;
+  return `(These notes are from card @${sourceRef} — link the ideas you capture back to it.)`;
 }
 
 /**
- * Challenge-as-supersede directive (PD-012): instruct the agent to capture its
- * refined, stronger version as a *superseding* idea. The relation rides on the
- * single-line marker via a trailing `!` after the ref (`@a1!`,
- * extraction-contract §3.2) — NOT the fenced `rel:` form, whose code fence the
- * agent's TUI renders away before the backend captures the screen (PD-008), so
- * it never reaches the parser. Once it lands, the original card recedes to a
- * grey ghost while the refined one takes its place — history kept.
- *
- * Crucially this references `«IDEA»` and the ref **inline**, never as a
- * fully-formed line-leading marker: the directive is echoed onto the terminal,
- * and the backend scans every screen line for markers, so a literal
- * `«IDEA@ref!» … :: …` example here would itself be extracted as a bogus card.
- * Mirrors {@link aboutDirective}'s proven phrasing.
+ * Challenge-as-supersede directive (PD-012): supplies the ref AND asks for the
+ * `supersedes` relation via the `@ref!` form (priming defines what `!` means).
+ * The refined, stronger version replaces the original, which recedes to a grey
+ * ghost — history kept. No `«IDEA»` token — see {@link refDirective}.
  */
 function supersedeDirective(sourceRef: string): string {
   return (
-    `(This challenges the card @${sourceRef}. When you capture your refined, stronger version, ` +
-    `tag its «IDEA» line @${sourceRef}! — keep the trailing ! right after the ref — so the canvas ` +
-    `treats it as REPLACING the original rather than just relating to it.)`
+    `(This challenges card @${sourceRef}. Capture your refined, stronger version as a single idea and ` +
+    `link it back as a REPLACEMENT using the @${sourceRef}! form — the trailing ! right after the ref — ` +
+    `so it supersedes the original rather than just relating to it.)`
   );
 }

@@ -79,7 +79,6 @@ describe('framePrompt — source ref injection (#42)', () => {
   it('prepends a tagging directive carrying the source ref', () => {
     const out = framePrompt('Use a CRDT store', 'find-risks', 'a1');
     expect(out).toContain('@a1');
-    expect(out).toContain('«IDEA»');
     // The directive leads; the selection + open clause still follow.
     expect(out.indexOf('@a1')).toBeLessThan(out.indexOf('Use a CRDT store'));
   });
@@ -102,20 +101,21 @@ describe('framePrompt — source ref injection (#42)', () => {
     for (const intent of ['discuss', 'expand', 'find-risks'] as PromptIntent[]) {
       const out = framePrompt('S', intent, 'a1');
       expect(out).toContain('@a1');
-      // The about directive tags «IDEA» lines; it never asks for a supersede.
+      // The about directive supplies the ref; it never asks for a supersede.
       expect(out).not.toContain('@a1!');
     }
   });
 
-  it('NO verb produces a line-leading «IDEA» marker the backend would re-extract', () => {
-    // Any directive is echoed onto the terminal and re-scanned for markers, so a
-    // fully-formed line-leading «IDEA … :: …» example would spawn a bogus card.
+  it('NO verb echoes an «IDEA» marker token the backend would re-extract', () => {
+    // The directive is echoed onto the terminal and re-scanned for markers, so
+    // it must contain NO «IDEA»/<<IDEA token at all (not just not line-leading —
+    // terminal wrapping can push any inline token to a row start). The marker
+    // grammar is taught by the (never-echoed) priming instead.
     const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
     for (const intent of intents) {
       const out = framePrompt('Use a CRDT store', intent, 'a1');
-      for (const line of out.split('\n')) {
-        expect(/^\s*(?:«IDEA|<<IDEA)/u.test(line)).toBe(false);
-      }
+      expect(out).not.toContain('«IDEA');
+      expect(out).not.toContain('<<IDEA');
     }
   });
 });
@@ -130,14 +130,11 @@ describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () =
     expect(out).not.toContain('rel: supersedes');
   });
 
-  it('references «IDEA» and the ref INLINE, never as a line-leading marker', () => {
-    // A fully-formed `«IDEA@ref!» … :: …` example would be echoed onto the
-    // terminal and re-extracted by the backend as a bogus card. Guard against it:
-    // no line in the prompt may start with an «IDEA / <<IDEA marker.
+  it('carries the ref but NO «IDEA» marker token (would be re-extracted)', () => {
     const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
-    for (const line of out.split('\n')) {
-      expect(/^\s*(?:«IDEA|<<IDEA)/u.test(line)).toBe(false);
-    }
+    expect(out).toContain('@a1!');
+    expect(out).not.toContain('«IDEA');
+    expect(out).not.toContain('<<IDEA');
   });
 
   it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
