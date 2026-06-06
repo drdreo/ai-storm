@@ -88,35 +88,41 @@ export class AutofocusDirective {
             ngMenuTrigger
             [menu]="wsMenu"
             [attr.aria-label]="'Manage ' + ws.title"
-            (click)="openMenu(ws, $event)"
+            (click)="openMenu($event)"
             (pointerdown)="$event.stopPropagation()"
             (dblclick)="$event.stopPropagation()"
           >
             <span aria-hidden="true">⋮</span>
           </button>
+
+          <!-- Per-row menu (one ngMenu per kebab). A single shared menu only
+               ever bound to the last trigger, so earlier rows' kebabs did
+               nothing — each row owning its menu fixes that. position:fixed +
+               computed coords means it is never clipped by the scrolling list. -->
+          <div
+            class="ws-menu"
+            ngMenu
+            #wsMenu="ngMenu"
+            [style.top.px]="menuPos()?.top"
+            [style.left.px]="menuPos()?.left"
+          >
+            <ng-template ngMenuContent>
+              <button ngMenuItem value="rename" class="menu-item" (click)="renameFromMenu(wsMenu, ws)">
+                Rename
+              </button>
+              <button
+                ngMenuItem
+                value="delete"
+                class="menu-item danger"
+                (click)="deleteFromMenu(wsMenu, ws)"
+              >
+                Delete
+              </button>
+            </ng-template>
+          </div>
         </li>
       }
     </ul>
-
-    <!-- One shared menu, positioned at the kebab that opened it; acts on the
-         workspace captured in menuFor(). Rendered outside the scrolling list so
-         it is never clipped. Escape / focus-out dismiss it (aria menu). -->
-    <div
-      class="ws-menu"
-      ngMenu
-      #wsMenu="ngMenu"
-      [style.top.px]="menuPos()?.top"
-      [style.left.px]="menuPos()?.left"
-    >
-      <ng-template ngMenuContent>
-        <button ngMenuItem value="rename" class="menu-item" (click)="renameFromMenu(wsMenu)">
-          Rename
-        </button>
-        <button ngMenuItem value="delete" class="menu-item danger" (click)="deleteFromMenu(wsMenu)">
-          Delete
-        </button>
-      </ng-template>
-    </div>
   `,
   styles: [
     `
@@ -406,9 +412,7 @@ export class SidebarComponent {
 
   /** Id of the workspace currently being renamed inline (null = none). */
   readonly editingId = signal<string | null>(null);
-  /** Workspace the open kebab menu acts on. */
-  readonly #menuFor = signal<WorkspaceMeta | null>(null);
-  /** Viewport coordinates the floating kebab menu anchors to. */
+  /** Viewport coordinates the floating kebab menu anchors to (one open at a time). */
   readonly menuPos = signal<{ top: number; left: number } | null>(null);
 
   /**
@@ -462,10 +466,9 @@ export class SidebarComponent {
 
   // ---- Kebab menu ---------------------------------------------------------
 
-  /** Anchor + arm the shared menu for this row; the trigger handles opening. */
-  openMenu(ws: WorkspaceMeta, event: MouseEvent): void {
+  /** Anchor the floating menu at the clicked kebab; the trigger handles opening. */
+  openMenu(event: MouseEvent): void {
     event.stopPropagation();
-    this.#menuFor.set(ws);
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const width = 156;
     this.menuPos.set({
@@ -474,16 +477,14 @@ export class SidebarComponent {
     });
   }
 
-  renameFromMenu(menu: Menu<string>): void {
-    const ws = this.#menuFor();
+  renameFromMenu(menu: Menu<string>, ws: WorkspaceMeta): void {
     menu.close();
-    if (ws) this.beginRename(ws);
+    this.beginRename(ws);
   }
 
-  deleteFromMenu(menu: Menu<string>): void {
-    const ws = this.#menuFor();
+  deleteFromMenu(menu: Menu<string>, ws: WorkspaceMeta): void {
     menu.close();
-    if (ws) this.remove(ws.id);
+    this.remove(ws.id);
   }
 
   remove(id: string): void {
