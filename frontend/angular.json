@@ -19,7 +19,27 @@
             "assets": ["assets"],
             "styles": ["src/styles.css"],
             "scripts": [],
-            "allowedCommonJsDependencies": ["yjs", "y-indexeddb"]
+            "allowedCommonJsDependencies": [
+              "yjs",
+              "y-indexeddb",
+              "classnames",
+              "eventemitter3",
+              "lodash.isequal",
+              "lodash.isequalwith",
+              "lodash.throttle",
+              "lodash.uniq",
+              "lz-string",
+              "rbush",
+              "react",
+              "react-dom",
+              "react-dom/client",
+              "react/jsx-runtime",
+              "use-sync-external-store",
+              "use-sync-external-store/shim/index.js",
+              "use-sync-external-store/shim/with-selector.js",
+              "@xterm/addon-fit",
+              "@xterm/xterm"
+            ]
           },
           "configurations": {
             "production": {

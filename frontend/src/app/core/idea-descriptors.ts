@@ -22,11 +22,15 @@ export interface KindSpec {
   /** Card-heading badge, e.g. '⚠ Risk' (unknown kinds fall back to a `#tag`). */
   label: string;
   /**
-   * Note tint — a valid BlockSuite `NoteBackgroundColor` CSS-var string (palette
-   * confirmed against `@blocksuite/affine-model` `consts/note.ts`), kept as a
-   * plain string so this module stays BlockSuite-import-free (Node-testable).
+   * Card tint — a tldraw palette **color-style name** (`'red' | 'green' | …`, a
+   * `TLDefaultColorStyle` value), kept as a plain string so this module stays
+   * tldraw-import-free (Node-testable). The canvas sets it as the card shape's
+   * shared `color` StyleProp, so a kind's cards adopt the theme's light/dark
+   * resolution of that palette entry and participate in the native style panel
+   * (tldraw styles system). `kind` stays the semantic source of truth; the color
+   * is just its default presentation.
    */
-  background: string;
+  color: string;
   /** Per-kind card shape (#40). 'note' for every kind today; reserved. */
   shape?: 'note' | 'diamond';
 }
@@ -43,12 +47,12 @@ export type IdeaKind = (typeof KIND_ORDER)[number];
 
 /** The single source of truth for per-kind behaviour (idea-graph design §3.2). */
 export const KIND_REGISTRY: Record<IdeaKind, KindSpec> = {
-  risk: { label: '⚠ Risk', background: '--affine-note-background-red' },
-  feature: { label: '✨ Feature', background: '--affine-note-background-green' },
-  question: { label: '❓ Question', background: '--affine-note-background-yellow' },
-  decision: { label: '✅ Decision', background: '--affine-note-background-blue' },
-  todo: { label: '☑ Todo', background: '--affine-note-background-teal' },
-  heuristic: { label: '💡 Idea', background: '--affine-note-background-purple' },
+  risk: { label: '⚠ Risk', color: 'red' },
+  feature: { label: '✨ Feature', color: 'green' },
+  question: { label: '❓ Question', color: 'yellow' },
+  decision: { label: '✅ Decision', color: 'blue' },
+  todo: { label: '☑ Todo', color: 'light-blue' },
+  heuristic: { label: '💡 Idea', color: 'violet' },
 };
 
 /** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
@@ -78,12 +82,12 @@ export function kindLabel(kind: string): string {
 }
 
 /**
- * Resolve a kind's note-background tint (#21). Returns `undefined` for an
- * unknown, missing, or blank kind so callers can fall back to their default
- * tint. Pure — no BlockSuite dependency.
+ * Resolve a kind's tldraw palette color-style name (#21), e.g. `risk` → `'red'`.
+ * Returns `undefined` for an unknown, missing, or blank kind so the canvas can
+ * fall back to its default color. Pure — no tldraw dependency.
  */
-export function kindBackground(kind?: string): string | undefined {
-  return kindSpec(kind)?.background;
+export function kindColor(kind?: string): string | undefined {
+  return kindSpec(kind)?.color;
 }
 
 /** Prefix a card heading with its kind badge (or `#tag`); bare title if no kind. */

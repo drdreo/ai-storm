@@ -2,9 +2,6 @@
 
 export type WorkspaceStatus = 'idle' | 'active' | 'streaming' | 'error';
 
-/** The persisted view mode of a workspace canvas (PRD §3.1). */
-export type CanvasMode = 'page' | 'edgeless';
-
 /** Metadata describing a single isolated project workspace. */
 export interface WorkspaceMeta {
   id: string;
@@ -14,8 +11,6 @@ export interface WorkspaceMeta {
   createdAt: number;
   /** Epoch ms of last activity (used for crash-recovery ordering §3.5). */
   lastActiveAt: number;
-  /** Current canvas view mode. */
-  mode: CanvasMode;
   /** Terminal binding configuration (PRD §3.4 local process bindings). */
   terminal: TerminalConfig;
 }
