@@ -55,6 +55,24 @@ import { kindLabel } from '../core/idea-descriptors';
           </button>
           <button
             ngToolbarWidget
+            value="mark"
+            class="ghost"
+            (click)="markSelected()"
+            title="Mark/unmark the selected cards to keep for later (#29)"
+          >
+            ★ Mark
+          </button>
+          <button
+            ngToolbarWidget
+            value="select-marked"
+            class="ghost"
+            (click)="selectMarked()"
+            title="Select all marked cards (#29)"
+          >
+            Select marked
+          </button>
+          <button
+            ngToolbarWidget
             value="inject-context"
             class="ghost"
             (click)="injectContext()"
@@ -270,6 +288,18 @@ export class CanvasPaneComponent {
   arrange(): void {
     const active = this.workspaces.active();
     if (active) this.#canvas.arrange(active.id);
+  }
+
+  /** Mark/unmark the selected idea cards to keep for later (#29). */
+  markSelected(): void {
+    const active = this.workspaces.active();
+    if (active) this.#canvas.markSelected(active.id);
+  }
+
+  /** Select every marked card (#29) so it can flow into Inject / Send. */
+  selectMarked(): void {
+    const active = this.workspaces.active();
+    if (active) this.#canvas.selectMarked(active.id);
   }
 
   injectContext(): void {
