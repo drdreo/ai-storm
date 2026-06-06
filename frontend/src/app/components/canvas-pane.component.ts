@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  signal,
   viewChild,
 } from '@angular/core';
 import { Tab, TabList, Tabs } from '@angular/aria/tabs';
@@ -12,6 +13,7 @@ import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
+import { KIND_LABEL } from '../core/idea-descriptors';
 import type { CanvasMode } from '../core/models';
 
 /**
@@ -42,6 +44,22 @@ import type { CanvasMode } from '../core/models';
           Canvas
         </button>
       </div>
+      @if (activeMode() === 'edgeless' && kinds().length) {
+        <div class="filters" role="group" aria-label="Filter cards by kind">
+          @for (kind of kinds(); track kind) {
+            <button
+              type="button"
+              class="chip"
+              [class.off]="hiddenKinds().has(kind)"
+              [attr.aria-pressed]="!hiddenKinds().has(kind)"
+              (click)="toggleKind(kind)"
+              [title]="'Toggle ' + label(kind) + ' cards on the canvas (#21)'"
+            >
+              {{ label(kind) }}
+            </button>
+          }
+        </div>
+      }
       <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
         <button
           ngToolbarWidget
@@ -123,6 +141,42 @@ import type { CanvasMode } from '../core/models';
       .actions:focus,
       .actions:focus-visible {
         outline: none;
+      }
+      /* Kind-driven filter chips (#21), sitting left of the action buttons. */
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-1);
+        margin-left: auto;
+      }
+      .chip {
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface-raised);
+        color: var(--text);
+        padding: 0.28rem 0.6rem;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.75rem;
+        font-weight: 500;
+        transition:
+          background var(--dur-fast) var(--ease-out),
+          color var(--dur-fast) var(--ease-out),
+          border-color var(--dur-fast) var(--ease-out),
+          opacity var(--dur-fast) var(--ease-out);
+      }
+      .chip:hover {
+        background: var(--btn-hover);
+      }
+      .chip.off {
+        background: var(--input-bg);
+        color: var(--text-dim);
+        opacity: 0.6;
+      }
+      .chip:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .actions {
         display: flex;
@@ -206,6 +260,41 @@ export class CanvasPaneComponent {
 
   /** The active workspace's current canvas mode, defaulting to 'page'. */
   readonly activeMode = computed<CanvasMode>(() => this.workspaces.active()?.mode ?? 'page');
+
+  /**
+   * Distinct idea kinds present on the active workspace's canvas (#21), one
+   * filter chip each. Recomputes when a new batch of AI cards lands (the canvas
+   * service bumps `ideasTick`) or the active workspace changes.
+   */
+  readonly kinds = computed<string[]>(() => {
+    this.#canvas.ideasTick();
+    const active = this.workspaces.active();
+    return active ? this.#canvas.kindsPresent(active.id) : [];
+  });
+
+  /** Kinds the user has hidden from the edgeless surface (#21), local UI state. */
+  readonly hiddenKinds = signal<ReadonlySet<string>>(new Set());
+
+  /** Presentation label for a kind chip (#21), e.g. `risk` → `⚠ Risk`. */
+  label(kind: string): string {
+    return KIND_LABEL[kind] ?? `#${kind}`;
+  }
+
+  /**
+   * Toggle a kind's visibility on the edgeless canvas (#21): flips local
+   * `hiddenKinds` state and drives every matching note's `displayMode` via the
+   * canvas service.
+   */
+  toggleKind(kind: string): void {
+    const active = this.workspaces.active();
+    if (!active) return;
+    const hidden = new Set(this.hiddenKinds());
+    const willHide = !hidden.has(kind);
+    if (willHide) hidden.add(kind);
+    else hidden.delete(kind);
+    this.hiddenKinds.set(hidden);
+    this.#canvas.setKindVisible(active.id, kind, !willHide);
+  }
 
   /** React to the tablist selection (Document/Canvas) changing. */
   onModeChange(value: string | undefined): void {

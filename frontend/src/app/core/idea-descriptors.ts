@@ -30,6 +30,59 @@ export function decorateTitle(title: string, kind?: string): string {
   return `${label}: ${title}`;
 }
 
+/**
+ * The kinds AI-Storm recognises (#21). A union over the keys of
+ * {@link KIND_LABEL} — the single source of truth for "known" kinds — so a
+ * label and a filter chip exist for exactly these and nothing drifts out of sync.
+ */
+export type IdeaKind = 'risk' | 'feature' | 'question' | 'decision' | 'todo' | 'heuristic';
+
+/** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
+export const KNOWN_KINDS: readonly IdeaKind[] = [
+  'risk',
+  'feature',
+  'question',
+  'decision',
+  'todo',
+  'heuristic',
+];
+
+/**
+ * Per-kind note-background tint (#21). Values are valid BlockSuite
+ * `NoteBackgroundColor` CSS-var strings (palette confirmed against
+ * `@blocksuite/affine-model` `consts/note.ts`), so the canvas service can apply
+ * them as a note's `background` directly. Kept as plain strings to keep this
+ * module BlockSuite-import-free (so it stays unit-testable in the Node env).
+ */
+export const KIND_BACKGROUND: Record<IdeaKind, string> = {
+  risk: '--affine-note-background-red',
+  feature: '--affine-note-background-green',
+  question: '--affine-note-background-yellow',
+  decision: '--affine-note-background-blue',
+  todo: '--affine-note-background-teal',
+  heuristic: '--affine-note-background-purple',
+};
+
+/**
+ * Canonicalise an idea's `kind` for use as a map key / chip id (#21): trim and
+ * lowercase it, returning `undefined` for a missing or blank value. Pure.
+ */
+export function normalizeKind(kind?: string): string | undefined {
+  const trimmed = kind?.trim().toLowerCase();
+  return trimmed ? trimmed : undefined;
+}
+
+/**
+ * Resolve a kind's note-background tint (#21), normalising first. Returns
+ * `undefined` for an unknown, missing, or blank kind so callers can fall back to
+ * their default tint. Pure — no BlockSuite dependency.
+ */
+export function kindBackground(kind?: string): string | undefined {
+  const normalized = normalizeKind(kind);
+  if (!normalized) return undefined;
+  return KIND_BACKGROUND[normalized as IdeaKind];
+}
+
 /** Provenance origin of a canvas note (#31, PD-009): AI-created vs user-drawn. */
 export type NoteOrigin = 'ai' | 'user';
 
