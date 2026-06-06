@@ -257,12 +257,13 @@ export class CanvasPaneComponent {
       this.#canvas.mount(hostEl, active.id, active.mode);
     });
 
-    // Bidirectional canvas (#13): the "Discuss" verb now lives on the selected
-    // idea card's element-toolbar More menu. When fired, type the card's text
-    // into the active workspace's live terminal as an editable prompt.
-    this.#canvas.onDiscussCard((text) => {
+    // Bidirectional canvas (#13, #15): the card verbs (Discuss / Expand /
+    // Challenge / Find risks) live on the selected idea card's element-toolbar
+    // More menu. When one fires, frame the card's text for that intent and type
+    // it into the active workspace's live terminal as an editable prompt.
+    this.#canvas.onCardVerb((text, intent) => {
       const ws = this.workspaces.active();
-      if (ws) this.#agent.discussText(ws.id, text);
+      if (ws) this.#agent.discussText(ws.id, text, intent);
     });
   }
 

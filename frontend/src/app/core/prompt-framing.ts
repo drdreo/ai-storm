@@ -12,21 +12,30 @@
  */
 
 /**
- * The intent behind feeding a selection into the prompt. Extensible: #15 adds
- * further verbs (e.g. `expand`, `challenge`) by widening this union and adding a
- * matching entry to {@link PROMPT_TEMPLATES}.
+ * The intent behind feeding a selection into the prompt — one per card verb
+ * (#13 `discuss`; #15 `expand` / `challenge` / `find-risks`). Adding a verb is:
+ * widen this union, add a matching {@link PROMPT_TEMPLATES} entry, and add a row
+ * to `CARD_VERBS` in `discuss-toolbar.ts` (the menu item that carries it).
  */
-export type PromptIntent = 'discuss';
+export type PromptIntent = 'discuss' | 'expand' | 'challenge' | 'find-risks';
 
 /**
  * Frames a (trimmed, non-empty) selection into an editable prompt per intent.
  *
  * Invariant: every template ends with a TRAILING SPACE and NO trailing newline,
  * so the cursor lands ready for the user to type and nothing is auto-submitted.
+ * Each verb scaffolds the AI move (#15) but leaves the final clause open, so the
+ * user steers it before submitting — the whole point of the editable seam.
  */
 export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => string> = {
   discuss: (selection) =>
     `Regarding these notes from the canvas:\n\n${selection}\n\nLet's discuss: `,
+  expand: (selection) =>
+    `Expand on this idea from the canvas — flesh it out with detail, concrete examples, and next steps:\n\n${selection}\n\nMy angle: `,
+  challenge: (selection) =>
+    `Play devil's advocate on this idea from the canvas — give the strongest counter-arguments and where it breaks down:\n\n${selection}\n\nPush hardest on: `,
+  'find-risks': (selection) =>
+    `Find the risks, failure modes, and hidden assumptions in this idea from the canvas:\n\n${selection}\n\nI'm most worried about: `,
 };
 
 /**

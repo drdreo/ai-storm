@@ -48,10 +48,34 @@ describe('framePrompt', () => {
   it("defaults to the 'discuss' intent", () => {
     expect(framePrompt('x')).toBe(framePrompt('x', 'discuss'));
   });
+
+  it('honours the invariants for every verb intent (#15)', () => {
+    const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
+    for (const intent of intents) {
+      const out = framePrompt('Use a CRDT store', intent);
+      // Selection embedded verbatim, trailing space, no trailing newline.
+      expect(out).toContain('Use a CRDT store');
+      expect(out.endsWith(' ')).toBe(true);
+      expect(out.endsWith('\n')).toBe(false);
+      // Empty selection still yields nothing regardless of intent.
+      expect(framePrompt('   ', intent)).toBe('');
+    }
+  });
+
+  it('frames each verb distinctly (#15)', () => {
+    const expand = framePrompt('S', 'expand');
+    const challenge = framePrompt('S', 'challenge');
+    const risks = framePrompt('S', 'find-risks');
+    expect(expand).not.toBe(challenge);
+    expect(challenge).not.toBe(risks);
+    expect(expand).toContain('Expand on this idea');
+    expect(challenge).toContain("devil's advocate");
+    expect(risks).toContain('risks');
+  });
 });
 
 describe('PROMPT_TEMPLATES', () => {
-  const intents: PromptIntent[] = ['discuss'];
+  const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
 
   it('has an entry per intent that honours the trailing-space-no-newline invariant', () => {
     for (const intent of intents) {
