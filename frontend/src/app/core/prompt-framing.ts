@@ -44,9 +44,30 @@ export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => strin
  * Returns `''` for an empty/whitespace-only selection (nothing to discuss);
  * otherwise applies the {@link PromptIntent}'s template to the trimmed selection.
  * The result intentionally has a trailing space and no trailing newline.
+ *
+ * When `sourceRef` is given (the short ref of the card the verb fired from,
+ * idea-graph design §4/§5), a tagging directive is PREPENDED so the ideas this
+ * turn produces come back linked to that card — without disturbing the
+ * trailing-space editable seam (the cursor stays at the very end).
  */
-export function framePrompt(selection: string, intent: PromptIntent = 'discuss'): string {
+export function framePrompt(
+  selection: string,
+  intent: PromptIntent = 'discuss',
+  sourceRef?: string,
+): string {
   const trimmed = selection.trim();
   if (!trimmed) return '';
-  return PROMPT_TEMPLATES[intent](trimmed);
+  const body = PROMPT_TEMPLATES[intent](trimmed);
+  return sourceRef ? `${refDirective(sourceRef)}\n\n${body}` : body;
+}
+
+/**
+ * A directive (idea-graph design §5) telling the agent to tag the ideas this
+ * turn produces with the source card's short ref, so the backend parses
+ * `«IDEA@<ref>»` into a link and the canvas draws a connector back to the card
+ * the verb fired from. Prepended (never appended) so the open clause and cursor
+ * stay at the end.
+ */
+function refDirective(sourceRef: string): string {
+  return `(When you capture ideas from this, tag each «IDEA» line with @${sourceRef} so they link back to this card on the canvas.)`;
 }

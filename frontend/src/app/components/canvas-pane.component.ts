@@ -261,9 +261,9 @@ export class CanvasPaneComponent {
     // Challenge / Find risks) live on the selected idea card's element-toolbar
     // More menu. When one fires, frame the card's text for that intent and type
     // it into the active workspace's live terminal as an editable prompt.
-    this.#canvas.onCardVerb((text, intent) => {
+    this.#canvas.onCardVerb((text, intent, sourceRef) => {
       const ws = this.workspaces.active();
-      if (ws) this.#agent.discussText(ws.id, text, intent);
+      if (ws) this.#agent.discussText(ws.id, text, intent, sourceRef);
     });
   }
 

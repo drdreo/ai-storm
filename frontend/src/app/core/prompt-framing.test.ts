@@ -74,6 +74,30 @@ describe('framePrompt', () => {
   });
 });
 
+describe('framePrompt — source ref injection (#42)', () => {
+  it('prepends a tagging directive carrying the source ref', () => {
+    const out = framePrompt('Use a CRDT store', 'find-risks', 'a1');
+    expect(out).toContain('@a1');
+    expect(out).toContain('«IDEA»');
+    // The directive leads; the selection + open clause still follow.
+    expect(out.indexOf('@a1')).toBeLessThan(out.indexOf('Use a CRDT store'));
+  });
+
+  it('keeps the editable-cursor invariant with a ref (trailing space, no newline)', () => {
+    const out = framePrompt('S', 'expand', 'a3');
+    expect(out.endsWith(' ')).toBe(true);
+    expect(out.endsWith('\n')).toBe(false);
+  });
+
+  it('is identical to the no-ref form when sourceRef is omitted', () => {
+    expect(framePrompt('S', 'discuss')).toBe(framePrompt('S', 'discuss', undefined));
+  });
+
+  it('still yields nothing for an empty selection even with a ref', () => {
+    expect(framePrompt('   ', 'discuss', 'a1')).toBe('');
+  });
+});
+
 describe('PROMPT_TEMPLATES', () => {
   const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
 
