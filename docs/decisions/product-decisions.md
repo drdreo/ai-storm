@@ -2,7 +2,7 @@
 
 **Status:** 🟢 Living document — the canonical product spec + decision log for ai-storm.
 **Author:** ai-storm
-**Related:** [`docs/design/ai-session-layer.md`](../design/ai-session-layer.md) · [`docs/design/ai-response-extraction-contract.md`](../design/ai-response-extraction-contract.md) · the `brainstorm-ux` issue epic
+**Related:** [`docs/design/ai-session-layer.md`](../design/ai-session-layer.md) · [`docs/design/ai-response-extraction-contract.md`](../design/ai-response-extraction-contract.md) · [`docs/design/idea-graph.md`](../design/idea-graph.md) · the `brainstorm-ux` issue epic
 
 ---
 
@@ -183,6 +183,38 @@ Recent decisions first; foundational PRD-v3.0 baseline decisions at the bottom. 
 decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
+
+### PD-010 — Ideas are a graph: uniform node + typed edges + kind registry
+
+`(2026-06-06, accepted)`
+
+- **Decision:** Model the board as a **graph**, not a pile or a tree. Three axes that were
+  being conflated into `kind` are kept independent: **kind** (*what a card is* — risk /
+  challenge / feature / question / decision — on the node), **link** (*what it's about* —
+  a generic `about` edge to another card; the only edge type carrying its own meaning is
+  `supersedes`), and **provenance** (*who made it* — `ai`/`user`, already PD-009). A node has
+  one kind but many edges, to many targets. Flavor is **not** duplicated onto the edge (no
+  `risk-of`/`challenge-of` relation taxonomy) — you read "risk of X" by following an `about`
+  edge from a `risk`-kind card. Per-kind behavior (label, tint, future shape/lifecycle) lives
+  in a single client-side **kind registry**, so a new ideation concept is one registry entry
+  (data), not a new wire marker/parser/type (code). Persistence stays the client CRDT (two new
+  namespaced maps: `ai-storm:ref` for short-ref identity, `ai-storm:edges` for the graph) — **no
+  server-side store**; the shared `@ai-storm/shared` types are the "both sides know it" contract.
+- **Why:** #40 (source-linked responses), #19 (connectors), #20 (lifecycle), #22 (supersede),
+  #16/#17 (layout) all need the same two primitives — **stable idea identity** and **typed
+  edges**. Defining them once makes those issues cheap; building them on position-only data
+  means each reinvents identity+edges or gets reworked. Uniform-node-+-registry was chosen over
+  dedicated `Risk`/`Challenge` types because brainstorming concepts are open-ended and
+  cross-referencing: adding a type should be data, not a new fragile `tmux`-grid marker. The
+  edge stays generic because `kind:risk` + `relation:risk-of` is the same fact twice; only
+  `supersedes` (an effect on the target) earns an edge type. Discussion is intentionally **not**
+  a node — it's the terminal thread, referenced by #23, not forced into `{title, body}`.
+- **Affects:** Foundational refactor tracked by its own ticket; design in
+  [`idea-graph.md`](../design/idea-graph.md). Extends the `«IDEA»` contract with an optional
+  `@ref` target (mirrors the existing inline `:kind` tag) and the shared `Idea` type with
+  `id`/`links`. Refactors `idea-descriptors.ts` (`KIND_LABEL`/`KIND_BACKGROUND`/`KNOWN_KINDS` →
+  `KIND_REGISTRY`) and `CanvasService` (ref + edges maps, connector drawing in `applyIdeas`).
+  Unblocks #40/#19/#20/#22/#16. Single-user (PD-001) and terminal-passthrough (PD-008) stand.
 
 ### PD-009 — Note provenance, not a capture composer
 
