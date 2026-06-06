@@ -39,7 +39,7 @@ questions were being conflated into one `kind` field. They are independent:
 
 | Axis | Question it answers | Lives on | Example values |
 | --- | --- | --- | --- |
-| **Kind** | *What is this card?* | the **node** | `idea`, `risk`, `challenge`, `question`, `feature`, `decision` |
+| **Kind** | *What is this card?* | the **node** | `idea`, `risk`, `question`, `feature`, `decision` (not `challenge` — PD-012) |
 | **Link** | *What is it about?* | an **edge** | → points at another card |
 | **Provenance** | *Who made it?* | the node (existing #31) | `user`, `ai` |
 
@@ -62,15 +62,19 @@ We deliberately do **not** carry a parallel relation taxonomy (`risk-of`, `chall
 `expands`) on the edge. That would store the flavor twice — `kind: risk` on the card
 *and* `relation: risk-of` on its link say the same thing. Instead:
 
-- The **node's `kind`** carries the flavor. A risk card is `kind: risk`. A counter-argument
-  is `kind: challenge`.
+- The **node's `kind`** carries the flavor. A risk card is `kind: risk`. A feature is
+  `kind: feature`.
 - The **edge is generic** — "this card is *about* that card" (`relation: 'about'`). You
   read "it's a risk *of* X" by following an `about` edge from a `risk`-kind card to X.
 
 Test for whether a label is a kind or a relation: **does it need a target to make sense?**
-"risk **of**", "challenge **of**" only mean something pointed at a target — but that
-target is already supplied by the edge, and the *flavor* (risk vs challenge) is the
-source card's kind. So the flavor is a node property, and the edge stays generic.
+"risk **of**" only means something pointed at a target — but that target is already supplied
+by the edge, and the *flavor* (risk vs feature) is the source card's kind. So the flavor is a
+node property, and the edge stays generic.
+
+> **Note (PD-012): `challenge` is not a kind.** A challenge is an *operation* that produces a
+> refined idea **superseding** the one it contests (§2.3), not a parallel `challenge`-kind card.
+> It is therefore absent from the kind set below.
 
 A node has **one kind** (a card is one thing) but **many edges**, to **many targets**.
 The genuinely common multiplicity is *one card → several targets* (a cross-cutting
@@ -143,7 +147,6 @@ interface KindSpec {
 
 const KIND_REGISTRY: Record<string, KindSpec> = {
   risk:      { label: '⚠ Risk',      background: '--affine-note-background-red' },
-  challenge: { label: '⚔ Challenge', background: '--affine-note-background-orange' },
   feature:   { label: '✨ Feature',   background: '--affine-note-background-green' },
   question:  { label: '❓ Question',  background: '--affine-note-background-yellow' },
   decision:  { label: '✅ Decision',  background: '--affine-note-background-blue' },
