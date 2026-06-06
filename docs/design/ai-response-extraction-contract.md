@@ -129,22 +129,29 @@ Grammar (EBNF-ish):
 ```
 idea-line   = ws* , marker , ws* , title , [ ws* , "::" , ws* , body ] , ws* ;
 marker      = ( "«IDEA" , tag , "»" ) | ( "<<IDEA" , tag , ">>" ) ;
-tag         = [ ":" , kind ] , [ "@" , ref ] ;             (* both optional; kind before ref *)
+tag         = [ ":" , kind ] , [ "@" , ref , [ "!" ] ] ;   (* all optional; kind before ref *)
 kind        = lower-alpha , { word-char | "-" } ;          (* e.g. risk, feature, question, todo *)
 ref         = word-char , { word-char | "-" } ;            (* short ref of the linked card, e.g. a1 *)
+                                                           (* a trailing "!" makes the link 'supersedes' (PD-012) *)
 title       = printable - ( "::" ) ;                        (* required, non-empty after trim *)
 body        = printable ;                                   (* optional; "" if "::" omitted *)
 ```
 
 > **Idea-graph link (`@ref`, idea-graph design §5.1).** The in-marker tag is
-> `[:kind][@ref]`. An optional `@ref` after the kind links this idea to the card
+> `[:kind][@ref[!]]`. An optional `@ref` after the kind links this idea to the card
 > with that short ref (idea-graph §4): `«IDEA:risk@a1» Token leak :: …` parses to
-> `{kind:"risk", links:[{to:"a1", relation:"about"}]}`. The edge is generic
-> (`about`) — the *flavour* lives on the source card's `kind` — so no relation
-> taxonomy is carried inline; `supersedes` is expressible only via the fenced
-> `rel:` key below. If the agent omits `@ref` the idea lands unlinked, exactly as
-> before (graceful degradation). The session-scoped dedupe key includes the links,
-> so the same title/body pointed at a *different* target is a distinct idea.
+> `{kind:"risk", links:[{to:"a1", relation:"about"}]}`. A **trailing `!`** makes
+> that link a `supersedes` instead of `about` (PD-012): `«IDEA:feature@a1!» …`
+> parses to `links:[{to:"a1", relation:"supersedes"}]` — the refined idea
+> *replaces* the target. This keeps `supersedes` on the robust single-line marker:
+> the fenced `rel:` key below also expresses it, but the agent's TUI renders the
+> code fence away before the backend captures the screen (PD-008), so in practice
+> the inline `!` is the form that survives. The default edge stays generic
+> (`about`) — the *flavour* lives on the source card's `kind`, so no relation
+> taxonomy is carried inline beyond the one structural `supersedes`. If the agent
+> omits `@ref` the idea lands unlinked, exactly as before (graceful degradation).
+> The session-scoped dedupe key includes the links, so the same title/body pointed
+> at a *different* target (or with a *different* relation) is a distinct idea.
 
 - **Marker:** guillemets `«` (U+00AB) / `»` (U+00BB). Chosen because they are essentially absent from
   source code and ordinary English prose (very low collision), visually unmistakable, a balanced
@@ -814,6 +821,7 @@ Each step independently shippable; app stays working throughout.
 | Single line | `«IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB` | `{title:"Offline-first canvas", body:"cache CRDT ops in IndexedDB"}` |
 | With kind | `«IDEA:risk» Token rotation :: may break long-lived sessions` | `{title:"Token rotation", body:"may break long-lived sessions", kind:"risk"}` |
 | With link (idea-graph) | `«IDEA:risk@a1» Token leak :: refresh races the reattach` | `{title:"Token leak", body:"refresh races the reattach", kind:"risk", links:[{to:"a1", relation:"about"}]}` |
+| Supersedes (`@ref!`, PD-012) | `«IDEA:feature@a1!» Rotate token on attach :: survives the reconnect race` | `{title:"Rotate token on attach", body:"survives the reconnect race", kind:"feature", links:[{to:"a1", relation:"supersedes"}]}` |
 | Bare | `«IDEA» Offline-first canvas` | `{title:"Offline-first canvas", body:""}` |
 | ASCII alias | `<<IDEA>> Offline-first canvas :: …` | same as single line |
 | Fenced (multiline) | ` ```idea kind=decision ` … ` ``` ` | `{title, body:"<multi-line>", kind:"decision"}` |
@@ -822,9 +830,10 @@ Each step independently shippable; app stays working throughout.
 ## Appendix B — key regexes (single source of truth for the impl)
 
 ```ts
-// Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref] (idea-graph §5.1):
-//   groups 1/3 = kind (guillemet/ASCII), 2/4 = ref, 5 = remainder ("title :: body").
-const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?>>)\s*(.*)$/u;
+// Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref[!]] (idea-graph §5.1):
+//   groups 1/4 = kind (guillemet/ASCII), 2/5 = ref, 3/6 = supersedes "!", 7 = remainder ("title :: body").
+//   A trailing "!" after the ref makes the link 'supersedes' instead of the default 'about' (PD-012).
+const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?>>)\s*(.*)$/u;
 const IDEA_FENCE_OPEN  = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 const FENCE_KEY        = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;  // idea-graph keys added

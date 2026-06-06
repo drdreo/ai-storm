@@ -147,6 +147,25 @@ describe("scanIdeas — idea-graph links (#42)", () => {
     ]);
   });
 
+  it("parses a trailing `!` on the ref into a 'supersedes' link (PD-012)", () => {
+    expect(
+      ideasOf(cap("  «IDEA:feature@a1!» Rotate token on attach :: survives the reconnect race")),
+    ).toEqual([
+      {
+        title: "Rotate token on attach",
+        body: "survives the reconnect race",
+        kind: "feature",
+        links: [{ to: "a1", relation: "supersedes" }],
+      },
+    ]);
+  });
+
+  it("parses `@ref!` supersedes with no kind", () => {
+    expect(ideasOf(cap("  «IDEA@a1!» Stronger plan :: addresses the objection"))).toEqual([
+      { title: "Stronger plan", body: "addresses the objection", links: [{ to: "a1", relation: "supersedes" }] },
+    ]);
+  });
+
   it("accepts @ref on the ASCII <<IDEA>> alias", () => {
     expect(ideasOf(cap("  <<IDEA:feature@b2>> Edgeless cards :: one note per idea"))).toEqual([
       {

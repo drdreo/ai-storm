@@ -111,13 +111,18 @@ export function commandProfileName(command: string): string | undefined {
 // ── Contract grammar (extraction-contract Appendix B — single source of truth) ──
 
 /**
- * `«IDEA[:kind][@ref]»` / `<<IDEA[:kind][@ref]>>` at line start. The in-marker
- * tag is `[:kind][@ref]` (idea-graph design §5.1): an optional `@ref` links this
- * idea to the card with that short ref. Groups: 1/3 = kind (guillemet/ASCII),
- * 2/4 = ref (guillemet/ASCII), 5 = the remainder (`title :: body`).
+ * `«IDEA[:kind][@ref[!]]»` / `<<IDEA[:kind][@ref[!]]>>` at line start. The
+ * in-marker tag is `[:kind][@ref[!]]` (idea-graph design §5.1): an optional
+ * `@ref` links this idea to the card with that short ref; a trailing `!` makes
+ * that link a `supersedes` (the refined idea REPLACES the target) instead of the
+ * default `about`. The `!` form keeps `supersedes` on the robust single-line
+ * marker — the fenced `rel:` key (below) is unreliable because the agent's TUI
+ * renders the code fence away before the backend captures the screen (PD-008).
+ * Groups: 1/4 = kind (guillemet/ASCII), 2/5 = ref, 3/6 = supersedes `!`,
+ * 7 = the remainder (`title :: body`).
  */
 const IDEA_MARKER =
-  /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?>>)\s*(.*)$/u;
+  /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?>>)\s*(.*)$/u;
 /** ` ```idea [kind=…] ` opens a fenced (multi-line body) idea. */
 const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 /** A bare ` ``` ` closes a fenced idea. */
@@ -154,16 +159,22 @@ function parseRelation(value: string): IdeaRelation | undefined {
 
 /**
  * Parse a single-line idea: `title :: body`, split on the FIRST `::`. An in-marker
- * `@ref` (group 2/4) becomes a single `about` link to that card (idea-graph §5.1).
+ * `@ref` becomes a single link to that card (idea-graph §5.1) — `supersedes` when
+ * the ref carried a trailing `!`, otherwise the default `about`.
  */
-function ideaFromLine(kind: string | undefined, ref: string | undefined, logical: string): Idea {
-  const rest = logical.replace(IDEA_MARKER, "$5").trim(); // remainder after marker
+function ideaFromLine(
+  kind: string | undefined,
+  ref: string | undefined,
+  supersedes: boolean,
+  logical: string,
+): Idea {
+  const rest = logical.replace(IDEA_MARKER, "$7").trim(); // remainder after marker
   const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
   const body = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
   const idea: Idea = { title, body };
   if (kind) idea.kind = kind;
-  if (ref) idea.links = [{ to: ref, relation: "about" }];
+  if (ref) idea.links = [{ to: ref, relation: supersedes ? "supersedes" : "about" }];
   return idea;
 }
 
@@ -277,8 +288,9 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
     // Form 1 — single-line marker, rejoining word-wrapped continuation rows.
     const m = IDEA_MARKER.exec(line);
     if (m) {
-      const kind = m[1] ?? m[3];
-      const ref = m[2] ?? m[4];
+      const kind = m[1] ?? m[4];
+      const ref = m[2] ?? m[5];
+      const supersedes = !!(m[3] ?? m[6]);
       let logical = line;
       let k = i;
       // Absorb continuation rows until a blank line / next marker / fence /
@@ -294,7 +306,7 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
         logical += " " + region[k].trim(); // re-insert the space consumed at the wrap
       }
       if (!final && k >= lastNonBlank) break; // growing idea at the tail → hold back
-      ideas.push(ideaFromLine(kind, ref, logical));
+      ideas.push(ideaFromLine(kind, ref, supersedes, logical));
       i = k + 1;
       continue;
     }

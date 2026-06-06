@@ -103,20 +103,19 @@ describe('framePrompt — source ref injection (#42)', () => {
       const out = framePrompt('S', intent, 'a1');
       expect(out).toContain('@a1');
       // The about directive tags «IDEA» lines; it never asks for a supersede.
-      expect(out).not.toContain('rel: supersedes');
+      expect(out).not.toContain('@a1!');
     }
   });
 });
 
 describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () => {
-  it('instructs a fenced superseding idea when challenge fires from a card', () => {
+  it('instructs a single-line superseding marker when challenge fires from a card', () => {
     const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
-    // The supersede relation is only expressible via the fenced form, so the
-    // directive must spell out the block with link + rel keys.
-    expect(out).toContain('```idea');
-    expect(out).toContain('link: a1');
-    expect(out).toContain('rel: supersedes');
-    expect(out).toContain('@a1');
+    // The supersede relation rides the single-line marker via a trailing `!`
+    // (the fenced form is unreliable — the TUI renders the fence away, PD-008).
+    expect(out).toContain('«IDEA@a1!»');
+    expect(out).not.toContain('```idea');
+    expect(out).not.toContain('rel: supersedes');
   });
 
   it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
@@ -127,13 +126,13 @@ describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () =
 
   it('the directive leads; the selection + open clause still follow', () => {
     const out = framePrompt('Use a CRDT store', 'challenge', 'a1');
-    expect(out.indexOf('rel: supersedes')).toBeLessThan(out.indexOf('Use a CRDT store'));
+    expect(out.indexOf('«IDEA@a1!»')).toBeLessThan(out.indexOf('Use a CRDT store'));
   });
 
   it('does NOT emit the supersede directive without a source ref', () => {
     const out = framePrompt('Use a CRDT store', 'challenge');
-    expect(out).not.toContain('rel: supersedes');
-    expect(out).not.toContain('```idea');
+    expect(out).not.toContain('@a1!');
+    expect(out).not.toContain('«IDEA');
   });
 });
 
