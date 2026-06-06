@@ -318,6 +318,18 @@ export class CanvasService {
     });
   }
 
+  /**
+   * Human idea-capture entry (#31, PD-002) — the input-side counterpart to the
+   * AI `idea` stream. Awaits {@link ensureReady} so the doc is rooted even when
+   * no backend session is attached, then routes the human-authored idea through
+   * the same {@link applyIdeas} card pipeline, so it renders identically to an
+   * extracted one. No BlockSuite editing leaks to the caller.
+   */
+  async captureIdea(workspaceId: string, idea: Idea): Promise<void> {
+    await this.ensureReady(workspaceId);
+    this.applyIdeas(workspaceId, [idea]);
+  }
+
   #appendDescriptor(doc: Doc, noteId: string, d: BlockDescriptor): void {
     switch (d.type) {
       case 'heading':

@@ -24,6 +24,25 @@ export const KIND_LABEL: Record<string, string> = {
   heuristic: '💡 Idea',
 };
 
+/**
+ * Construct a wire-shaped {@link Idea} from raw human-composer input (#31, PD-002).
+ *
+ * Pure and BlockSuite/Angular-free so the composer and `CanvasService` share one
+ * normalization: a human-authored idea is the exact same object the backend's
+ * `idea` stream emits, so it renders identically downstream. `title` is the only
+ * required field — returns `null` when it is empty/whitespace-only. `kind` is
+ * omitted entirely unless it is a non-empty trimmed string, matching the
+ * optional-field convention of the wire {@link Idea} (never `kind: ''`).
+ */
+export function buildIdea(title: string, body: string, kind?: string): Idea | null {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return null;
+  const idea: Idea = { title: trimmedTitle, body: body.trim() };
+  const trimmedKind = kind?.trim();
+  if (trimmedKind) idea.kind = trimmedKind;
+  return idea;
+}
+
 export function decorateTitle(title: string, kind?: string): string {
   if (!kind) return title;
   const label = KIND_LABEL[kind] ?? `#${kind}`;

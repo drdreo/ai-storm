@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { ideaToDescriptors } from "./idea-descriptors";
+import { buildIdea, ideaToDescriptors } from "./idea-descriptors";
 
 describe("ideaToDescriptors", () => {
   it("maps a bare idea to a single decorated heading", () => {
@@ -47,5 +47,37 @@ describe("ideaToDescriptors", () => {
       { type: "bulleted", text: "append-only log" },
       { type: "bulleted", text: "time-travel scrub" },
     ]);
+  });
+});
+
+describe("buildIdea (#31 human capture)", () => {
+  it("returns null for an empty or whitespace-only title", () => {
+    expect(buildIdea("", "body")).toBeNull();
+    expect(buildIdea("   \t\n ", "body")).toBeNull();
+  });
+
+  it("trims title and body", () => {
+    expect(buildIdea("  Offline-first canvas  ", "  cache CRDT ops  ")).toEqual({
+      title: "Offline-first canvas",
+      body: "cache CRDT ops",
+    });
+  });
+
+  it("omits kind when it is missing, empty, or whitespace-only", () => {
+    expect(buildIdea("Title", "body")).toEqual({ title: "Title", body: "body" });
+    expect(buildIdea("Title", "body", "")).not.toHaveProperty("kind");
+    expect(buildIdea("Title", "body", "   ")).not.toHaveProperty("kind");
+  });
+
+  it("includes a trimmed kind when provided", () => {
+    expect(buildIdea("Token rotation", "may break sessions", "  risk ")).toEqual({
+      title: "Token rotation",
+      body: "may break sessions",
+      kind: "risk",
+    });
+  });
+
+  it("allows an empty body (title is the only required field)", () => {
+    expect(buildIdea("Spike", "")).toEqual({ title: "Spike", body: "" });
   });
 });

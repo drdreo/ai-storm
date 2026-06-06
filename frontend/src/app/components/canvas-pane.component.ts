@@ -13,6 +13,8 @@ import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
 import type { CanvasMode } from '../core/models';
+import type { Idea } from '@ai-storm/shared';
+import { IdeaComposerComponent } from './idea-composer.component';
 
 /**
  * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the framework-agnostic
@@ -22,7 +24,7 @@ import type { CanvasMode } from '../core/models';
  */
 @Component({
   selector: 'as-canvas-pane',
-  imports: [Tabs, TabList, Tab, Toolbar, ToolbarWidget],
+  imports: [Tabs, TabList, Tab, Toolbar, ToolbarWidget, IdeaComposerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="toolbar" ngTabs>
@@ -43,6 +45,7 @@ import type { CanvasMode } from '../core/models';
         </button>
       </div>
       <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
+        <as-idea-composer (capture)="onCaptureIdea($event)" />
         <button
           ngToolbarWidget
           value="inject-context"
@@ -217,6 +220,16 @@ export class CanvasPaneComponent {
     if (!active) return;
     this.workspaces.setMode(active.id, mode);
     this.#canvas.setMode(mode);
+  }
+
+  /**
+   * Human idea-capture sink (#31, PD-002). Routes a human-authored idea to the
+   * active workspace's canvas via the same pipeline AI-extracted ideas use; does
+   * not switch the canvas view mode.
+   */
+  onCaptureIdea(idea: Idea): void {
+    const active = this.workspaces.active();
+    if (active) void this.#canvas.captureIdea(active.id, idea);
   }
 
   injectContext(): void {
