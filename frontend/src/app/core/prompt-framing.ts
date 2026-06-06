@@ -90,7 +90,11 @@ function refDirective(sourceRef: string, intent: PromptIntent): string {
  * token — see {@link refDirective}.
  */
 function aboutDirective(sourceRef: string): string {
-  return `(These notes are from card @${sourceRef} — link the ideas you capture back to it.)`;
+  return (
+    `(These notes are from card @${sourceRef}. Tag EVERY idea you emit this turn by appending ` +
+    `@${sourceRef} to its marker tag (right after the kind), so they all link back to this card. ` +
+    `Do NOT add a trailing ! after the ref — that means "replace", which is not what you're doing here.)`
+  );
 }
 
 /**
