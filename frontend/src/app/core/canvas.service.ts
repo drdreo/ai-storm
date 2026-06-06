@@ -290,24 +290,6 @@ export class CanvasService {
   }
 
   /**
-   * Structural Block Translation target (PRD §3.3): append translated block
-   * descriptors to the workspace's note. Runs inside a single transaction so
-   * the CRDT store records one batched mutation per render frame (PRD §5.1).
-   */
-  applyBlocks(workspaceId: string, descriptors: BlockDescriptor[]): void {
-    if (descriptors.length === 0) return;
-    const doc = this.ensureDoc(workspaceId);
-    const noteId = this.#noteIds.get(workspaceId);
-    if (!noteId) return;
-
-    doc.transact(() => {
-      for (const d of descriptors) {
-        this.#appendDescriptor(doc, noteId, d);
-      }
-    });
-  }
-
-  /**
    * Extracted-idea target (extraction-contract §8.2, recommended path): create
    * ONE edgeless `affine:note` per idea — a card — seeded with the idea's
    * heading + body, rather than appending paragraphs to the shared note. Notes
@@ -342,6 +324,9 @@ export class CanvasService {
         );
         provenance.set(noteId, 'ai');
         for (const d of ideaToDescriptors(idea)) {
+          // Skip empty paragraphs so cards stay clean (blank-body ideas, blank
+          // lines between markdown blocks).
+          if (d.type === 'paragraph' && d.text.trim() === '') continue;
           // Prefix only the card's heading (first descriptor) with the AI badge.
           const decorated =
             d.type === 'heading' ? { ...d, text: decorateProvenance(d.text, 'ai') } : d;

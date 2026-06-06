@@ -2,9 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import type { Idea } from '@ai-storm/shared';
 import { BackendService } from './backend.service';
 import { CanvasService } from './canvas.service';
-import { ideaToDescriptors } from './idea-descriptors';
 import { WorkspaceService } from './workspace.service';
-import type { BlockDescriptor } from './markdown-block-parser';
 import { RenderScheduler } from './render-scheduler';
 import type { TerminalConfig } from './models';
 
@@ -22,7 +20,7 @@ export interface TerminalSink {
 
 /** Live streaming machinery (exists only while a session is attached). */
 interface Pipeline {
-  scheduler: RenderScheduler<BlockDescriptor>;
+  scheduler: RenderScheduler<Idea>;
   unsubscribe: () => void;
   /** The attach message, re-sent on socket reopen to resume the session (§3.5). */
   reattach: () => void;
@@ -38,9 +36,6 @@ interface TerminalState {
   bufferedBytes: number;
 }
 
-const isBlankParagraph = (d: BlockDescriptor) =>
-  d.type === 'paragraph' && d.text.trim() === '';
-
 /**
  * Stateful ingestion pipeline (PRD §3.3 + §5.1).
  *
@@ -51,8 +46,9 @@ const isBlankParagraph = (d: BlockDescriptor) =>
  *            surface renders itself; no chat extraction). Forwarded to a
  *            {@link TerminalSink} the TerminalComponent registers, buffered until
  *            the terminal mounts.
- *   `idea` → ideaToDescriptors → RenderScheduler → CanvasService.applyBlocks
- *            (one batched CRDT mutation per paint frame).
+ *   `idea` → RenderScheduler<Idea> → CanvasService.applyIdeas — one discrete
+ *            tinted/badged edgeless card per idea, with ideas arriving in the
+ *            same paint frame collapsed into a single batched CRDT mutation.
  *
  * Pipelines are independent per workspace (PRD §3.4) and torn down on detach
  * (PRD §5.2); the lightweight terminal binding persists so a workspace keeps its
@@ -77,9 +73,12 @@ export class IngestionService {
     // Pre-create the terminal binding so a sink can register immediately.
     this.#terminal(workspaceId);
 
-    const scheduler = new RenderScheduler<BlockDescriptor>({
-      sink: (batch) => this.#canvas.applyBlocks(workspaceId, batch),
-      maxPerFrame: 80,
+    const scheduler = new RenderScheduler<Idea>({
+      sink: (batch) => this.#canvas.applyIdeas(workspaceId, batch),
+      // Ideas are low-frequency and deduped one-per-marker; a small cap still
+      // collapses multiple ideas in one frame into a single applyIdeas call
+      // (one CRDT transaction), preserving the §5.1 frame-decoupling.
+      maxPerFrame: 8,
     });
 
     const unsubscribe = this.#backend.subscribe(workspaceId, (msg) => {
@@ -148,8 +147,7 @@ export class IngestionService {
   #ingestIdea(workspaceId: string, idea: Idea): void {
     const p = this.#active.get(workspaceId);
     if (!p) return;
-    const descriptors = ideaToDescriptors(idea).filter((d) => !isBlankParagraph(d));
-    if (descriptors.length > 0) p.scheduler.enqueueAll(descriptors);
+    p.scheduler.enqueueAll([idea]);
   }
 
   /**
