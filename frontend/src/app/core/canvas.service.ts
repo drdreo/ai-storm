@@ -52,6 +52,10 @@ export class CanvasService {
   #noteIds = new Map<string, string>();
   /** Count of idea cards created per workspace, for non-overlapping tiling. */
   #noteCounts = new Map<string, number>();
+  /** Disposers for the reverse title observers (editor edits → sidebar name). */
+  #titleObservers = new Map<string, () => void>();
+  /** Fired when a doc's page-title is edited from inside the editor. */
+  #onTitleChange: ((workspaceId: string, title: string) => void) | null = null;
 
   async init(): Promise<void> {
     if (this.ready()) return;
@@ -144,6 +148,9 @@ export class CanvasService {
     } else {
       this.#cacheNoteId(workspaceId, doc);
     }
+    // Root now exists (seeded or rehydrated) — watch its title so edits made in
+    // the page editor flow back to the workspace name (reverse sync).
+    this.#observeTitle(workspaceId, doc);
   }
 
   /** Seed a fresh page/surface/note/paragraph into a verified-empty doc. */
@@ -215,6 +222,55 @@ export class CanvasService {
 
   setMode(mode: CanvasMode): void {
     if (this.#editor) this.#editor.switchEditor(mode);
+  }
+
+  /**
+   * Mirror the workspace title onto its BlockSuite doc (the `affine:page`
+   * block's title + doc meta) so the editor's title field and the sidebar name
+   * stay in sync on create/rename. The title `Text` is mutated in place — never
+   * replaced — so the live editor binding and BlockSuite's own meta-sync
+   * observer survive. Deferred until the doc has a root when its store is still
+   * rehydrating (a freshly-created doc is seeded async; see {@link ensureDoc}).
+   */
+  setDocTitle(workspaceId: string, title: string): void {
+    const doc = this.ensureDoc(workspaceId);
+    const apply = () => {
+      const root = doc.root as unknown as { title?: Text } | null;
+      if (!root?.title) return;
+      if (root.title.toString() !== title) {
+        root.title.replace(0, root.title.length, title);
+      }
+      this.#collection.setDocMeta(workspaceId, { title });
+    };
+    if (doc.root) {
+      apply();
+      return;
+    }
+    const persistence = this.#subdocPersistence.get(workspaceId);
+    if (persistence) void persistence.whenSynced.then(apply);
+    else queueMicrotask(apply);
+  }
+
+  /** Register the reverse-sync sink: editor title edits → workspace rename. */
+  onDocTitleChanged(cb: (workspaceId: string, title: string) => void): void {
+    this.#onTitleChange = cb;
+  }
+
+  /**
+   * Observe a doc's page-title `Text` so edits typed into the editor's title
+   * field propagate back to the workspace name. Idempotent per workspace; a
+   * no-op until the doc has a root. Mutations made by {@link setDocTitle} fire
+   * this too, but the sink guards against writing an unchanged title, so the
+   * sidebar↔editor loop terminates.
+   */
+  #observeTitle(workspaceId: string, doc: Doc): void {
+    if (this.#titleObservers.has(workspaceId)) return;
+    const root = doc.root as unknown as { title?: Text } | null;
+    if (!root?.title) return;
+    const yText = root.title.yText;
+    const handler = () => this.#onTitleChange?.(workspaceId, root.title!.toString());
+    yText.observe(handler);
+    this.#titleObservers.set(workspaceId, () => yText.unobserve(handler));
   }
 
   /**
@@ -373,6 +429,8 @@ export class CanvasService {
   removeWorkspace(workspaceId: string): void {
     this.#noteIds.delete(workspaceId);
     this.#noteCounts.delete(workspaceId);
+    this.#titleObservers.get(workspaceId)?.();
+    this.#titleObservers.delete(workspaceId);
     const persistence = this.#subdocPersistence.get(workspaceId);
     this.#subdocPersistence.delete(workspaceId);
 
@@ -402,6 +460,8 @@ export class CanvasService {
   dispose(): void {
     this.#detachEditorDom();
     this.#editor = null;
+    for (const dispose of this.#titleObservers.values()) dispose();
+    this.#titleObservers.clear();
     for (const persistence of this.#subdocPersistence.values()) persistence.destroy();
     this.#subdocPersistence.clear();
     this.#persistence?.destroy();

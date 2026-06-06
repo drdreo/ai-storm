@@ -52,6 +52,16 @@ export class WorkspaceService {
     this.#map.observe(() => this.#syncFromMap());
     this.#syncFromMap();
 
+    // Reverse title sync: a title typed into the BlockSuite page editor renames
+    // its workspace. We write the registry directly (not via rename(), which
+    // pushes back to the doc) so the editor↔sidebar loop can't recurse; the
+    // guard on an unchanged/blank title is what makes it settle.
+    this.canvas.onDocTitleChanged((id, title) => {
+      const meta = this.#map.get(id);
+      const next = title.trim();
+      if (meta && next && meta.title !== next) this.#write({ ...meta, title: next });
+    });
+
     if (this.workspaces().length === 0) {
       // First run — stand up a starter workspace.
       const id = this.create('Untitled Project');
@@ -70,7 +80,13 @@ export class WorkspaceService {
     // canvas before rendering the panes, so the editor binds to a ready doc
     // (PRD §3.5 boot) instead of racing its async restore.
     const active = this.activeId();
-    if (active) await this.canvas.ensureReady(active);
+    if (active) {
+      await this.canvas.ensureReady(active);
+      // Mirror the restored title onto its (now-rooted) doc — covers workspaces
+      // created before titles were synced, and the create()-path deferral.
+      const meta = this.#map.get(active);
+      if (meta) this.canvas.setDocTitle(active, meta.title);
+    }
 
     this.booted.set(true);
   }
@@ -100,14 +116,20 @@ export class WorkspaceService {
       terminal: defaultTerminalConfig(),
     };
     this.#write(meta);
-    // Pre-seed the canvas doc so switching is instant.
+    // Pre-seed the canvas doc so switching is instant, then stamp its title so
+    // the BlockSuite document opens with the same name (deferred until the
+    // freshly-seeded doc has a root).
     this.canvas.ensureDoc(id);
+    this.canvas.setDocTitle(id, title);
     return id;
   }
 
   rename(id: string, title: string): void {
     const meta = this.#map.get(id);
-    if (meta) this.#write({ ...meta, title });
+    if (!meta) return;
+    this.#write({ ...meta, title });
+    // Keep the BlockSuite document title in lock-step with the workspace name.
+    this.canvas.setDocTitle(id, title);
   }
 
   setStatus(id: string, status: WorkspaceStatus): void {
