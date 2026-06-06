@@ -60,21 +60,16 @@ export class TerminalScreen {
   }
 
   /**
-   * Render the VISIBLE viewport to flat text — the `tmux capture-pane -p`
+   * Render the VISIBLE viewport to flat text — the `tmux capture-pane -p -J`
    * analog. `baseY` is the buffer index of the viewport's top row while the
    * view is pinned to the bottom (always, here — nothing scrolls the server
-   * side up), so the on-screen rows are `baseY .. baseY + rows - 1`. Each line
-   * is right-trimmed; scrollback above the screen is excluded so the capture
-   * shape matches POSIX.
+   * side up), so the on-screen rows are `baseY .. baseY + rows - 1`. Wrapped
+   * continuation rows are joined into one logical line (see {@link #flatten});
+   * scrollback above the screen is excluded so the capture shape matches POSIX.
    */
   snapshot(): string {
     const buf = this.#term.buffer.active;
-    const top = buf.baseY;
-    const rows: string[] = [];
-    for (let i = 0; i < this.#rows; i++) {
-      rows.push(buf.getLine(top + i)?.translateToString(true) ?? "");
-    }
-    return rows.join("\n");
+    return this.#flatten(buf.baseY, buf.baseY + this.#rows);
   }
 
   /**
@@ -85,12 +80,34 @@ export class TerminalScreen {
    * inevitable re-scan of still-visible lines idempotent.
    */
   snapshotAll(): string {
+    return this.#flatten(0, this.#term.buffer.active.length);
+  }
+
+  /**
+   * Flatten buffer rows `[start, end)` to text, JOINING xterm's wrapped
+   * continuation rows back into one logical line — the Windows analog of `tmux
+   * capture-pane -J`. This is essential, not cosmetic: without it the text of a
+   * wrapped line depends on the pane width, so resizing the terminal re-wraps
+   * the buffer and the idea scanner's row-rejoin reconstructs a slightly
+   * different body at each width. That mints a fresh dedupe key every resize and
+   * spawns a duplicate card on every drag (#38). Joining by `isWrapped` yields a
+   * width-independent logical line, so a re-rendered idea dedupes to one card.
+   */
+  #flatten(start: number, end: number): string {
     const buf = this.#term.buffer.active;
-    const total = buf.length; // scrollback + viewport rows currently retained
-    const rows: string[] = [];
-    for (let i = 0; i < total; i++) {
-      rows.push(buf.getLine(i)?.translateToString(true) ?? "");
+    const out: string[] = [];
+    for (let i = start; i < end; i++) {
+      const line = buf.getLine(i);
+      // Keep the FULL row (no per-row right-trim): a continuation row is full
+      // width, so a word-boundary space sitting in its last cell must survive
+      // the join or two words would fuse. Trailing pad is trimmed once per
+      // logical line below.
+      const text = line?.translateToString(false) ?? "";
+      // `isWrapped` marks a row as the soft-wrapped continuation of the row
+      // above; append it (no separator) rather than starting a new logical line.
+      if (line?.isWrapped && out.length > 0) out[out.length - 1] += text;
+      else out.push(text);
     }
-    return rows.join("\n");
+    return out.map((l) => l.replace(/\s+$/u, "")).join("\n");
   }
 }

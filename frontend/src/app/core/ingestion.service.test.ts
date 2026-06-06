@@ -76,6 +76,30 @@ describe("IngestionService — data/idea split", () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it("creates a card once for a re-emitted idea (resize re-render guard, #38)", async () => {
+    const idea = { title: "Edge cache", body: "serve from the CDN", kind: "feature" };
+    h.emitIdea(idea);
+    // A pane resize re-wraps the rendered idea, so the backend re-emits it with
+    // slightly different whitespace — the same idea, not a new card.
+    h.emitIdea({ ...idea, body: "serve  from   the\tCDN" });
+    h.emitIdea(idea);
+    await nextFrame();
+
+    expect(h.applyIdeas).toHaveBeenCalledTimes(1);
+    expect(h.applyIdeas).toHaveBeenCalledWith("ws1", [idea]);
+  });
+
+  it("treats a genuinely different idea as a new card", async () => {
+    h.emitIdea({ title: "A", body: "one" });
+    h.emitIdea({ title: "B", body: "two" });
+    await nextFrame();
+    expect(h.applyIdeas).toHaveBeenCalledTimes(1); // one batched frame…
+    expect(h.applyIdeas).toHaveBeenCalledWith("ws1", [
+      { title: "A", body: "one" },
+      { title: "B", body: "two" },
+    ]);
+  });
+
   it("forwards raw data to a registered terminal sink and not to the canvas", () => {
     const write = vi.fn();
     h.svc.registerTerminal("ws1", { write, clear: vi.fn() });

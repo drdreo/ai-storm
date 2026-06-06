@@ -262,9 +262,17 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
   return ideas;
 }
 
-/** Stable per-idea identity key for session-scoped dedupe (§7.1). */
+/**
+ * Stable per-idea identity key for session-scoped dedupe (§7.1). Whitespace is
+ * collapsed to a single space and trimmed so the SAME idea re-rendered at a
+ * different pane width — a resize re-wraps the pane, and the row-rejoin then
+ * reconstructs the body with slightly different spacing — still maps to one key.
+ * Without this, every manual resize re-emits each visible idea as a "new" card
+ * and the canvas grows without bound (#38).
+ */
 function ideaKey(idea: Idea): string {
-  return `${idea.title} ${idea.body} ${idea.kind ?? ""}`;
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+  return `${norm(idea.title)} ${norm(idea.body)} ${idea.kind ?? ""}`;
 }
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */

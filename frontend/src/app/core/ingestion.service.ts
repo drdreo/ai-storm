@@ -10,6 +10,16 @@ import type { TerminalConfig } from './models';
  *  viewed workspace cannot grow without bound (oldest chunks are dropped). */
 const MAX_BUFFERED_DATA = 256 * 1024;
 
+/**
+ * Content identity of an idea, mirroring the backend's session-scoped dedupe
+ * key (extraction `ideaKey`): whitespace-collapsed title/body/kind. Two ideas
+ * with the same content map to one card.
+ */
+function ideaKey(idea: Idea): string {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+  return `${norm(idea.title)} ${norm(idea.body)} ${idea.kind ?? ''}`;
+}
+
 /** A mounted xterm.js terminal's sink — the component registers these. */
 export interface TerminalSink {
   /** Write base64-encoded raw PTY bytes to the terminal. */
@@ -64,6 +74,15 @@ export class IngestionService {
 
   #terminals = new Map<string, TerminalState>();
   #active = new Map<string, Pipeline>();
+  /**
+   * Per-workspace set of idea content-keys already turned into canvas cards.
+   * The backend dedupes within a session, but a re-render it can't fully
+   * normalize (e.g. a pane resize re-wraps the rendered idea) can still re-emit
+   * an already-seen idea — and `applyIdeas` always *creates* a card, with no
+   * identity of its own yet (#42). This net makes card creation idempotent so
+   * resizing never spawns duplicate cards (#38). Cleared with the session.
+   */
+  #seenIdeas = new Map<string, Set<string>>();
 
   /**
    * Ensure the durable session exists and start ingesting its streams.
@@ -145,10 +164,19 @@ export class IngestionService {
     }
   }
 
-  /** Route one extracted idea to the canvas via the render scheduler. */
+  /** Route one extracted idea to the canvas via the render scheduler, skipping
+   *  any idea whose content was already turned into a card this session (#38). */
   #ingestIdea(workspaceId: string, idea: Idea): void {
     const p = this.#active.get(workspaceId);
     if (!p) return;
+    let seen = this.#seenIdeas.get(workspaceId);
+    if (!seen) {
+      seen = new Set<string>();
+      this.#seenIdeas.set(workspaceId, seen);
+    }
+    const key = ideaKey(idea);
+    if (seen.has(key)) return;
+    seen.add(key);
     p.scheduler.enqueueAll([idea]);
   }
 
@@ -228,6 +256,9 @@ export class IngestionService {
   kill(workspaceId: string): void {
     const p = this.#teardownPipeline(workspaceId);
     this.#backend.send({ type: 'kill', workspaceId });
+    // The backend session (and its dedupe state) is gone; drop the matching
+    // frontend net so a fresh session can re-create those ideas (#38).
+    this.#seenIdeas.delete(workspaceId);
     if (p) this.#workspaces.setStatus(workspaceId, 'idle');
   }
 
