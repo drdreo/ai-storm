@@ -99,6 +99,14 @@ interface EdgeRecord {
 const LIFECYCLE_MAP_KEY = 'ai-storm:lifecycle';
 
 /**
+ * Collapsed height (px) a superseded card folds to — enough to show its title
+ * bar, body clipped (#20, PD-012). The card is archived in place, not deleted:
+ * the collapse arrow re-expands it, so the history of the argument stays one
+ * click away. Tuned to the note's heading + child padding; verify live.
+ */
+const SUPERSEDED_COLLAPSED_HEIGHT = 72;
+
+/**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
  * shows the note in both the page (doc) and edgeless (Canvas) views; `'doc'`
  * hides it from the edgeless surface only — values confirmed against
@@ -502,11 +510,14 @@ export class CanvasService {
             edges.set(connectorId, { from: noteId, to: targetNoteId, relation });
           }
           // A `supersedes` edge retires its target (#20, PD-012): the refined
-          // card replaces the original, which becomes `superseded` (dimmed by
-          // Phase B, never deleted — history kept). Recorded even if the
-          // connector failed to draw, so the lifecycle is independent of the
-          // visual edge.
-          if (relation === 'supersedes') lifecycle.set(targetNoteId, 'superseded');
+          // card replaces the original, which becomes `superseded` and folds to
+          // its title bar — archived in place, never deleted (history kept, one
+          // click to re-expand). The lifecycle state is recorded even if the
+          // connector failed to draw, so the data is independent of the visual.
+          if (relation === 'supersedes') {
+            lifecycle.set(targetNoteId, 'superseded');
+            this.#collapseNote(doc, targetNoteId);
+          }
         }
       }
     });
@@ -648,6 +659,35 @@ export class CanvasService {
     const n = childOffset.get(targetNoteId) ?? 0;
     childOffset.set(targetNoteId, n + 1);
     return `[${tx + tw + 80},${ty + n * 270},320,240]`;
+  }
+
+  /**
+   * Fold a superseded card down to its title bar (#20, PD-012), mirroring
+   * BlockSuite's own collapse gesture (`note-edgeless-block` `_setCollapse`):
+   * set `edgeless.collapsedHeight` (so the re-expand arrow appears) and
+   * `edgeless.collapse`, then clamp `xywh.h` to that height. The note keeps all
+   * its blocks — collapse only clips the rendered body — so re-expanding it
+   * restores the full history. Defensive: the `edgeless` sub-props aren't in the
+   * published note typings (bundled/internal), so it is cast and guarded, and a
+   * failure must never abort idea creation.
+   */
+  #collapseNote(doc: Doc, noteId: string): void {
+    const model = doc.getBlockById(noteId) as
+      | { xywh?: string; edgeless?: { collapse?: boolean; collapsedHeight?: number; scale?: number } }
+      | null;
+    const bound = this.#parseXYWH(model?.xywh);
+    if (!model?.edgeless || !bound) return;
+    const [x, y, w] = bound;
+    const scale = model.edgeless.scale ?? 1;
+    try {
+      doc.updateBlock(model as never, () => {
+        model.edgeless!.collapsedHeight = SUPERSEDED_COLLAPSED_HEIGHT;
+        model.edgeless!.collapse = true;
+        model.xywh = `[${x},${y},${w},${SUPERSEDED_COLLAPSED_HEIGHT * scale}]`;
+      });
+    } catch (err) {
+      console.warn('canvas: failed to collapse superseded note', err);
+    }
   }
 
   /** Parse a serialized `[x,y,w,h]` xywh string, or null if malformed. */
