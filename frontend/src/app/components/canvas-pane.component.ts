@@ -256,6 +256,14 @@ export class CanvasPaneComponent {
       if (!active) return;
       this.#canvas.mount(hostEl, active.id, active.mode);
     });
+
+    // Bidirectional canvas (#13): the "Discuss" verb now lives on the selected
+    // idea card's element-toolbar More menu. When fired, type the card's text
+    // into the active workspace's live terminal as an editable prompt.
+    this.#canvas.onDiscussCard((text) => {
+      const ws = this.workspaces.active();
+      if (ws) this.#agent.discussText(ws.id, text);
+    });
   }
 
   /** The active workspace's current canvas mode, defaulting to 'page'. */

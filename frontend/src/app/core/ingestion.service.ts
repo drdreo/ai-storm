@@ -16,6 +16,8 @@ export interface TerminalSink {
   write(dataB64: string): void;
   /** Clear the terminal's scrollback + viewport. */
   clear(): void;
+  /** Move keyboard focus into the terminal (bidirectional canvas, #13). */
+  focus?(): void;
 }
 
 /** Live streaming machinery (exists only while a session is attached). */
@@ -196,6 +198,15 @@ export class IngestionService {
   /** Clear the workspace's terminal display (does not touch the session). */
   clearTerminal(workspaceId: string): void {
     this.#terminals.get(workspaceId)?.sink?.clear();
+  }
+
+  /**
+   * Move keyboard focus into the workspace's terminal (bidirectional canvas,
+   * #13). Used after typing a framed prompt so the user can edit/submit it
+   * without first clicking the terminal. No-op if no terminal is mounted.
+   */
+  focusTerminal(workspaceId: string): void {
+    this.#terminals.get(workspaceId)?.sink?.focus?.();
   }
 
   isAttached(workspaceId: string): boolean {

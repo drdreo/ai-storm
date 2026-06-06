@@ -1,7 +1,9 @@
 import { Injectable, inject, signal, type Signal, type WritableSignal } from '@angular/core';
 import { BackendService } from './backend.service';
 import { CanvasService } from './canvas.service';
+import { IngestionService } from './ingestion.service';
 import { WorkspaceService } from './workspace.service';
+import { framePrompt } from './prompt-framing';
 import type { TerminalConfig } from './models';
 
 export interface AgentRun {
@@ -19,11 +21,15 @@ export interface AgentRun {
  * - `dispatch` extracts plain block text and asks the backend to spawn the
  *   local orchestrator subprocess with the payload as a functional argument,
  *   streaming the run's lifecycle back into a signal for the control hub.
+ * - `discussText` is the bidirectional-canvas seam (#13): it neither silently
+ *   injects context nor spawns a subprocess — it types a framed, EDITABLE
+ *   prompt into the live interactive session for the user to submit.
  */
 @Injectable({ providedIn: 'root' })
 export class AgentService {
   readonly #backend = inject(BackendService);
   readonly #canvas = inject(CanvasService);
+  readonly #ingestion = inject(IngestionService);
   readonly #workspaces = inject(WorkspaceService);
 
   #runs = new Map<string, WritableSignal<AgentRun | null>>();
@@ -66,6 +72,33 @@ export class AgentService {
       payload,
       cwd: config.cwd,
     });
+  }
+
+  /**
+   * Bidirectional canvas (#13) — feed the given canvas text into the LIVE
+   * interactive terminal session as an EDITABLE prompt.
+   *
+   * Unlike {@link injectContext} (silent structural memory the user never sees)
+   * and {@link dispatch} (which spawns a one-shot orchestrator subprocess), this
+   * types a framed prompt straight into the attached PTY with NO trailing
+   * newline, so the cursor lands ready for the user to edit and submit it
+   * themselves. This is the interactive seam #14/#15 build their card verbs on.
+   *
+   * The text is supplied by the caller (the canvas service serializes the
+   * selected idea card whose element-toolbar "Discuss" action fired), so this
+   * service no longer reaches into the editor selection itself.
+   *
+   * @returns `true` if a prompt was typed; `false` if no session is attached or
+   *   the text is empty (nothing happens in either case).
+   */
+  discussText(workspaceId: string, text: string): boolean {
+    if (!this.#ingestion.isAttached(workspaceId)) return false;
+    const prompt = framePrompt(text.trim() ? text : '', 'discuss');
+    if (!prompt) return false;
+    // No '\r': the prompt stays editable in the terminal until the user submits.
+    this.#ingestion.sendInput(workspaceId, prompt);
+    this.#ingestion.focusTerminal(workspaceId);
+    return true;
   }
 
   #ensureSubscription(workspaceId: string): void {
