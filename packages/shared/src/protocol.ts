@@ -129,7 +129,32 @@ export interface SessionStatusMessage {
   status: "created" | "attached" | "idle" | "responding" | "killed";
 }
 
-/** A single extracted brainstorming idea destined for the canvas. */
+/**
+ * The relationship an {@link IdeaLink} edge carries (idea-graph design §2.3).
+ * `'about'` is the generic default — "this card is about that card"; the source
+ * card's `kind` carries the flavour (a risk-of edge is just a `kind: 'risk'`
+ * card with an `about` link). `'supersedes'` is the one structural relation that
+ * isn't derivable from the source's kind — the card replaces its target
+ * (decision capture / lifecycle, #22/#20). Extensible, but deliberately tiny.
+ */
+export type IdeaRelation = "about" | "supersedes";
+
+/** A typed edge from one idea to another card (idea-graph design §3.1). */
+export interface IdeaLink {
+  /** Short ref of the target card this idea links to (see idea-graph §4). */
+  to: string;
+  /** Defaults to `'about'`; `'supersedes'` means this card replaces the target. */
+  relation?: IdeaRelation;
+}
+
+/**
+ * A single extracted brainstorming idea destined for the canvas.
+ *
+ * `id`/`links` are additive (idea-graph design §3.1) and OPTIONAL — nothing that
+ * produces today's `{title, body, kind}` breaks. They are dormant until the
+ * idea-graph consumers (#40/#19/#22/#16) turn them on; until then the frontend
+ * ignores `links` and mints its own card identity.
+ */
 export interface Idea {
   /** Short title — the card heading. */
   title: string;
@@ -137,6 +162,12 @@ export interface Idea {
   body: string;
   /** Optional kind/tag, e.g. "risk" | "feature" | "question" | "decision" | "heuristic". */
   kind?: string;
+  /** This idea's own short ref, when the agent stamped one (fenced `id:`). Usually
+   *  minted by the canvas at card creation instead (idea-graph §4). */
+  id?: string;
+  /** 0..n edges to other cards (idea-graph §3.1). A verb-spawned idea usually
+   *  carries one (its originating edge) or none. */
+  links?: IdeaLink[];
 }
 
 /**

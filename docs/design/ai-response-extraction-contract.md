@@ -128,11 +128,23 @@ Grammar (EBNF-ish):
 
 ```
 idea-line   = ws* , marker , ws* , title , [ ws* , "::" , ws* , body ] , ws* ;
-marker      = ( "«IDEA" , [ ":" , kind ] , "»" ) | ( "<<IDEA" , [ ":" , kind ] , ">>" ) ;
+marker      = ( "«IDEA" , tag , "»" ) | ( "<<IDEA" , tag , ">>" ) ;
+tag         = [ ":" , kind ] , [ "@" , ref ] ;             (* both optional; kind before ref *)
 kind        = lower-alpha , { word-char | "-" } ;          (* e.g. risk, feature, question, todo *)
+ref         = word-char , { word-char | "-" } ;            (* short ref of the linked card, e.g. a1 *)
 title       = printable - ( "::" ) ;                        (* required, non-empty after trim *)
 body        = printable ;                                   (* optional; "" if "::" omitted *)
 ```
+
+> **Idea-graph link (`@ref`, idea-graph design §5.1).** The in-marker tag is
+> `[:kind][@ref]`. An optional `@ref` after the kind links this idea to the card
+> with that short ref (idea-graph §4): `«IDEA:risk@a1» Token leak :: …` parses to
+> `{kind:"risk", links:[{to:"a1", relation:"about"}]}`. The edge is generic
+> (`about`) — the *flavour* lives on the source card's `kind` — so no relation
+> taxonomy is carried inline; `supersedes` is expressible only via the fenced
+> `rel:` key below. If the agent omits `@ref` the idea lands unlinked, exactly as
+> before (graceful degradation). The session-scoped dedupe key includes the links,
+> so the same title/body pointed at a *different* target is a distinct idea.
 
 - **Marker:** guillemets `«` (U+00AB) / `»` (U+00BB). Chosen because they are essentially absent from
   source code and ordinary English prose (very low collision), visually unmistakable, a balanced
@@ -161,6 +173,10 @@ Cost: storage growth; mitigate with periodic snapshots.
 - Inside, recognised keys `title:` / `body:` / `kind:` (case-insensitive) seed the fields; any lines
   after `body:` (or all lines, if no keys are present) accumulate into the body verbatim. First
   non-key line with no key → title; the rest → body.
+- **Idea-graph keys (idea-graph design §5.1):** `id:` stamps this idea's own short ref; `link:`
+  (alias `parent:`) sets the target card ref; `rel:` selects the relation (`about` default, or
+  `supersedes`). So a fenced idea can express the one structural relation the single-line `@ref`
+  cannot: `link: a1` + `rel: supersedes` → `links:[{to:"a1", relation:"supersedes"}]`.
 - The fences anchor start **and** end, so reflow *inside* the block is harmless — we never have to
   guess where it ends. This is why a fenced block is safe for multi-line where a wrapped single line
   is not.
@@ -797,6 +813,7 @@ Each step independently shippable; app stays working throughout.
 |---|---|---|
 | Single line | `«IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB` | `{title:"Offline-first canvas", body:"cache CRDT ops in IndexedDB"}` |
 | With kind | `«IDEA:risk» Token rotation :: may break long-lived sessions` | `{title:"Token rotation", body:"may break long-lived sessions", kind:"risk"}` |
+| With link (idea-graph) | `«IDEA:risk@a1» Token leak :: refresh races the reattach` | `{title:"Token leak", body:"refresh races the reattach", kind:"risk", links:[{to:"a1", relation:"about"}]}` |
 | Bare | `«IDEA» Offline-first canvas` | `{title:"Offline-first canvas", body:""}` |
 | ASCII alias | `<<IDEA>> Offline-first canvas :: …` | same as single line |
 | Fenced (multiline) | ` ```idea kind=decision ` … ` ``` ` | `{title, body:"<multi-line>", kind:"decision"}` |
@@ -805,10 +822,12 @@ Each step independently shippable; app stays working throughout.
 ## Appendix B — key regexes (single source of truth for the impl)
 
 ```ts
-// Contract (shared, harness-agnostic)
-const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?»|<<IDEA(?::([a-z][\w-]*))?>>)\s*(.*)$/u;
+// Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref] (idea-graph §5.1):
+//   groups 1/3 = kind (guillemet/ASCII), 2/4 = ref, 5 = remainder ("title :: body").
+const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+))?>>)\s*(.*)$/u;
 const IDEA_FENCE_OPEN  = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
+const FENCE_KEY        = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;  // idea-graph keys added
 
 // claude chrome strip (profile.chrome)
 const STATUS  = /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu;
