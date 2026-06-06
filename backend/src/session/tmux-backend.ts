@@ -223,7 +223,15 @@ export class TmuxSessionBackend implements SessionBackend {
     // part of the system prompt at launch, followed from the first turn with
     // nothing typed into the pane (no readiness/ack/echo dance).
     const primeArgs = profile.systemPromptFlag && spec.prime ? [profile.systemPromptFlag, spec.prime] : [];
-    const args = [...(spec.args ?? []), ...primeArgs];
+
+    // Default to the profile's preferred model (e.g. claude → haiku) unless the
+    // caller already passed the model flag explicitly in the harness args.
+    const specArgs = spec.args ?? [];
+    const modelArgs =
+      profile.modelFlag && profile.defaultModel && !specArgs.includes(profile.modelFlag)
+        ? [profile.modelFlag, profile.defaultModel]
+        : [];
+    const args = [...specArgs, ...modelArgs, ...primeArgs];
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
