@@ -3,7 +3,7 @@ import { BackendService } from './backend.service';
 import { CanvasService } from './canvas.service';
 import { IngestionService } from './ingestion.service';
 import { WorkspaceService } from './workspace.service';
-import { framePrompt } from './prompt-framing';
+import { framePrompt, type PromptIntent } from './prompt-framing';
 import type { TerminalConfig } from './models';
 
 export interface AgentRun {
@@ -85,15 +85,16 @@ export class AgentService {
    * themselves. This is the interactive seam #14/#15 build their card verbs on.
    *
    * The text is supplied by the caller (the canvas service serializes the
-   * selected idea card whose element-toolbar "Discuss" action fired), so this
-   * service no longer reaches into the editor selection itself.
+   * selected idea card whose element-toolbar verb fired), so this service no
+   * longer reaches into the editor selection itself. The {@link PromptIntent}
+   * selects the framing (#15: Discuss / Expand / Challenge / Find risks).
    *
    * @returns `true` if a prompt was typed; `false` if no session is attached or
    *   the text is empty (nothing happens in either case).
    */
-  discussText(workspaceId: string, text: string): boolean {
+  discussText(workspaceId: string, text: string, intent: PromptIntent = 'discuss'): boolean {
     if (!this.#ingestion.isAttached(workspaceId)) return false;
-    const prompt = framePrompt(text.trim() ? text : '', 'discuss');
+    const prompt = framePrompt(text.trim() ? text : '', intent);
     if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
     this.#ingestion.sendInput(workspaceId, prompt);

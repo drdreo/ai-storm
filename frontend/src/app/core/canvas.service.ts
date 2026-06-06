@@ -3,6 +3,7 @@ import { DocCollection, Schema, Text, type Doc } from '@blocksuite/store';
 import { AffineSchemas, NoteBackgroundColor } from '@blocksuite/blocks';
 import { AffineEditorContainer } from '@blocksuite/presets';
 import { discussToolbarExtension, type DiscussMenuContext } from './discuss-toolbar';
+import type { PromptIntent } from './prompt-framing';
 import { effects as blocksEffects } from '@blocksuite/blocks/effects';
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -106,8 +107,9 @@ export class CanvasService {
   #titleObservers = new Map<string, () => void>();
   /** Fired when a doc's page-title is edited from inside the editor. */
   #onTitleChange: ((workspaceId: string, title: string) => void) | null = null;
-  /** Fired when the user picks "Discuss" on a selected idea card (#13). */
-  #discussHandler: ((text: string) => void) | null = null;
+  /** Fired when the user picks a card verb (#13 Discuss, #15 expand/…) on a
+   * selected idea card; carries the card text and the chosen prompt intent. */
+  #cardVerbHandler: ((text: string, intent: PromptIntent) => void) | null = null;
 
   async init(): Promise<void> {
     if (this.ready()) return;
@@ -227,12 +229,13 @@ export class CanvasService {
     const doc = this.ensureDoc(workspaceId);
     if (!this.#editor) {
       this.#editor = new AffineEditorContainer();
-      // Register the card-level "Discuss" verb (#13) on the edgeless element
-      // toolbar's More menu before the first edgeless render — `_std` is
-      // derived from `edgelessSpecs`, so appending here is enough.
+      // Register the card-level AI verbs (#13 Discuss, #15 expand/challenge/…)
+      // on the edgeless element toolbar's More menu before the first edgeless
+      // render — `_std` is derived from `edgelessSpecs`, so appending here is
+      // enough.
       this.#editor.edgelessSpecs = [
         ...this.#editor.edgelessSpecs,
-        discussToolbarExtension((ctx) => this.#discussFromToolbar(ctx)),
+        discussToolbarExtension((intent, ctx) => this.#cardVerbFromToolbar(intent, ctx)),
       ];
     }
     this.#bindWhenRooted(doc, mode, host);
@@ -316,26 +319,27 @@ export class CanvasService {
   }
 
   /**
-   * Register the bidirectional-canvas sink (#13): called with the serialized
-   * text of the idea card whose "Discuss" element-toolbar action was clicked.
+   * Register the bidirectional-canvas sink (#13, #15): called with the
+   * serialized text of the idea card whose element-toolbar verb was clicked and
+   * the chosen {@link PromptIntent} (Discuss / Expand / Challenge / Find risks).
    * The component wires this to {@link AgentService.discussText}.
    */
-  onDiscussCard(cb: (text: string) => void): void {
-    this.#discussHandler = cb;
+  onCardVerb(cb: (text: string, intent: PromptIntent) => void): void {
+    this.#cardVerbHandler = cb;
   }
 
   /**
-   * Bridge the element-toolbar "Discuss" action (#13) to the registered sink:
+   * Bridge an element-toolbar card verb (#13, #15) to the registered sink:
    * serialize the selected card's blocks to text (reusing {@link #modelToLine}
-   * via {@link #noteToText}) and forward it. The note's own block models are
-   * walked directly — `ctx.selectedBlockModels` is empty for an edgeless
-   * surface selection, so it cannot be used here.
+   * via {@link #noteToText}) and forward it with the clicked intent. The note's
+   * own block models are walked directly — `ctx.selectedBlockModels` is empty for
+   * an edgeless surface selection, so it cannot be used here.
    */
-  #discussFromToolbar(ctx: DiscussMenuContext): void {
+  #cardVerbFromToolbar(intent: PromptIntent, ctx: DiscussMenuContext): void {
     const note = ctx.getNoteBlock();
     if (!note) return;
     const text = this.#noteToText(note);
-    if (text.trim()) this.#discussHandler?.(text);
+    if (text.trim()) this.#cardVerbHandler?.(text, intent);
   }
 
   /**
