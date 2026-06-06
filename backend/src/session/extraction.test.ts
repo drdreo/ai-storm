@@ -166,6 +166,21 @@ describe("scanIdeas — idea-graph links (#42)", () => {
     ]);
   });
 
+  it("detects a marker the agent leads its turn with (claude '● ' bullet)", () => {
+    // The first row of a claude turn carries a "● " bullet; later rows only a
+    // 2-space margin. An idea emitted as the very first line must still parse.
+    expect(
+      ideasOf(cap("● «IDEA:feature@a5!» Carb + protein pairing :: Toast with any spread", "  90s, no cooking")),
+    ).toEqual([
+      {
+        title: "Carb + protein pairing",
+        body: "Toast with any spread 90s, no cooking",
+        kind: "feature",
+        links: [{ to: "a5", relation: "supersedes" }],
+      },
+    ]);
+  });
+
   it("accepts @ref on the ASCII <<IDEA>> alias", () => {
     expect(ideasOf(cap("  <<IDEA:feature@b2>> Edgeless cards :: one note per idea"))).toEqual([
       {

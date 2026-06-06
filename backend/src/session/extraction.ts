@@ -143,6 +143,15 @@ const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;
 const MARKER_NEAR_MISS = /^\s*[^\w\s]{0,4}\s*idea\b/iu;
 
 /**
+ * Leading turn bullet that claude renders on the FIRST row of an assistant turn
+ * (`● <text>`); subsequent rows carry only a 2-space margin (already absorbed by
+ * the markers' `^\s*`). Stripped before scanning so an idea the agent leads its
+ * reply with — `● «IDEA…»` — is still anchored as a marker. Without this, only
+ * ideas that fall on a later (margin-only) row are detected.
+ */
+const TURN_BULLET = /^\s*●\s+/u;
+
+/**
  * Minimal, version-stable terminal furniture that BOUNDS an idea body when
  * rejoining word-wrapped rows: a box-drawing/blank rule, or a line that opens
  * with a prompt glyph (the input box sitting directly below the reply). This is
@@ -259,8 +268,11 @@ function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
  * on the following non-blank, non-marker rows until a blank line / the next
  * marker — independent of pane width.
  */
-export function scanIdeas(region: string[], final: boolean): Idea[] {
+export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
   const ideas: Idea[] = [];
+  // Strip the claude turn bullet up front so every downstream check (marker
+  // match, word-wrap rejoin, hold-back tail, near-miss) sees the same lines.
+  const region = rawRegion.map((l) => l.replace(TURN_BULLET, ""));
   const n = region.length;
 
   // Index of the last non-blank line — the "growing tail" we hold back.
