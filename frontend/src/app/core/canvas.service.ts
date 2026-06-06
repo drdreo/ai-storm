@@ -58,6 +58,19 @@ const AI_NOTE_BACKGROUND = NoteBackgroundColor.Blue;
 const KIND_MAP_KEY = 'ai-storm:kind';
 
 /**
+ * Top-level `Y.Map<string>` key on a workspace's subdoc (`doc.spaceDoc`) holding
+ * each card's stable SHORT REF (`a1`, `a2`, … — idea-graph design §4). A
+ * BlockSuite block id is a 21-char nanoid an LLM can't reproduce; the short ref
+ * is the identity an agent can name in its reply (`«IDEA@a1»`) and an edge can
+ * point at. Stored noteId → ref and persisted with the block content via the
+ * subdoc's IndexedDB store, so refs survive reload (reverse lookup scans the map
+ * — refs are few). Minted in {@link applyIdeas} for AI cards and lazily by
+ * {@link cardRef} for a user card the first time it is referenced. Dormant until
+ * Phase 3 wires edges; minting it now is invisible plumbing.
+ */
+const REF_MAP_KEY = 'ai-storm:ref';
+
+/**
  * Note `displayMode` values driving kind visibility filtering (#21). `'both'`
  * shows the note in both the page (doc) and edgeless (Canvas) views; `'doc'`
  * hides it from the edgeless surface only — values confirmed against
@@ -399,6 +412,10 @@ export class CanvasService {
 
     const provenance = this.#provenanceMap(doc);
     const kindMap = this.#kindMap(doc);
+    const refMap = this.#refMap(doc);
+    // Seed the ref counter from the persisted map (not the in-memory tile count,
+    // which resets on reload) so minted refs never collide across sessions (§4).
+    let nextRef = this.#maxRefIndex(refMap) + 1;
     doc.transact(() => {
       for (const idea of ideas) {
         const index = this.#noteCounts.get(workspaceId) ?? 0;
@@ -414,6 +431,10 @@ export class CanvasService {
         const noteId = doc.addBlock('affine:note', { xywh, background }, pageId);
         provenance.set(noteId, 'ai');
         if (kind) kindMap.set(noteId, kind);
+        // Mint a stable short ref so edges can name this card (idea-graph §4).
+        // Dormant until Phase 3 draws connectors; recorded now so identity is
+        // present from the moment a card is born.
+        refMap.set(noteId, `a${nextRef++}`);
         for (const d of ideaToDescriptors(idea)) {
           // Skip empty paragraphs so cards stay clean (blank-body ideas, blank
           // lines between markdown blocks).
@@ -449,6 +470,55 @@ export class CanvasService {
   /** The workspace subdoc's top-level note-kind map (#21). */
   #kindMap(doc: Doc) {
     return doc.spaceDoc.getMap<string>(KIND_MAP_KEY);
+  }
+
+  /** The workspace subdoc's top-level note→short-ref map (idea-graph §4). */
+  #refMap(doc: Doc) {
+    return doc.spaceDoc.getMap<string>(REF_MAP_KEY);
+  }
+
+  /** Highest `a<n>` ref index currently minted in a workspace (0 if none). */
+  #maxRefIndex(refMap: { values(): IterableIterator<string> }): number {
+    let max = 0;
+    for (const ref of refMap.values()) {
+      const m = /^a(\d+)$/.exec(ref);
+      if (m) {
+        const n = Number(m[1]);
+        if (n > max) max = n;
+      }
+    }
+    return max;
+  }
+
+  /**
+   * The stable short ref of a canvas note (idea-graph §4), minting one (`a1`,
+   * `a2`, …) on first reference. {@link applyIdeas} mints refs for AI cards as
+   * they are created; this is the lazy path for a user-drawn card the first time
+   * an edge needs to name it. Persisted in the `ai-storm:ref` map so it survives
+   * reload.
+   */
+  cardRef(workspaceId: string, noteId: string): string {
+    const doc = this.ensureDoc(workspaceId);
+    const refMap = this.#refMap(doc);
+    const existing = refMap.get(noteId);
+    if (existing) return existing;
+    const ref = `a${this.#maxRefIndex(refMap) + 1}`;
+    refMap.set(noteId, ref);
+    return ref;
+  }
+
+  /**
+   * Resolve a short ref back to its note id (idea-graph §4), or `undefined` if no
+   * card carries that ref. Reverse lookup over the `ai-storm:ref` map (refs are
+   * few). Safe before the doc exists. Used by Phase 3 to anchor edges/connectors.
+   */
+  resolveRef(workspaceId: string, ref: string): string | undefined {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return undefined;
+    for (const [noteId, r] of this.#refMap(doc).entries()) {
+      if (r === ref) return noteId;
+    }
+    return undefined;
   }
 
   /**

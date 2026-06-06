@@ -1,5 +1,5 @@
 /**
- * Pure idea → block adapter (extraction-contract §8.2).
+ * Pure idea → block adapter (extraction-contract §8.2) + the kind registry.
  *
  * Kept deliberately free of any BlockSuite / DOM import so it is unit-testable
  * in isolation (like `markdown-block-parser.ts`). `CanvasService` consumes it to
@@ -11,60 +11,51 @@ import type { Idea } from '@ai-storm/shared';
 import { MarkdownBlockParser, type BlockDescriptor } from './markdown-block-parser';
 
 /**
- * Presentation-only decoration for an idea's `kind` (extraction-contract §8.2).
- * Known kinds get a badge; unknown kinds render as a plain `#tag`. This shapes
- * the card heading text — it does not affect the wire contract.
+ * One kind's behaviour, in one place (idea-graph design §3.2). The registry is
+ * the single client-side home for everything a `kind` drives — it absorbs and
+ * replaces the three parallel maps (label / background / known-set) that used to
+ * be maintained separately and could drift. Adding an ideation concept is now
+ * ONE registry entry: no wire change, no parser branch. Presentation-only — it
+ * never touches the wire contract.
  */
-export const KIND_LABEL: Record<string, string> = {
-  risk: '⚠ Risk',
-  feature: '✨ Feature',
-  question: '❓ Question',
-  decision: '✅ Decision',
-  todo: '☑ Todo',
-  heuristic: '💡 Idea',
-};
-
-export function decorateTitle(title: string, kind?: string): string {
-  if (!kind) return title;
-  const label = KIND_LABEL[kind] ?? `#${kind}`;
-  return `${label}: ${title}`;
+export interface KindSpec {
+  /** Card-heading badge, e.g. '⚠ Risk' (unknown kinds fall back to a `#tag`). */
+  label: string;
+  /**
+   * Note tint — a valid BlockSuite `NoteBackgroundColor` CSS-var string (palette
+   * confirmed against `@blocksuite/affine-model` `consts/note.ts`), kept as a
+   * plain string so this module stays BlockSuite-import-free (Node-testable).
+   */
+  background: string;
+  /** Per-kind card shape (#40). 'note' for every kind today; reserved. */
+  shape?: 'note' | 'diamond';
 }
 
 /**
- * The kinds AI-Storm recognises (#21). A union over the keys of
- * {@link KIND_LABEL} — the single source of truth for "known" kinds — so a
- * label and a filter chip exist for exactly these and nothing drifts out of sync.
+ * Ordered set of the known kinds (#21) — the one place a kind is declared. Drives
+ * the literal {@link IdeaKind} union, {@link KNOWN_KINDS} ordering, and the
+ * registry's key completeness (a missing entry is a compile error).
  */
-export type IdeaKind = 'risk' | 'feature' | 'question' | 'decision' | 'todo' | 'heuristic';
+const KIND_ORDER = ['risk', 'feature', 'question', 'decision', 'todo', 'heuristic'] as const;
 
-/** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
-export const KNOWN_KINDS: readonly IdeaKind[] = [
-  'risk',
-  'feature',
-  'question',
-  'decision',
-  'todo',
-  'heuristic',
-];
+/** The kinds AI-Storm recognises (#21). */
+export type IdeaKind = (typeof KIND_ORDER)[number];
 
-/**
- * Per-kind note-background tint (#21). Values are valid BlockSuite
- * `NoteBackgroundColor` CSS-var strings (palette confirmed against
- * `@blocksuite/affine-model` `consts/note.ts`), so the canvas service can apply
- * them as a note's `background` directly. Kept as plain strings to keep this
- * module BlockSuite-import-free (so it stays unit-testable in the Node env).
- */
-export const KIND_BACKGROUND: Record<IdeaKind, string> = {
-  risk: '--affine-note-background-red',
-  feature: '--affine-note-background-green',
-  question: '--affine-note-background-yellow',
-  decision: '--affine-note-background-blue',
-  todo: '--affine-note-background-teal',
-  heuristic: '--affine-note-background-purple',
+/** The single source of truth for per-kind behaviour (idea-graph design §3.2). */
+export const KIND_REGISTRY: Record<IdeaKind, KindSpec> = {
+  risk: { label: '⚠ Risk', background: '--affine-note-background-red' },
+  feature: { label: '✨ Feature', background: '--affine-note-background-green' },
+  question: { label: '❓ Question', background: '--affine-note-background-yellow' },
+  decision: { label: '✅ Decision', background: '--affine-note-background-blue' },
+  todo: { label: '☑ Todo', background: '--affine-note-background-teal' },
+  heuristic: { label: '💡 Idea', background: '--affine-note-background-purple' },
 };
 
+/** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
+export const KNOWN_KINDS: readonly IdeaKind[] = KIND_ORDER;
+
 /**
- * Canonicalise an idea's `kind` for use as a map key / chip id (#21): trim and
+ * Canonicalise an idea's `kind` for use as a registry/map key (#21): trim and
  * lowercase it, returning `undefined` for a missing or blank value. Pure.
  */
 export function normalizeKind(kind?: string): string | undefined {
@@ -72,15 +63,33 @@ export function normalizeKind(kind?: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/** The {@link KindSpec} for a kind (normalising first), or undefined if unknown. */
+export function kindSpec(kind?: string): KindSpec | undefined {
+  const normalized = normalizeKind(kind);
+  return normalized ? KIND_REGISTRY[normalized as IdeaKind] : undefined;
+}
+
 /**
- * Resolve a kind's note-background tint (#21), normalising first. Returns
- * `undefined` for an unknown, missing, or blank kind so callers can fall back to
- * their default tint. Pure — no BlockSuite dependency.
+ * Presentation label for a kind's card heading / filter chip (#21): the registry
+ * badge for a known kind, else a plain `#tag` for an unknown one.
+ */
+export function kindLabel(kind: string): string {
+  return kindSpec(kind)?.label ?? `#${kind}`;
+}
+
+/**
+ * Resolve a kind's note-background tint (#21). Returns `undefined` for an
+ * unknown, missing, or blank kind so callers can fall back to their default
+ * tint. Pure — no BlockSuite dependency.
  */
 export function kindBackground(kind?: string): string | undefined {
-  const normalized = normalizeKind(kind);
-  if (!normalized) return undefined;
-  return KIND_BACKGROUND[normalized as IdeaKind];
+  return kindSpec(kind)?.background;
+}
+
+/** Prefix a card heading with its kind badge (or `#tag`); bare title if no kind. */
+export function decorateTitle(title: string, kind?: string): string {
+  if (!kind) return title;
+  return `${kindLabel(kind)}: ${title}`;
 }
 
 /** Provenance origin of a canvas note (#31, PD-009): AI-created vs user-drawn. */
@@ -88,7 +97,7 @@ export type NoteOrigin = 'ai' | 'user';
 
 /**
  * Distinct provenance glyph prepended to AI-created card headings (#31, PD-009).
- * Deliberately different from the `kind` badges in {@link KIND_LABEL} (✨/⚠/…)
+ * Deliberately different from the `kind` badges in {@link KIND_REGISTRY} (✨/⚠/…)
  * so a reader can separate "who made this" from "what kind it is" at a glance.
  */
 export const AI_PROVENANCE_BADGE = '🤖';

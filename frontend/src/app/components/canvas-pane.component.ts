@@ -13,7 +13,7 @@ import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
-import { KIND_LABEL } from '../core/idea-descriptors';
+import { kindLabel } from '../core/idea-descriptors';
 import type { CanvasMode } from '../core/models';
 
 /**
@@ -286,7 +286,7 @@ export class CanvasPaneComponent {
 
   /** Presentation label for a kind chip (#21), e.g. `risk` → `⚠ Risk`. */
   label(kind: string): string {
-    return KIND_LABEL[kind] ?? `#${kind}`;
+    return kindLabel(kind);
   }
 
   /**
