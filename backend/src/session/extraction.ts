@@ -272,7 +272,7 @@ export function scanIdeas(region: string[], final: boolean): Idea[] {
  */
 function ideaKey(idea: Idea): string {
   const norm = (s: string) => s.replace(/\s+/g, " ").trim();
-  return `${norm(idea.title)} ${norm(idea.body)} ${idea.kind ?? ""}`;
+  return `${norm(idea.title)} ${norm(idea.body)} ${idea.kind ?? ""}`;
 }
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */
