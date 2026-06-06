@@ -6,11 +6,12 @@
 import { describe, it, expect } from "vitest";
 import {
   AI_PROVENANCE_BADGE,
-  KIND_BACKGROUND,
-  KIND_LABEL,
+  KIND_REGISTRY,
+  KNOWN_KINDS,
   decorateProvenance,
   ideaToDescriptors,
   kindBackground,
+  kindLabel,
   normalizeKind,
 } from "./idea-descriptors";
 
@@ -106,14 +107,27 @@ describe("kindBackground (#21)", () => {
   });
 });
 
-describe("KIND_LABEL ↔ KIND_BACKGROUND key parity (#21)", () => {
-  it("defines the same set of known kinds in both maps", () => {
-    expect(Object.keys(KIND_BACKGROUND).sort()).toEqual(Object.keys(KIND_LABEL).sort());
+describe("kindLabel (#21)", () => {
+  it("returns the registry badge for a known kind (case/space-insensitive)", () => {
+    expect(kindLabel("risk")).toBe("⚠ Risk");
+    expect(kindLabel("  Decision ")).toBe("✅ Decision");
   });
 
-  it("maps every known kind to a valid note-background palette string", () => {
-    for (const value of Object.values(KIND_BACKGROUND)) {
-      expect(value).toMatch(/^--affine-note-background-[a-z]+$/);
+  it("falls back to a plain #tag for an unknown kind", () => {
+    expect(kindLabel("experiment")).toBe("#experiment");
+  });
+});
+
+describe("KIND_REGISTRY (idea-graph §3.2 — single source of truth)", () => {
+  it("has an entry for every known kind", () => {
+    expect(Object.keys(KIND_REGISTRY).sort()).toEqual([...KNOWN_KINDS].sort());
+  });
+
+  it("gives every known kind a label and a valid note-background palette string", () => {
+    for (const kind of KNOWN_KINDS) {
+      const spec = KIND_REGISTRY[kind];
+      expect(spec.label.length).toBeGreaterThan(0);
+      expect(spec.background).toMatch(/^--affine-note-background-[a-z]+$/);
     }
   });
 });
