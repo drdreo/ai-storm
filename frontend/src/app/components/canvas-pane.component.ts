@@ -46,6 +46,15 @@ import { kindLabel } from '../core/idea-descriptors';
         <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
           <button
             ngToolbarWidget
+            value="arrange"
+            class="ghost"
+            (click)="arrange()"
+            title="Tidy cards into per-kind groups (#16)"
+          >
+            ⤳ Arrange
+          </button>
+          <button
+            ngToolbarWidget
             value="inject-context"
             class="ghost"
             (click)="injectContext()"
@@ -252,6 +261,15 @@ export class CanvasPaneComponent {
     else hidden.delete(kind);
     this.hiddenKinds.set(hidden);
     this.#canvas.setKindVisible(active.id, kind, !willHide);
+  }
+
+  /**
+   * Re-flow the canvas cards into per-kind lanes (#16, PD-014). On-demand only —
+   * the board never re-arranges itself, so manual placement is preserved.
+   */
+  arrange(): void {
+    const active = this.workspaces.active();
+    if (active) this.#canvas.arrange(active.id);
   }
 
   injectContext(): void {
