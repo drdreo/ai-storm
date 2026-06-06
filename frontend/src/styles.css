@@ -1,6 +1,3 @@
-/* BlockSuite affine theme variables (required by the editor web component). */
-@import '@toeverything/theme/style.css';
-
 /* xterm.js terminal styles (the conversation surface renders the raw PTY). */
 @import '@xterm/xterm/css/xterm.css';
 
@@ -21,7 +18,7 @@
   --sidebar-bg: #0c1118; /* nav rail, slightly recessed */
   --surface-raised: #161d27; /* cards / raised controls */
   --surface-overlay: #1b232f; /* hover wells / popovers */
-  --canvas-bg: #ffffff; /* BlockSuite light surface — do not change */
+  --canvas-bg: #ffffff; /* canvas pane backdrop behind the tldraw surface */
 
   /* Borders: a base hairline plus a brighter divider for structural seams. */
   --border: #1f2733;
@@ -93,11 +90,6 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-/* The BlockSuite canvas renders on a light surface; keep its own theme intact. */
-affine-editor-container {
-  --affine-background-primary-color: #ffffff;
 }
 
 @media (prefers-reduced-motion: reduce) {

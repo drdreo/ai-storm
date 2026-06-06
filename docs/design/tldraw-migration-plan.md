@@ -1,8 +1,5 @@
 # Migration plan: BlockSuite → tldraw canvas
 
-> **Note:** the repo's root `plan.md` is the unrelated *terminal-passthrough* plan;
-> this is the canvas-migration plan and lives here beside the spike report.
-
 **Goal:** convert the existing spike branch (`spike/tldraw-eval`) into the real
 canvas. Drop BlockSuite **and** every Affine leftover (styling, theme, Yjs note
 maps), drop the document/page view entirely, and stay as close to native tldraw as
@@ -209,6 +206,5 @@ and the page-view plumbing change.
 2. **Theme-color resolver** (§6) — confirm the exact tldraw API to resolve a
    `DefaultColorStyle` value → hex for the HTML card body in our pinned tldraw
    version (the top-level theme helpers shifted across majors).
-3. **Persistence model** — default tldraw `persistenceKey` (this plan). A yjs↔tldraw
-   adapter (keep CRDT) or backend-SQLite snapshot store (the ticket's musing) are
+3. **Persistence model** — default tldraw `persistenceKey` (this plan). A backend-SQLite snapshot store are
    alternatives to decide explicitly if/when multiplayer or server storage returns.

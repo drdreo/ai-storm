@@ -8,93 +8,62 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Tab, TabContent, TabList, TabPanel, Tabs } from '@angular/aria/tabs';
 import { Toolbar, ToolbarWidget } from '@angular/aria/toolbar';
 import { WorkspaceService } from '../core/workspace.service';
 import { CanvasService } from '../core/canvas.service';
 import { AgentService } from '../core/agent.service';
 import { kindLabel } from '../core/idea-descriptors';
-import type { CanvasMode } from '../core/models';
 
 /**
- * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the framework-agnostic
- * BlockSuite editor as a plain web component, toggles between linear document
- * (page) and spatial node (edgeless) layouts over the same data, and exposes
- * the downstream agent macro on the current selection (PRD §3.6).
+ * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the tldraw canvas (a React
+ * island owned by {@link CanvasService}) as the single spatial surface (PD-011:
+ * no document/page view). The pane is just a toolbar — kind filters (#21) and
+ * the agent macros (PRD §3.6) — over the canvas host.
  */
 @Component({
   selector: 'as-canvas-pane',
-  imports: [Tabs, TabList, Tab, TabPanel, TabContent, Toolbar, ToolbarWidget],
+  imports: [Toolbar, ToolbarWidget],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="pane" ngTabs>
-    <div class="toolbar">
-      <div
-        class="modes"
-        ngTabList
-        orientation="horizontal"
-        selectionMode="follow"
-        [selectedTab]="activeMode()"
-        (selectedTabChange)="onModeChange($event)"
-        aria-label="Canvas view mode"
-      >
-        <button ngTab value="page" [class.on]="activeMode() === 'page'">
-          Document
-        </button>
-        <button ngTab value="edgeless" [class.on]="activeMode() === 'edgeless'">
-          Canvas
-        </button>
-      </div>
-      @if (activeMode() === 'edgeless' && kinds().length) {
-        <div class="filters" role="group" aria-label="Filter cards by kind">
-          @for (kind of kinds(); track kind) {
-            <button
-              type="button"
-              class="chip"
-              [class.off]="hiddenKinds().has(kind)"
-              [attr.aria-pressed]="!hiddenKinds().has(kind)"
-              (click)="toggleKind(kind)"
-              [title]="'Toggle ' + label(kind) + ' cards on the canvas (#21)'"
-            >
-              {{ label(kind) }}
-            </button>
-          }
+    <div class="pane">
+      <div class="toolbar">
+        @if (kinds().length) {
+          <div class="filters" role="group" aria-label="Filter cards by kind">
+            @for (kind of kinds(); track kind) {
+              <button
+                type="button"
+                class="chip"
+                [class.off]="hiddenKinds().has(kind)"
+                [attr.aria-pressed]="!hiddenKinds().has(kind)"
+                (click)="toggleKind(kind)"
+                [title]="'Toggle ' + label(kind) + ' cards on the canvas (#21)'"
+              >
+                {{ label(kind) }}
+              </button>
+            }
+          </div>
+        }
+        <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
+          <button
+            ngToolbarWidget
+            value="inject-context"
+            class="ghost"
+            (click)="injectContext()"
+            title="Serialize canvas into the terminal loop (PRD 3.2)"
+          >
+            Inject context
+          </button>
+          <button
+            ngToolbarWidget
+            value="send-to-agent"
+            class="accent"
+            (click)="dispatchSelection()"
+            title="Send selection to the local agent (PRD 3.6)"
+          >
+            Send to agent ▸
+          </button>
         </div>
-      }
-      <div class="actions" ngToolbar orientation="horizontal" aria-label="Canvas actions">
-        <button
-          ngToolbarWidget
-          value="inject-context"
-          class="ghost"
-          (click)="injectContext()"
-          title="Serialize canvas into the terminal loop (PRD 3.2)"
-        >
-          Inject context
-        </button>
-        <button
-          ngToolbarWidget
-          value="send-to-agent"
-          class="accent"
-          (click)="dispatchSelection()"
-          title="Send selection to the local agent (PRD 3.6)"
-        >
-          Send to agent ▸
-        </button>
       </div>
-    </div>
-
-      <!--
-        Aria Tabs requires one ngTabPanel per ngTab (and each panel an
-        ngTabContent template). There is a SINGLE shared BlockSuite editor (the
-        .host below) that renders the same doc as either a linear page or a
-        spatial edgeless surface, switched imperatively by setMode(). It cannot
-        live inside a panel: Aria marks the non-selected panel inert, which would
-        leave the one editor non-interactive on the other tab. So the panels are
-        the accessible targets the tabs control, and the shared editor sits below
-        them as the surface they describe (#42).
-      -->
-      <div ngTabPanel value="page"><ng-template ngTabContent></ng-template></div>
-      <div ngTabPanel value="edgeless"><ng-template ngTabContent></ng-template></div>
 
       <div class="host" #host></div>
     </div>
@@ -106,8 +75,6 @@ import type { CanvasMode } from '../core/models';
         flex-direction: column;
         height: 100%;
       }
-      /* ngTabs wrapper: own the column layout so the editor host can flex-fill
-         while the (zero-height) tab panels sit between the toolbar and host. */
       .pane {
         display: flex;
         flex-direction: column;
@@ -117,48 +84,13 @@ import type { CanvasMode } from '../core/models';
       .toolbar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-end;
         padding: var(--space-2) var(--space-3);
         border-bottom: 1px solid var(--border-strong);
         background: var(--panel-bg);
         box-shadow: var(--shadow-sm);
         gap: var(--space-2);
         z-index: 2;
-      }
-      /* Segmented control for the Document / Canvas view toggle. */
-      .modes {
-        display: inline-flex;
-        gap: 2px;
-        padding: 2px;
-        border: 1px solid var(--border-strong);
-        border-radius: var(--radius-md);
-        background: var(--input-bg);
-      }
-      .modes button {
-        border: 0;
-        background: transparent;
-        color: var(--text-dim);
-        padding: 0.34rem 0.85rem;
-        border-radius: 6px;
-        cursor: pointer;
-        font: inherit;
-        font-size: 0.8rem;
-        font-weight: 500;
-        transition:
-          background var(--dur-fast) var(--ease-out),
-          color var(--dur-fast) var(--ease-out);
-      }
-      .modes button:hover:not(.on) {
-        color: var(--text);
-      }
-      .modes button.on {
-        background: var(--surface-raised);
-        color: var(--text);
-        box-shadow: var(--shadow-sm);
-      }
-      .modes button:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 3px var(--accent-ring);
       }
       .modes:focus,
       .modes:focus-visible,
@@ -172,7 +104,7 @@ import type { CanvasMode } from '../core/models';
         flex-wrap: wrap;
         align-items: center;
         gap: var(--space-1);
-        margin-left: auto;
+        margin-right: auto;
       }
       .chip {
         border: 1px solid var(--border-strong);
@@ -254,14 +186,11 @@ import type { CanvasMode } from '../core/models';
         background: var(--accent-press);
       }
       .host {
+        position: relative;
         flex: 1;
         min-height: 0;
-        overflow: auto;
+        overflow: hidden;
         background: var(--canvas-bg);
-      }
-      .host affine-editor-container {
-        display: block;
-        height: 100%;
       }
     `,
   ],
@@ -273,30 +202,27 @@ export class CanvasPaneComponent {
   readonly host = viewChild.required<ElementRef<HTMLElement>>('host');
 
   constructor() {
-    // React to workspace switches — mount/rebind the shared editor (PRD §3.4).
+    // React to workspace switches — mount/rebind the tldraw island (PRD §3.4).
     effect(() => {
       const active = this.workspaces.active();
       const hostEl = this.host().nativeElement;
       if (!active) return;
-      this.#canvas.mount(hostEl, active.id, active.mode);
+      this.#canvas.mount(hostEl, active.id);
     });
 
     // Bidirectional canvas (#13, #15): the card verbs (Discuss / Expand /
-    // Challenge / Find risks) live on the selected idea card's element-toolbar
-    // More menu. When one fires, frame the card's text for that intent and type
-    // it into the active workspace's live terminal as an editable prompt.
+    // Challenge / Find risks) live on the selected idea card's action bar. When
+    // one fires, frame the card's text for that intent and type it into the
+    // active workspace's live terminal as an editable prompt.
     this.#canvas.onCardVerb((text, intent, sourceRef) => {
       const ws = this.workspaces.active();
       if (ws) this.#agent.discussText(ws.id, text, intent, sourceRef);
     });
   }
 
-  /** The active workspace's current canvas mode, defaulting to 'page'. */
-  readonly activeMode = computed<CanvasMode>(() => this.workspaces.active()?.mode ?? 'page');
-
   /**
    * Distinct idea kinds present on the active workspace's canvas (#21), one
-   * filter chip each. Recomputes when a new batch of AI cards lands (the canvas
+   * filter chip each. Recomputes when a new batch of cards lands (the canvas
    * service bumps `ideasTick`) or the active workspace changes.
    */
   readonly kinds = computed<string[]>(() => {
@@ -305,7 +231,7 @@ export class CanvasPaneComponent {
     return active ? this.#canvas.kindsPresent(active.id) : [];
   });
 
-  /** Kinds the user has hidden from the edgeless surface (#21), local UI state. */
+  /** Kinds the user has hidden from the canvas (#21), local UI state. */
   readonly hiddenKinds = signal<ReadonlySet<string>>(new Set());
 
   /** Presentation label for a kind chip (#21), e.g. `risk` → `⚠ Risk`. */
@@ -314,9 +240,8 @@ export class CanvasPaneComponent {
   }
 
   /**
-   * Toggle a kind's visibility on the edgeless canvas (#21): flips local
-   * `hiddenKinds` state and drives every matching note's `displayMode` via the
-   * canvas service.
+   * Toggle a kind's visibility on the canvas (#21): flips local `hiddenKinds`
+   * state and drives every matching card's opacity via the canvas service.
    */
   toggleKind(kind: string): void {
     const active = this.workspaces.active();
@@ -327,18 +252,6 @@ export class CanvasPaneComponent {
     else hidden.delete(kind);
     this.hiddenKinds.set(hidden);
     this.#canvas.setKindVisible(active.id, kind, !willHide);
-  }
-
-  /** React to the tablist selection (Document/Canvas) changing. */
-  onModeChange(value: string | undefined): void {
-    if (value === 'page' || value === 'edgeless') this.setMode(value);
-  }
-
-  setMode(mode: CanvasMode): void {
-    const active = this.workspaces.active();
-    if (!active) return;
-    this.workspaces.setMode(active.id, mode);
-    this.#canvas.setMode(mode);
   }
 
   injectContext(): void {

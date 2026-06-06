@@ -10,7 +10,7 @@ import {
   KNOWN_KINDS,
   decorateProvenance,
   ideaToDescriptors,
-  kindBackground,
+  kindColor,
   kindLabel,
   normalizeKind,
 } from "./idea-descriptors";
@@ -91,19 +91,19 @@ describe("normalizeKind (#21)", () => {
   });
 });
 
-describe("kindBackground (#21)", () => {
-  it("maps a known kind (case/space-insensitive) to its palette value", () => {
-    expect(kindBackground("risk")).toBe("--affine-note-background-red");
-    expect(kindBackground("  Feature ")).toBe("--affine-note-background-green");
+describe("kindColor (#21)", () => {
+  it("maps a known kind (case/space-insensitive) to its tldraw palette color", () => {
+    expect(kindColor("risk")).toBe("red");
+    expect(kindColor("  Feature ")).toBe("green");
   });
 
   it("returns undefined for an unknown kind", () => {
-    expect(kindBackground("experiment")).toBeUndefined();
+    expect(kindColor("experiment")).toBeUndefined();
   });
 
   it("returns undefined for a missing or blank kind", () => {
-    expect(kindBackground(undefined)).toBeUndefined();
-    expect(kindBackground("  ")).toBeUndefined();
+    expect(kindColor(undefined)).toBeUndefined();
+    expect(kindColor("  ")).toBeUndefined();
   });
 });
 
@@ -123,11 +123,16 @@ describe("KIND_REGISTRY (idea-graph §3.2 — single source of truth)", () => {
     expect(Object.keys(KIND_REGISTRY).sort()).toEqual([...KNOWN_KINDS].sort());
   });
 
-  it("gives every known kind a label and a valid note-background palette string", () => {
+  it("gives every known kind a label and a tldraw palette color-style name", () => {
+    // The tldraw default palette names a card's `color` StyleProp may take.
+    const TLDRAW_COLORS = new Set([
+      'black', 'grey', 'light-violet', 'violet', 'blue', 'light-blue', 'yellow',
+      'orange', 'green', 'light-green', 'light-red', 'red', 'white',
+    ]);
     for (const kind of KNOWN_KINDS) {
       const spec = KIND_REGISTRY[kind];
       expect(spec.label.length).toBeGreaterThan(0);
-      expect(spec.background).toMatch(/^--affine-note-background-[a-z]+$/);
+      expect(TLDRAW_COLORS.has(spec.color)).toBe(true);
     }
   });
 });

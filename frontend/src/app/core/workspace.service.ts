@@ -2,12 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { CanvasService } from './canvas.service';
-import {
-  type CanvasMode,
-  defaultTerminalConfig,
-  type WorkspaceMeta,
-  type WorkspaceStatus,
-} from './models';
+import { defaultTerminalConfig, type WorkspaceMeta, type WorkspaceStatus } from './models';
 
 const REGISTRY_ROOM = 'ai-storm-registry';
 const ACTIVE_KEY = 'ai-storm.activeWorkspace';
@@ -16,10 +11,10 @@ const ACTIVE_KEY = 'ai-storm.activeWorkspace';
  * Multi-workspace registry & lifecycle (PRD §3.4, §3.5).
  *
  * Workspace metadata is stored in a dedicated CRDT Y.Doc persisted to its own
- * IndexedDB store, so every change (title, status, mode) is written
- * immediately and survives crashes. The canvas content for each workspace is
- * owned by CanvasService. On boot we rehydrate both layers and restore the most
- * recently active workspace exactly as it was left.
+ * IndexedDB store, so every change (title, status) is written immediately and
+ * survives crashes. The canvas content for each workspace is owned by
+ * CanvasService (a tldraw store per workspace). On boot we rehydrate both layers
+ * and restore the most recently active workspace exactly as it was left.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkspaceService {
@@ -52,16 +47,6 @@ export class WorkspaceService {
     this.#map.observe(() => this.#syncFromMap());
     this.#syncFromMap();
 
-    // Reverse title sync: a title typed into the BlockSuite page editor renames
-    // its workspace. We write the registry directly (not via rename(), which
-    // pushes back to the doc) so the editor↔sidebar loop can't recurse; the
-    // guard on an unchanged/blank title is what makes it settle.
-    this.canvas.onDocTitleChanged((id, title) => {
-      const meta = this.#map.get(id);
-      const next = title.trim();
-      if (meta && next && meta.title !== next) this.#write({ ...meta, title: next });
-    });
-
     if (this.workspaces().length === 0) {
       // First run — stand up a starter workspace.
       const id = this.create('Untitled Project');
@@ -76,17 +61,11 @@ export class WorkspaceService {
       this.setActive(exists ? stored! : fallback.id);
     }
 
-    // Wait for the workspace we're about to show to finish rehydrating its
-    // canvas before rendering the panes, so the editor binds to a ready doc
-    // (PRD §3.5 boot) instead of racing its async restore.
+    // Let the canvas settle before rendering the panes (PRD §3.5 boot). tldraw
+    // loads the active workspace's store on mount, so this is a cheap no-op kept
+    // for parity / future async restore.
     const active = this.activeId();
-    if (active) {
-      await this.canvas.ensureReady(active);
-      // Mirror the restored title onto its (now-rooted) doc — covers workspaces
-      // created before titles were synced, and the create()-path deferral.
-      const meta = this.#map.get(active);
-      if (meta) this.canvas.setDocTitle(active, meta.title);
-    }
+    if (active) await this.canvas.ensureReady(active);
 
     this.booted.set(true);
   }
@@ -112,15 +91,9 @@ export class WorkspaceService {
       status: 'idle',
       createdAt: now,
       lastActiveAt: now,
-      mode: 'page',
       terminal: defaultTerminalConfig(),
     };
     this.#write(meta);
-    // Pre-seed the canvas doc so switching is instant, then stamp its title so
-    // the BlockSuite document opens with the same name (deferred until the
-    // freshly-seeded doc has a root).
-    this.canvas.ensureDoc(id);
-    this.canvas.setDocTitle(id, title);
     return id;
   }
 
@@ -128,18 +101,11 @@ export class WorkspaceService {
     const meta = this.#map.get(id);
     if (!meta) return;
     this.#write({ ...meta, title });
-    // Keep the BlockSuite document title in lock-step with the workspace name.
-    this.canvas.setDocTitle(id, title);
   }
 
   setStatus(id: string, status: WorkspaceStatus): void {
     const meta = this.#map.get(id);
     if (meta && meta.status !== status) this.#write({ ...meta, status });
-  }
-
-  setMode(id: string, mode: CanvasMode): void {
-    const meta = this.#map.get(id);
-    if (meta && meta.mode !== mode) this.#write({ ...meta, mode });
   }
 
   patchTerminal(id: string, patch: Partial<WorkspaceMeta['terminal']>): void {
@@ -164,16 +130,12 @@ export class WorkspaceService {
       target = this.#map.get(fresh) ?? null;
     }
 
-    // When deleting the ACTIVE workspace, move the shared editor onto the
-    // target doc BEFORE the deleted doc is disposed: BlockSuite reads the doc's
-    // meta (title) while tearing down the old view, so the bound editor must
-    // already point elsewhere or it throws on a now-removed doc. We await the
-    // target's rehydration so the switch binds synchronously (an unvisited doc
-    // would otherwise defer its bind and leave the editor on the doomed doc).
+    // When deleting the ACTIVE workspace, switch the canvas onto the target
+    // workspace's store before dropping the deleted one's persisted store.
     if (wasActive && target) {
       await this.canvas.ensureReady(target.id);
       this.setActive(target.id);
-      this.canvas.switchTo(target.id, target.mode);
+      this.canvas.switchTo(target.id);
     }
 
     this.#map.delete(id);

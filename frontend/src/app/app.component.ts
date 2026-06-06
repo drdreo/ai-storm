@@ -11,7 +11,6 @@ import { BackendService } from './core/backend.service';
 import { SidebarComponent } from './components/sidebar.component';
 import { CanvasPaneComponent } from './components/canvas-pane.component';
 import { ControlHubComponent } from './components/control-hub.component';
-import { TldrawSpikeComponent } from './spike/tldraw-spike.component';
 
 const HUB_MIN_WIDTH = 320;
 const HUB_WIDTH_KEY = 'as:hub-width';
@@ -29,27 +28,13 @@ function restoreHubWidth(): number {
 @Component({
   selector: 'as-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SidebarComponent, CanvasPaneComponent, ControlHubComponent, TldrawSpikeComponent],
+  imports: [SidebarComponent, CanvasPaneComponent, ControlHubComponent],
   template: `
     @if (workspaces.booted()) {
       <div class="shell" [style.--hub-w]="hubWidthPx()">
         <as-sidebar />
         <main class="canvas-pane">
-          @if (showSpike()) {
-            <!--
-              Spike (#52): swap the BlockSuite canvas for the tldraw React island,
-              keeping the real sidebar + hub chrome around it. @defer code-splits
-              React + tldraw into their own chunk (used only here), so they stay
-              out of the main bundle and the bundle-size figure is honest.
-            -->
-            @defer (on immediate) {
-              <as-tldraw-spike />
-            } @placeholder {
-              <div class="boot"><div class="boot__spinner"></div><p>Loading tldraw spike…</p></div>
-            }
-          } @else {
-            <as-canvas-pane />
-          }
+          <as-canvas-pane />
         </main>
         <aside class="hub-pane">
           <div
@@ -165,15 +150,6 @@ export class AppComponent implements OnInit {
   readonly workspaces = inject(WorkspaceService);
   readonly #backend = inject(BackendService);
   readonly bootError = signal<string | null>(null);
-
-  /**
-   * Spike (#52) toggle: `?spike=tldraw` swaps the BlockSuite canvas for the
-   * tldraw React island. Read once at construction — the URL doesn't change at
-   * runtime — so the comparison can be driven without a build flag.
-   */
-  readonly showSpike = signal(
-    new URLSearchParams(globalThis.location?.search ?? '').get('spike') === 'tldraw',
-  );
 
   // Resizable terminal (hub) pane. Width drives the `--hub-w` grid column; the
   // terminal's own ResizeObserver refits xterm + re-sends cols/rows on change.
