@@ -2,7 +2,7 @@
 
 **Status:** Partially superseded — the durable-session layer stands; the response *extraction* (§4.3 chrome filter, §6 `ResponseMessage`) is replaced by terminal passthrough. See banner.
 **Author:** ai-storm backend
-**Related:** PRD §3.2, §3.3, §3.5, §3.6, §4.2, §5.1, §5.2
+**Related:** [Product decisions](../decisions/product-decisions.md) §3.2, §3.3, §3.5, §3.6, §4.2, §5.1, §5.2 (the PRD now lives there)
 **Reference implementation:** [`agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator)
 
 ---

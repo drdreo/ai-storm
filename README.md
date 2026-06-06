@@ -6,6 +6,10 @@ BlockSuite canvas through a stateful parsing buffer, across multiple isolated
 workspaces — with no external AI APIs, no subscriptions, and no cloud keys. It
 reuses the CLI tools already running on your machine.
 
+> 📋 The PRD and all product decisions now live in
+> [`docs/decisions/product-decisions.md`](docs/decisions/product-decisions.md).
+> The `PRD §x` references below resolve to Part 1 of that document (section numbering preserved).
+
 ## Architecture
 
 ```
