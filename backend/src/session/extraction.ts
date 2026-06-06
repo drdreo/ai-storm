@@ -45,6 +45,15 @@ export interface HarnessProfile {
    * (far more reliable than injecting a priming message). Absent → no priming.
    */
   systemPromptFlag?: string;
+  /**
+   * CLI flag this harness uses to select a model, paired with `defaultModel`.
+   * When both are set the backend launches the harness with `[modelFlag,
+   * defaultModel]` — unless the caller already passed `modelFlag` in the args —
+   * so a profile can default to a fast/cheap model without the user typing it.
+   */
+  modelFlag?: string;
+  /** Model passed via `modelFlag` at launch when the caller supplies none. */
+  defaultModel?: string;
 }
 
 /** A generic harness understands no contract until proven otherwise. */
@@ -61,6 +70,10 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   name: "claude",
   supportsIdeaContract: true,
   systemPromptFlag: "--append-system-prompt",
+  modelFlag: "--model",
+  // Default to a fast, cheap model for the idea-scanning session; the user can
+  // still override with an explicit `--model` in the harness args.
+  defaultModel: "haiku",
 };
 
 const PROFILES: Record<string, HarnessProfile> = {

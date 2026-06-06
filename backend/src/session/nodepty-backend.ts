@@ -87,7 +87,14 @@ export class NodePtySessionBackend implements SessionBackend {
     // part of the system prompt at launch, so it is followed from the first turn
     // with nothing typed into the terminal (no readiness/ack/echo dance).
     const primeArgs = profile.systemPromptFlag && spec.prime ? [profile.systemPromptFlag, spec.prime] : [];
-    const requestedArgs = [...baseArgs, ...primeArgs];
+
+    // Default to the profile's preferred model (e.g. claude → haiku) unless the
+    // caller already passed the model flag explicitly in the harness args.
+    const modelArgs =
+      profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
+        ? [profile.modelFlag, profile.defaultModel]
+        : [];
+    const requestedArgs = [...baseArgs, ...modelArgs, ...primeArgs];
 
     let launch;
     try {

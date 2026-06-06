@@ -1,13 +1,13 @@
 import { Injectable, signal } from '@angular/core';
 import { DocCollection, Schema, Text, type Doc } from '@blocksuite/store';
-import { AffineSchemas } from '@blocksuite/blocks';
+import { AffineSchemas, NoteBackgroundColor } from '@blocksuite/blocks';
 import { AffineEditorContainer } from '@blocksuite/presets';
 import { effects as blocksEffects } from '@blocksuite/blocks/effects';
 import { effects as presetsEffects } from '@blocksuite/presets/effects';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import type { Idea } from '@ai-storm/shared';
 import type { BlockDescriptor } from './markdown-block-parser';
-import { ideaToDescriptors } from './idea-descriptors';
+import { decorateProvenance, ideaToDescriptors, type NoteOrigin } from './idea-descriptors';
 import { shouldSeedDoc } from './canvas-seed';
 import type { CanvasMode } from './models';
 
@@ -23,6 +23,22 @@ function registerEffects(): void {
 }
 
 const IDB_ROOM = 'ai-storm-canvas';
+
+/**
+ * Top-level `Y.Map<NoteOrigin>` key on a workspace's subdoc (`doc.spaceDoc`)
+ * recording which notes the AI created (#31, PD-009). Namespaced so it can't
+ * collide with the maps BlockSuite manages on the same space doc; it persists
+ * with the block content via the subdoc's IndexedDB store, so provenance
+ * survives reload. Absence of an id ⇒ user-origin (we never tag user edits).
+ */
+const PROVENANCE_MAP_KEY = 'ai-storm:provenance';
+
+/**
+ * Subtle background tint applied to AI-created notes (#31, PD-009) so they read
+ * as distinct from user notes (which keep the default white). A valid value
+ * from BlockSuite's note palette — an invalid `background` is silently dropped.
+ */
+const AI_NOTE_BACKGROUND = NoteBackgroundColor.Blue;
 
 /**
  * BlockSuite canvas integration (PRD §3.1, §3.3, §3.5, §4.1).
@@ -274,29 +290,17 @@ export class CanvasService {
   }
 
   /**
-   * Structural Block Translation target (PRD §3.3): append translated block
-   * descriptors to the workspace's note. Runs inside a single transaction so
-   * the CRDT store records one batched mutation per render frame (PRD §5.1).
-   */
-  applyBlocks(workspaceId: string, descriptors: BlockDescriptor[]): void {
-    if (descriptors.length === 0) return;
-    const doc = this.ensureDoc(workspaceId);
-    const noteId = this.#noteIds.get(workspaceId);
-    if (!noteId) return;
-
-    doc.transact(() => {
-      for (const d of descriptors) {
-        this.#appendDescriptor(doc, noteId, d);
-      }
-    });
-  }
-
-  /**
    * Extracted-idea target (extraction-contract §8.2, recommended path): create
    * ONE edgeless `affine:note` per idea — a card — seeded with the idea's
    * heading + body, rather than appending paragraphs to the shared note. Notes
    * are tiled left-to-right so freshly-created cards don't overlap. Runs in a
    * single transaction so the CRDT store records one batched mutation (§5.1).
+   *
+   * This is the ONLY programmatic note creator, so every card it makes is tagged
+   * `origin: 'ai'` (#31, PD-009): given a subtle background tint, its heading
+   * prefixed with the provenance badge, and its id recorded in the persisted
+   * provenance map — all in the same transaction as the block writes. Notes the
+   * user draws in the editor are never touched and default to user-origin.
    */
   applyIdeas(workspaceId: string, ideas: Idea[]): void {
     if (ideas.length === 0) return;
@@ -304,6 +308,7 @@ export class CanvasService {
     const pageId = doc.root?.id;
     if (!pageId) return;
 
+    const provenance = this.#provenanceMap(doc);
     doc.transact(() => {
       for (const idea of ideas) {
         const index = this.#noteCounts.get(workspaceId) ?? 0;
@@ -312,10 +317,40 @@ export class CanvasService {
         const col = index % 4;
         const row = Math.floor(index / 4);
         const xywh: `[${number},${number},${number},${number}]` = `[${col * 360},${row * 280},320,240]`;
-        const noteId = doc.addBlock('affine:note', { xywh }, pageId);
-        for (const d of ideaToDescriptors(idea)) this.#appendDescriptor(doc, noteId, d);
+        const noteId = doc.addBlock(
+          'affine:note',
+          { xywh, background: AI_NOTE_BACKGROUND },
+          pageId,
+        );
+        provenance.set(noteId, 'ai');
+        for (const d of ideaToDescriptors(idea)) {
+          // Skip empty paragraphs so cards stay clean (blank-body ideas, blank
+          // lines between markdown blocks).
+          if (d.type === 'paragraph' && d.text.trim() === '') continue;
+          // Prefix only the card's heading (first descriptor) with the AI badge.
+          const decorated =
+            d.type === 'heading' ? { ...d, text: decorateProvenance(d.text, 'ai') } : d;
+          this.#appendDescriptor(doc, noteId, decorated);
+        }
       }
     });
+  }
+
+  /**
+   * Provenance origin of a canvas note (#31, PD-009). Returns `'ai'` iff the
+   * note's id is recorded in the workspace's persisted provenance map (only
+   * {@link applyIdeas} writes it); every other note — including any the user
+   * drew in the editor — defaults to `'user'`. Safe before the doc exists.
+   */
+  noteOrigin(workspaceId: string, noteId: string): NoteOrigin {
+    const doc = this.#collection.getDoc(workspaceId);
+    if (!doc) return 'user';
+    return this.#provenanceMap(doc).get(noteId) === 'ai' ? 'ai' : 'user';
+  }
+
+  /** The workspace subdoc's top-level provenance map (#31, PD-009). */
+  #provenanceMap(doc: Doc) {
+    return doc.spaceDoc.getMap<NoteOrigin>(PROVENANCE_MAP_KEY);
   }
 
   #appendDescriptor(doc: Doc, noteId: string, d: BlockDescriptor): void {

@@ -2,8 +2,9 @@
  * Tests for the ingestion split (extraction-contract §8.1):
  *  - `data` → the registered terminal sink (the xterm.js conversation surface),
  *             buffered until a terminal mounts, then flushed.
- *  - `idea` → CanvasService.applyBlocks via the render scheduler (one batched
- *             CRDT mutation per frame).
+ *  - `idea` → CanvasService.applyIdeas via the render scheduler (one discrete
+ *             card per idea; ideas in one frame batched into a single CRDT
+ *             mutation).
  *
  * The heavy/IO collaborators (BlockSuite canvas, the WebSocket backend) are
  * mocked so the service runs in the plain Node test env; the service is built
@@ -29,7 +30,7 @@ type Listener = (msg: unknown) => void;
 const nextFrame = () => new Promise((r) => setTimeout(r, 25));
 
 function makeService() {
-  const applyBlocks = vi.fn();
+  const applyIdeas = vi.fn();
   let listener: Listener | null = null;
   const backend = {
     subscribe: (_id: string, cb: Listener) => {
@@ -43,7 +44,7 @@ function makeService() {
   const workspace = { setStatus: vi.fn() };
   const injector = Injector.create({
     providers: [
-      { provide: CanvasService, useValue: { applyBlocks } },
+      { provide: CanvasService, useValue: { applyIdeas } },
       { provide: BackendService, useValue: backend },
       { provide: WorkspaceService, useValue: workspace },
     ],
@@ -53,7 +54,7 @@ function makeService() {
   const emitIdea = (idea: { title: string; body: string; kind?: string }) =>
     listener?.({ type: "idea", workspaceId: "ws1", idea });
   const emitData = (data: string) => listener?.({ type: "data", workspaceId: "ws1", data });
-  return { svc, applyBlocks, emitIdea, emitData };
+  return { svc, applyIdeas, emitIdea, emitData };
 }
 
 describe("IngestionService — data/idea split", () => {
@@ -62,18 +63,16 @@ describe("IngestionService — data/idea split", () => {
     h = makeService();
   });
 
-  it("routes an idea to the canvas (applyBlocks) and never to the terminal", async () => {
+  it("routes an idea to the canvas (applyIdeas) and never to the terminal", async () => {
     const write = vi.fn();
     h.svc.registerTerminal("ws1", { write, clear: vi.fn() });
 
-    h.emitIdea({ title: "Offline-first canvas", body: "cache CRDT ops" });
+    const idea = { title: "Offline-first canvas", body: "cache CRDT ops" };
+    h.emitIdea(idea);
     await nextFrame();
 
-    expect(h.applyBlocks).toHaveBeenCalledTimes(1);
-    expect(h.applyBlocks).toHaveBeenCalledWith("ws1", [
-      { type: "heading", level: 3, text: "Offline-first canvas" },
-      { type: "paragraph", text: "cache CRDT ops" },
-    ]);
+    expect(h.applyIdeas).toHaveBeenCalledTimes(1);
+    expect(h.applyIdeas).toHaveBeenCalledWith("ws1", [idea]);
     expect(write).not.toHaveBeenCalled();
   });
 
@@ -83,7 +82,7 @@ describe("IngestionService — data/idea split", () => {
 
     h.emitData("aGVsbG8=");
     expect(write).toHaveBeenCalledWith("aGVsbG8=");
-    expect(h.applyBlocks).not.toHaveBeenCalled();
+    expect(h.applyIdeas).not.toHaveBeenCalled();
   });
 
   it("buffers data that arrives before the terminal mounts, then flushes on register", () => {

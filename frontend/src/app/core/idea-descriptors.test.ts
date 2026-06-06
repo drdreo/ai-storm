@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { ideaToDescriptors } from "./idea-descriptors";
+import { AI_PROVENANCE_BADGE, decorateProvenance, ideaToDescriptors } from "./idea-descriptors";
 
 describe("ideaToDescriptors", () => {
   it("maps a bare idea to a single decorated heading", () => {
@@ -47,5 +47,24 @@ describe("ideaToDescriptors", () => {
       { type: "bulleted", text: "append-only log" },
       { type: "bulleted", text: "time-travel scrub" },
     ]);
+  });
+});
+
+describe("decorateProvenance (#31, PD-009)", () => {
+  it("prefixes an AI heading with the provenance badge", () => {
+    expect(decorateProvenance("✨ Feature: Offline canvas", "ai")).toBe(
+      `${AI_PROVENANCE_BADGE} ✨ Feature: Offline canvas`,
+    );
+  });
+
+  it("leaves a user heading unchanged", () => {
+    expect(decorateProvenance("✨ Feature: Offline canvas", "user")).toBe(
+      "✨ Feature: Offline canvas",
+    );
+  });
+
+  it("is idempotent — never double-prefixes an already-badged heading", () => {
+    const once = decorateProvenance("Token rotation", "ai");
+    expect(decorateProvenance(once, "ai")).toBe(once);
   });
 });

@@ -43,6 +43,14 @@ describe("profiles", () => {
     expect(DEFAULT_PROFILE.supportsIdeaContract).toBe(false);
   });
 
+  it("defaults the claude profile to a fast model (haiku via --model)", () => {
+    expect(CLAUDE_PROFILE.modelFlag).toBe("--model");
+    expect(CLAUDE_PROFILE.defaultModel).toBe("haiku");
+    // A bare/non-AI harness selects no model.
+    expect(DEFAULT_PROFILE.modelFlag).toBeUndefined();
+    expect(DEFAULT_PROFILE.defaultModel).toBeUndefined();
+  });
+
   it("warns and falls back to default for an unknown profile", () => {
     const warnings: string[] = [];
     expect(getProfile("nope", (m) => warnings.push(m))).toBe(DEFAULT_PROFILE);
