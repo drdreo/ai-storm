@@ -159,8 +159,10 @@ function combineDirective(sourceRefs: readonly string[]): string {
   const list = sourceRefs.map((r) => `@${r}`).join(', ');
   const chain = sourceRefs.map((r) => `@${r}!`).join('');
   return (
-    `(Combine cards ${list} into ONE stronger idea. Capture the merged result as a SINGLE idea and link ` +
-    `it back as a REPLACEMENT of every source by chaining their refs on its marker as ${chain} — each ` +
-    `ref followed by a ! and appended directly after the previous — so the merged idea supersedes them all.)`
+    `(Combine cards ${list} into ONE stronger idea. Capture the merged result as a SINGLE idea — its ` +
+    `description can run to a few sentences, since it synthesizes several cards, so don't force it into one ` +
+    `line — and link it back as a REPLACEMENT of every source by chaining their refs on its marker as ` +
+    `${chain} — each ref followed by a ! and appended directly after the previous — so the merged idea ` +
+    `supersedes them all.)`
   );
 }

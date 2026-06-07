@@ -50,7 +50,9 @@ If your idea is a stronger version that REPLACES (supersedes) that card, put a !
 
 When you are asked to COMBINE or merge several cards into one stronger idea, emit a SINGLE «IDEA» line that chains every source ref, each with a trailing !, so the merged idea supersedes them all (they recede while it takes their place):
 
-  «IDEA:feature@a1!@a2!@a3!» <short title> :: <one-line description>
+  «IDEA:feature@a1!@a2!@a3!» <short title> :: <description>
+
+A merge folds several cards into one, so its description should be as long as it needs to be to capture the synthesis — a few sentences is fine, not just one line. Keep the whole thing on this single «IDEA» line (do NOT use the fenced block for a merge — the ref chain only works on the single-line marker); wrapping is fine, just don't press Enter in the middle.
 
 For an idea that truly needs several lines, use a fenced block instead:
 
