@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as Toolbar from '@radix-ui/react-toolbar'
 import { Button } from '@/components/ui/button'
+import { SidebarTrigger } from '@/components/ui/sidebar'
+import { Separator } from '@/components/ui/separator'
 import { useWorkspaceStore, selectActive } from '../stores/workspace.store'
 import { useCanvasStore, canvas } from '../stores/canvas.store'
 import { agent } from '../stores/agent.store'
@@ -56,9 +58,11 @@ export function CanvasPane() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="z-[2] flex items-center justify-end gap-2 border-b bg-background px-3 py-2">
+      <div className="z-[2] flex items-center gap-2 border-b bg-background px-3 py-2">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="!h-5" />
         {kinds.length > 0 && (
-          <div className="mr-auto flex flex-wrap items-center gap-1" role="group" aria-label="Filter cards by kind">
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter cards by kind">
             {kinds.map((kind) => {
               const off = hiddenKinds.has(kind)
               return (
@@ -77,6 +81,7 @@ export function CanvasPane() {
             })}
           </div>
         )}
+        <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
           <Toolbar.Button asChild>
             <Button size="sm" variant="ghost" onClick={arrange} title="Tidy cards into per-kind groups (#16)">

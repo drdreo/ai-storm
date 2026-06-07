@@ -1,19 +1,22 @@
 import { useCallback, useState } from 'react'
-import { Plus, MoreVertical } from 'lucide-react'
+import { Plus, MoreHorizontal, Sparkles, ChevronDown } from 'lucide-react'
 import {
   Sidebar as UISidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInput,
   SidebarMenu,
   SidebarMenuAction,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
 } from '@/components/ui/sidebar'
-import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from '../stores/workspace.store'
+import { useBackendStore } from '../stores/backend.store'
 import { ingestion } from '../stores/ingestion.store'
 import type { WorkspaceMeta, WorkspaceStatus } from '../core/models'
 
@@ -33,15 +37,24 @@ const STATUS_DOT: Record<WorkspaceStatus, string> = {
   error: 'bg-destructive',
 }
 
+const CONN_DOT: Record<string, string> = {
+  open: 'bg-emerald-500',
+  connecting: 'bg-amber-500 animate-pulse',
+  closed: 'bg-destructive',
+}
+
 /**
- * Global navigation sidebar (PRD §3.4). Lists every workspace with a title and
- * live status, and performs the sub-100ms hot-switch by changing the active id.
- * Built on shadcn's Sidebar primitives; the per-row kebab is a Radix
- * DropdownMenu and rename is an inline SidebarInput.
+ * Global navigation sidebar (PRD §3.4), built on shadcn's app-sidebar
+ * composition: an inset, icon-collapsible Sidebar with a branded header, a
+ * collapsible "Workspaces" group whose action (+) creates a workspace, a rail
+ * toggle, and a footer showing the backend connection. Entries are stock
+ * SidebarMenuButtons (default styling + the built-in active indicator). The
+ * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  */
 export function Sidebar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeId = useWorkspaceStore((s) => s.activeId)
+  const connState = useBackendStore((s) => s.state)
   const [editingId, setEditingId] = useState<string | null>(null)
 
   /** Focus (and select) the freshly-rendered inline rename input. */
@@ -81,85 +94,115 @@ export function Sidebar() {
   }
 
   return (
-    <UISidebar collapsible="none" className="border-r">
-      <SidebarHeader className="flex-row items-center justify-between gap-2 px-3 py-3">
-        <span className="flex items-center gap-2 text-sm font-semibold">
-          <span className="size-2.5 rounded-sm bg-primary" />
-          ai-storm
-        </span>
-        <Button
-          size="icon"
-          variant="outline"
-          className="size-7"
-          title="New workspace"
-          aria-label="New workspace"
-          onClick={add}
-        >
-          <Plus />
-        </Button>
+    <UISidebar variant="inset" collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent">
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Sparkles className="size-4" />
+              </div>
+              <div className="grid flex-1 text-left leading-tight">
+                <span className="truncate font-semibold">ai-storm</span>
+                <span className="truncate text-xs text-muted-foreground">brainstorm workspace</span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {workspaces.map((ws) => {
-                const isActive = ws.id === activeId
-                const editing = editingId === ws.id
-                return (
-                  <SidebarMenuItem key={ws.id}>
-                    {editing ? (
-                      <SidebarInput
-                        ref={renameInputRef}
-                        defaultValue={ws.title}
-                        aria-label="Rename workspace"
-                        onKeyDown={(e) => onRenameKey(e, ws)}
-                        onBlur={(e) => commitRename(ws, e.currentTarget.value)}
-                      />
-                    ) : (
-                      <>
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <SidebarGroupLabel asChild>
+              <CollapsibleTrigger className="w-full">
+                Workspaces
+                <ChevronDown className="ml-1 size-3.5 transition-transform group-data-[state=closed]/collapsible:-rotate-90" />
+              </CollapsibleTrigger>
+            </SidebarGroupLabel>
+            <SidebarGroupAction title="New workspace" aria-label="New workspace" onClick={add}>
+              <Plus /> <span className="sr-only">New workspace</span>
+            </SidebarGroupAction>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {workspaces.map((ws) => {
+                    const isActive = ws.id === activeId
+                    if (editingId === ws.id) {
+                      return (
+                        <SidebarMenuItem key={ws.id}>
+                          <SidebarInput
+                            ref={renameInputRef}
+                            defaultValue={ws.title}
+                            aria-label="Rename workspace"
+                            onKeyDown={(e) => onRenameKey(e, ws)}
+                            onBlur={(e) => commitRename(ws, e.currentTarget.value)}
+                          />
+                        </SidebarMenuItem>
+                      )
+                    }
+                    return (
+                      <SidebarMenuItem key={ws.id}>
                         <SidebarMenuButton
                           isActive={isActive}
                           onClick={() => workspace.setActive(ws.id)}
                           onDoubleClick={() => setEditingId(ws.id)}
-                          tooltip={ws.title}
+                          tooltip={`${ws.title} · ${ws.status}`}
                         >
-                          <span
-                            className={cn('size-2 shrink-0 rounded-full', STATUS_DOT[ws.status])}
-                          />
+                          <span className="flex size-4 items-center justify-center">
+                            <span className={cn('size-2 rounded-full', STATUS_DOT[ws.status])} />
+                          </span>
                           <span className="truncate">{ws.title}</span>
                         </SidebarMenuButton>
-                        <SidebarMenuBadge className="right-8 text-[0.62rem] uppercase tracking-wide">
-                          {ws.status}
-                        </SidebarMenuBadge>
 
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <SidebarMenuAction
-                              showOnHover
-                              aria-label={`Manage ${ws.title}`}
-                            >
-                              <MoreVertical />
+                            <SidebarMenuAction showOnHover aria-label={`Manage ${ws.title}`}>
+                              <MoreHorizontal />
                             </SidebarMenuAction>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent side="right" align="start" className="min-w-[156px]">
                             <DropdownMenuItem onSelect={() => setEditingId(ws.id)}>
                               Rename
                             </DropdownMenuItem>
-                            <DropdownMenuItem variant="destructive" onSelect={() => remove(ws.id)}>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => remove(ws.id)}
+                            >
                               Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </>
-                    )}
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+       
       </SidebarContent>
+
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              className="cursor-default hover:bg-transparent"
+              tooltip={`backend ${connState}`}
+            >
+              <span className="flex size-4 items-center justify-center">
+                <span className={cn('size-2 rounded-full', CONN_DOT[connState])} />
+              </span>
+              <span className="truncate text-xs text-muted-foreground">backend {connState}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+
+      <SidebarRail />
     </UISidebar>
   )
 }
