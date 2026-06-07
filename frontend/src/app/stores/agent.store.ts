@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { backend } from './backend.store'
 import { canvas } from './canvas.store'
 import { ingestion } from './ingestion.store'
-import { framePrompt, type PromptIntent } from '../core/prompt-framing'
+import { framePrompt, frameTriage, type PromptIntent } from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
 
 export interface AgentRun {
@@ -126,6 +126,27 @@ export const agent = {
     if (!prompt) return false
     // No '\r': the prompt stays editable in the terminal until the user submits.
     ingestion.sendInput(workspaceId, prompt)
+    ingestion.focusTerminal(workspaceId)
+    return true
+  },
+
+  /**
+   * AI triage (#60) — serialize the whole board (ref-annotated) and ask the live
+   * agent to rate every card for impact/effort/confidence. Unlike {@link discussText},
+   * this is SUBMITTED (trailing '\r') because it's a complete request: the agent's
+   * `«SCORE@ref»` reply is extracted and flows back to the canvas via
+   * `canvas.applyScore`, then "▦ Grid" lays the scored board out.
+   *
+   * @returns `true` if a triage prompt was submitted; `false` if no session is
+   *   attached or the board is empty.
+   */
+  triage(workspaceId: string): boolean {
+    if (!ingestion.isAttached(workspaceId)) return false
+    const prompt = frameTriage(canvas.serializeForTriage(workspaceId))
+    if (!prompt) return false
+    // Trailing '\r' submits it — a triage pass is a complete request, not an
+    // editable seam like the card verbs.
+    ingestion.sendInput(workspaceId, prompt + '\r')
     ingestion.focusTerminal(workspaceId)
     return true
   },

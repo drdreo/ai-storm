@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { framePrompt, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
+import { framePrompt, frameTriage, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
 
 describe('framePrompt', () => {
   it('returns "" for an empty selection', () => {
@@ -171,5 +171,25 @@ describe('PROMPT_TEMPLATES', () => {
     expect(PROMPT_TEMPLATES.discuss('S')).toBe(
       "Regarding these notes from the canvas:\n\nS\n\nLet's discuss: ",
     );
+  });
+});
+
+describe('frameTriage (#60)', () => {
+  it('returns "" for an empty board', () => {
+    expect(frameTriage('')).toBe('');
+    expect(frameTriage('   \n  ')).toBe('');
+  });
+
+  it('embeds the board and asks for impact/effort/confidence', () => {
+    const prompt = frameTriage('@a1 [feature] Offline canvas — cache ops');
+    expect(prompt).toContain('@a1 [feature] Offline canvas — cache ops');
+    expect(prompt).toMatch(/impact.*effort.*confidence/i);
+    expect(prompt).toContain('@ref');
+  });
+
+  it('never embeds a literal score/idea marker token (echo safety, PD-008)', () => {
+    const prompt = frameTriage('@a1 thing');
+    expect(prompt).not.toContain('«SCORE');
+    expect(prompt).not.toContain('«IDEA');
   });
 });

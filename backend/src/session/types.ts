@@ -8,9 +8,9 @@
  * contract — see `docs/design/ai-response-extraction-contract.md`.
  */
 
-import type { Idea } from "@ai-storm/shared";
+import type { Idea, Score } from "@ai-storm/shared";
 
-export type { Idea };
+export type { Idea, Score };
 
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
@@ -67,12 +67,14 @@ export interface SessionBackend {
   /**
    * Begin (or resume) streaming this workspace's session. `onData` receives the
    * raw PTY bytes (for the xterm.js terminal); `onIdea` receives each newly-seen
-   * extracted idea (for the canvas).
+   * extracted idea (a new card); `onScore` receives each newly-seen triage score
+   * (#60) updating an existing card.
    */
   attach(
     workspaceId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
+    onScore: (score: Score) => void,
     onError: (message: string) => void,
   ): Promise<void>;
 

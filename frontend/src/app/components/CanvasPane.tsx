@@ -3,11 +3,20 @@ import * as Toolbar from '@radix-ui/react-toolbar'
 import { Button } from '@/components/ui/button'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useWorkspaceStore, selectActive } from '../stores/workspace.store'
 import { useCanvasStore, canvas } from '../stores/canvas.store'
 import { agent } from '../stores/agent.store'
 import { kindLabel } from '../core/idea-descriptors'
 import { CanvasIsland } from '../core/canvas-island'
+import { SummaryPanel } from './SummaryPanel'
+import type { ConvergentSummary } from '../core/synthesis'
 
 /**
  * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the tldraw canvas (the
@@ -19,6 +28,10 @@ export function CanvasPane() {
   const active = useWorkspaceStore(selectActive)
   const ideasTick = useCanvasStore((s) => s.ideasTick)
   const [hiddenKinds, setHiddenKinds] = useState<ReadonlySet<string>>(new Set())
+  // Convergence panel (#28): the summary is regenerated each time it opens — a
+  // fresh on-demand reading of the current board, never cached stale.
+  const [summary, setSummary] = useState<ConvergentSummary | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Bidirectional canvas (#13, #15): when a card verb fires, frame the card's
   // text and type it into the active workspace's live terminal. Registered once;
@@ -51,8 +64,15 @@ export function CanvasPane() {
   }
 
   const arrange = () => active && canvas.arrange(active.id)
+  const arrangeGrid = () => active && canvas.arrangeGrid(active.id)
+  const triage = () => active && agent.triage(active.id)
   const markSelected = () => active && canvas.markSelected(active.id)
   const selectMarked = () => active && canvas.selectMarked(active.id)
+  const synthesize = () => {
+    if (!active) return
+    setSummary(canvas.synthesize(active.id))
+    setSummaryOpen(true)
+  }
   const injectContext = () => active && agent.injectContext(active.id)
   const dispatchSelection = () => active && agent.dispatch(active.id, active.terminal)
 
@@ -83,9 +103,27 @@ export function CanvasPane() {
         )}
         <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
+          <DropdownMenu>
+            <Toolbar.Button asChild>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" title="Re-flow the board — choose a layout mode">
+                  ⤳ Arrange ▾
+                </Button>
+              </DropdownMenuTrigger>
+            </Toolbar.Button>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Layout</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={arrange}>
+                Mind map <span className="ml-1 text-muted-foreground">· by idea (#16)</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={arrangeGrid}>
+                Priority grid <span className="ml-1 text-muted-foreground">· by score (#60)</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Toolbar.Button asChild>
-            <Button size="sm" variant="ghost" onClick={arrange} title="Tidy cards into per-kind groups (#16)">
-              ⤳ Arrange
+            <Button size="sm" variant="ghost" onClick={triage} title="Ask the agent to rate every card (impact/effort/confidence) (#60)">
+              ⚖ Triage
             </Button>
           </Toolbar.Button>
           <Toolbar.Button asChild>
@@ -96,6 +134,11 @@ export function CanvasPane() {
           <Toolbar.Button asChild>
             <Button size="sm" variant="ghost" onClick={selectMarked} title="Select all marked cards (#29)">
               Select marked
+            </Button>
+          </Toolbar.Button>
+          <Toolbar.Button asChild>
+            <Button size="sm" variant="ghost" onClick={synthesize} title="Read the board into a convergent summary (#28)">
+              ✦ Synthesize
             </Button>
           </Toolbar.Button>
           <Toolbar.Button asChild>
@@ -114,6 +157,13 @@ export function CanvasPane() {
       <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
         {active && <CanvasIsland key={active.id} workspaceId={active.id} bridge={canvas.bridge} />}
       </div>
+
+      <SummaryPanel
+        open={summaryOpen}
+        onOpenChange={setSummaryOpen}
+        summary={summary}
+        workspaceName={active?.title}
+      />
     </div>
   )
 }

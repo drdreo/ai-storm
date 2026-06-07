@@ -1,18 +1,23 @@
 import { create } from 'zustand'
 import type { Editor } from 'tldraw'
-import type { Idea } from '@ai-storm/shared'
+import type { Idea, Score } from '@ai-storm/shared'
 import type { PromptIntent } from '../core/prompt-framing'
 import {
   type CanvasBridge,
   applyIdeas as islandApplyIdeas,
   arrangeMindMap,
+  arrangePriorityGrid,
   markSelected as islandMarkSelected,
   selectMarked as islandSelectMarked,
   serializeEditor,
+  serializeForTriage,
+  applyScore as islandApplyScore,
   selectedText,
+  collectBoard,
   kindsPresent as islandKindsPresent,
   setKindVisible as islandSetKindVisible,
 } from '../core/canvas-island'
+import { synthesizeBoard, type ConvergentSummary } from '../core/synthesis'
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -133,6 +138,26 @@ export const canvas = {
     if (editor && workspaceId === activeId) arrangeMindMap(editor)
   },
 
+  /** Re-flow the active canvas into a 2×2 impact×effort grid (#60) — "Grid". */
+  arrangeGrid(workspaceId: string): void {
+    if (editor && workspaceId === activeId) arrangePriorityGrid(editor)
+  },
+
+  /**
+   * Ref-annotated serialization of the board for an AI triage pass (#60), or `''`
+   * if this workspace isn't the mounted one. The agent scores each `@ref` and
+   * replies with `«SCORE@ref»` lines that flow back through {@link applyScore}.
+   */
+  serializeForTriage(workspaceId: string): string {
+    if (!editor || workspaceId !== activeId) return ''
+    return serializeForTriage(editor)
+  },
+
+  /** Apply an extracted triage score to its target card's meta (#60). */
+  applyScore(workspaceId: string, score: Score): void {
+    if (editor && workspaceId === activeId) islandApplyScore(editor, score)
+  },
+
   /** Mark/unmark the selected idea cards (#29) — the "★ Mark" toolbar action. */
   markSelected(workspaceId: string): void {
     if (editor && workspaceId === activeId) islandMarkSelected(editor)
@@ -142,6 +167,17 @@ export const canvas = {
   selectMarked(workspaceId: string): number {
     if (editor && workspaceId === activeId) return islandSelectMarked(editor)
     return 0
+  },
+
+  /**
+   * Synthesize the active board into a convergent summary (#28, PD-015) — a pure,
+   * on-demand *reading* of the canvas (themes → decisions → open questions →
+   * highlights). Returns `null` when the target workspace isn't the mounted one
+   * (no live editor to read). No canvas mutation, no agent round-trip.
+   */
+  synthesize(workspaceId: string): ConvergentSummary | null {
+    if (!editor || workspaceId !== activeId) return null
+    return synthesizeBoard(collectBoard(editor))
   },
 
   /** Serialize the workspace canvas to normalized markdown (PRD §3.2). */

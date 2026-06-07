@@ -21,9 +21,9 @@
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
 
-import { ideaIdentityKey, type Idea, type IdeaRelation } from "@ai-storm/shared";
+import { ideaIdentityKey, type Idea, type IdeaRelation, type Score } from "@ai-storm/shared";
 
-export type { Idea };
+export type { Idea, Score };
 
 /**
  * Per-harness rules. Reduced to what the idea scan still needs: whether the
@@ -129,6 +129,17 @@ const IDEA_MARKER =
 const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 /** A bare ` ``` ` closes a fenced idea. */
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
+
+/**
+ * `«SCORE@ref» <impact>/<effort>[/<confidence>]` at line start (#60) — the AI
+ * triage marker. Unlike `«IDEA»` it never creates a card: it carries a 1..5
+ * impact/effort(/confidence) rating for the EXISTING card with that short ref.
+ * Confidence is optional. The `@ref` is required — a score with no target is
+ * meaningless. ASCII alias `<<SCORE@ref>>` accepted like the idea marker.
+ * Groups: 1/2 = ref (guillemet/ASCII), 3 = impact, 4 = effort, 5 = confidence.
+ */
+const SCORE_MARKER =
+  /^\s*(?:«SCORE@([\w-]+)»|<<SCORE@([\w-]+)>>)\s*([1-5])\s*\/\s*([1-5])(?:\s*\/\s*([1-5]))?\s*$/u;
 /**
  * Fenced-body recognised keys (case-insensitive): title / body / kind, plus the
  * idea-graph keys id / link (alias parent) / rel (idea-graph design §5.1).
@@ -338,6 +349,55 @@ export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
 // scanner is the single dedupe authority: a re-rendered marker is never re-sent,
 // so the canvas just draws what it receives. Links stay part of identity
 // (idea-graph §5.1): the same title at a different target is a distinct edge.
+
+/**
+ * Scan a region for `«SCORE@ref»` markers (#60) and return the scores they carry.
+ * Each marker is a single, self-terminating line (no body to word-wrap), so —
+ * unlike {@link scanIdeas} — there is no hold-back/rejoin: a SCORE line either
+ * matches in full or is ignored. The `final` flag is accepted for call-site
+ * symmetry but unused.
+ */
+export function scanScores(rawRegion: string[]): Score[] {
+  const scores: Score[] = [];
+  for (const raw of rawRegion) {
+    const line = raw.replace(TURN_BULLET, "");
+    const m = SCORE_MARKER.exec(line);
+    if (!m) continue;
+    const ref = m[1] ?? m[2];
+    const score: Score = { ref, impact: Number(m[3]), effort: Number(m[4]) };
+    if (m[5]) score.confidence = Number(m[5]);
+    scores.push(score);
+  }
+  return scores;
+}
+
+/** Session-scoped dedupe key for a score: ref + the exact rated values. */
+function scoreKey(s: Score): string {
+  return `${s.ref}:${s.impact}/${s.effort}/${s.confidence ?? ""}`;
+}
+
+/**
+ * Stateful, session-scoped score scanner (#60) — the triage sibling of
+ * {@link IdeaScanner}. Feed it each fresh capture; it returns only scores not yet
+ * seen this session. Dedupe is by `(ref, impact, effort, confidence)`: a marker
+ * re-rendered every frame is delivered once, but a **re-triage** that changes a
+ * card's rating passes through as a fresh update (the new tuple is unseen).
+ */
+export class ScoreScanner {
+  readonly #seen = new Set<string>();
+
+  scan(capture: string): Score[] {
+    const lines = toTrimmedLines(capture);
+    const fresh: Score[] = [];
+    for (const score of scanScores(lines)) {
+      const key = scoreKey(score);
+      if (this.#seen.has(key)) continue;
+      this.#seen.add(key);
+      fresh.push(score);
+    }
+    return fresh;
+  }
+}
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */
 function toTrimmedLines(capture: string): string[] {

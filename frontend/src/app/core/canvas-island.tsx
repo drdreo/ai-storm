@@ -37,7 +37,7 @@ import {
   DefaultColorStyle,
 } from 'tldraw';
 import 'tldraw/tldraw.css';
-import type { Idea, IdeaRelation } from '@ai-storm/shared';
+import type { Idea, IdeaRelation, Score } from '@ai-storm/shared';
 import {
   kindLabel,
   kindColor,
@@ -45,7 +45,14 @@ import {
   AI_PROVENANCE_BADGE,
 } from './idea-descriptors';
 import { cardToText, serializeCards, type CardContent } from './canvas-text';
-import { layoutMindMap, type LayoutEdge, type LayoutRelation } from './idea-layout';
+import {
+  layoutMindMap,
+  layoutPriorityGrid,
+  type LayoutEdge,
+  type LayoutRelation,
+  type ScoredCard,
+} from './idea-layout';
+import type { BoardCard, BoardEdge, BoardSnapshot } from './synthesis';
 import type { PromptIntent } from './prompt-framing';
 
 /* -------------------------------------------------------------------------- */
@@ -92,6 +99,13 @@ interface IdeaCardMeta {
   ref?: string;
   /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
   starred?: boolean;
+  /**
+   * AI triage score (#60): 1..5 impact / effort (and optional confidence),
+   * assigned by the agent via the `«SCORE@ref»` contract. Drives the 2×2
+   * prioritization layout (and, later, visual weight). Absent until the board is
+   * triaged — `meta` so no schema migration, exactly like `starred`.
+   */
+  score?: { impact: number; effort: number; confidence?: number };
   [key: string]: unknown;
 }
 
@@ -403,6 +417,34 @@ export function serializeEditor(editor: Editor): string {
 }
 
 /**
+ * Flatten the live board into a {@link BoardSnapshot} for synthesis (#28, PD-015)
+ * and triage (#60): every idea card in reading order, plus the typed edge graph.
+ * Cards are keyed by their tldraw shape id (the same identity `ideaEdges` reports
+ * on its endpoints), so the pure `core/` consumers can cluster without knowing
+ * anything about tldraw. Reads `starred` off `meta` (#59) and `superseded` off the
+ * styled props (#20/PD-012).
+ */
+export function collectBoard(editor: Editor): BoardSnapshot {
+  const cards = cardsInOrder(editor);
+  const cardIds = new Set(cards.map((c) => c.id));
+  const boardCards: BoardCard[] = cards.map((c) => ({
+    id: c.id,
+    kind: c.props.kind,
+    title: c.props.title,
+    body: c.props.body,
+    starred: !!(c.meta as IdeaCardMeta).starred,
+    superseded: c.props.superseded,
+    origin: c.props.origin,
+  }));
+  const edges: BoardEdge[] = ideaEdges(editor, cardIds).map((e) => ({
+    from: e.from as string,
+    to: e.to as string,
+    relation: e.relation,
+  }));
+  return { cards: boardCards, edges };
+}
+
+/**
  * Plain text of the current selection (PRD §3.6 agent hand-off): the selected
  * idea cards, or the whole canvas when nothing is selected.
  */
@@ -494,6 +536,68 @@ export function arrangeMindMap(editor: Editor): void {
     );
   });
   // Frame the freshly-tidied board so the new grouping is visible at a glance.
+  editor.zoomToFit({ animation: { duration: 200 } });
+}
+
+/**
+ * Serialize the board for an AI triage pass (#60): one line per card, each LED by
+ * its short ref so the agent can address it in a `«SCORE@ref»` reply. Mints a ref
+ * for any card lacking one (via {@link cardRef}) so every card is addressable.
+ * Deliberately ref-annotated (unlike {@link serializeEditor}, which is kind-badged
+ * prose for context) — the ref is the whole point here. Empty board → `''`.
+ */
+export function serializeForTriage(editor: Editor): string {
+  return cardsInOrder(editor)
+    .map((card) => {
+      const ref = cardRef(editor, card.id);
+      const kind = normalizeKind(card.props.kind);
+      const tag = kind ? ` [${kind}]` : '';
+      const body = card.props.body?.trim();
+      const desc = body ? ` — ${body}` : '';
+      return `@${ref}${tag} ${card.props.title.trim()}${desc}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Apply a triage {@link Score} (#60) to the card it targets: resolve the score's
+ * short ref to a shape and stamp `{impact, effort, confidence}` onto its `meta`
+ * (the field the 2×2 grid layout reads). A score for an unknown ref is ignored
+ * (the card may have been deleted). Stored on `meta`, so no schema migration and
+ * it persists with the board — exactly like the keep-mark star (#59).
+ */
+export function applyScore(editor: Editor, score: Score): void {
+  const id = resolveRef(editor, score.ref);
+  if (!id) return;
+  const shape = editor.getShape(id);
+  if (!shape || shape.type !== 'idea-card') return;
+  const value: NonNullable<IdeaCardMeta['score']> = { impact: score.impact, effort: score.effort };
+  if (typeof score.confidence === 'number') value.confidence = score.confidence;
+  editor.updateShape({ id, type: 'idea-card', meta: { ...shape.meta, score: value } });
+}
+
+/**
+ * Re-flow the board into a 2×2 impact×effort prioritization grid (#60) — the
+ * "Grid" action, a sibling of Arrange (#16/PD-014). Reads each card's triage
+ * score off `meta.score` (delivered by the `«SCORE@ref»` contract), bins it into
+ * a quadrant via the pure {@link layoutPriorityGrid}, and applies the positions in
+ * one transaction; unscored cards park in a lane below the grid. Like Arrange,
+ * only card `x/y` change — bound edge-arrows track their cards for free — and it
+ * runs on demand only. A no-op on an empty board.
+ */
+export function arrangePriorityGrid(editor: Editor): void {
+  const cards = ideaCards(editor);
+  if (cards.length === 0) return;
+  const scored: ScoredCard[] = cards.map((c) => {
+    const score = (c.meta as IdeaCardMeta).score;
+    return { id: c.id, w: c.props.w, h: c.props.h, impact: score?.impact, effort: score?.effort };
+  });
+  const positions = layoutPriorityGrid(scored);
+  editor.run(() => {
+    editor.updateShapes(
+      positions.map((p) => ({ id: p.id as TLShapeId, type: 'idea-card' as const, x: p.x, y: p.y })),
+    );
+  });
   editor.zoomToFit({ animation: { duration: 200 } });
 }
 

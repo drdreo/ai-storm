@@ -21,8 +21,8 @@ import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError } from "../pty/resolve.ts";
 import { TerminalScreen } from "./screen.ts";
-import { IdeaScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
-import type { Idea, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
+import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
 const pty = ptyDefault as unknown as typeof import("@lydell/node-pty");
@@ -34,9 +34,12 @@ interface Session {
    *  scanned for ideas. The browser xterm.js renders the same byte stream. */
   screen: TerminalScreen;
   scanner: IdeaScanner;
+  /** Triage scanner (#60): pulls `«SCORE@ref»` markers off the same rendered buffer. */
+  scoreScanner: ScoreScanner;
   profile: HarnessProfile;
   onData: ((raw: string) => void) | null;
   onIdea: ((idea: Idea) => void) | null;
+  onScore: ((score: Score) => void) | null;
   onError: ((message: string) => void) | null;
   closed: boolean;
   cols: number;
@@ -136,9 +139,11 @@ export class NodePtySessionBackend implements SessionBackend {
           log[level](event, { workspace: workspaceId, ...data });
         },
       }),
+      scoreScanner: new ScoreScanner(),
       profile,
       onData: null,
       onIdea: null,
+      onScore: null,
       onError: null,
       closed: false,
       cols,
@@ -182,6 +187,7 @@ export class NodePtySessionBackend implements SessionBackend {
     workspaceId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
+    onScore: (score: Score) => void,
     onError: (message: string) => void,
   ): Promise<void> {
     const session = this.#sessions.get(workspaceId);
@@ -191,6 +197,7 @@ export class NodePtySessionBackend implements SessionBackend {
     }
     session.onData = onData;
     session.onIdea = onIdea;
+    session.onScore = onScore;
     session.onError = onError;
     log.info("session.attached", { workspace: workspaceId });
   }
@@ -213,7 +220,8 @@ export class NodePtySessionBackend implements SessionBackend {
     //    scrolled off between chunks is still caught; session-scoped dedupe
     //    makes the re-scan of still-visible lines idempotent.
     if (session.profile.supportsIdeaContract) {
-      for (const idea of session.scanner.scan(session.screen.snapshotAll())) {
+      const snapshot = session.screen.snapshotAll();
+      for (const idea of session.scanner.scan(snapshot)) {
         log.info("idea.extracted", {
           workspace: workspaceId,
           kind: idea.kind ?? "",
@@ -221,6 +229,16 @@ export class NodePtySessionBackend implements SessionBackend {
           body: idea.body.slice(0, 120),
         });
         session.onIdea?.(idea);
+      }
+      // Triage scores (#60) come off the same rendered buffer.
+      for (const score of session.scoreScanner.scan(snapshot)) {
+        log.info("score.extracted", {
+          workspace: workspaceId,
+          ref: score.ref,
+          impact: score.impact,
+          effort: score.effort,
+        });
+        session.onScore?.(score);
       }
     }
   }
@@ -257,6 +275,7 @@ export class NodePtySessionBackend implements SessionBackend {
     // reconnect within this process lifetime can resume (design §5.2).
     session.onData = null;
     session.onIdea = null;
+    session.onScore = null;
     session.onError = null;
     log.info("session.detached", { workspace: workspaceId });
   }

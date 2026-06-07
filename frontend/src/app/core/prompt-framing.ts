@@ -62,6 +62,31 @@ export function framePrompt(
 }
 
 /**
+ * Frame an AI triage request (#60): ask the agent to rate every card on the board
+ * for impact / effort / confidence and reply with one score line per card.
+ *
+ * `board` is the ref-annotated serialization (`@a1 [feature] Title — body`, one
+ * per line) from `serializeForTriage`. CRITICAL (same rule as {@link framePrompt}'s
+ * directives): this text is typed into the terminal and echoed onto the screen,
+ * which the backend scans for markers (PD-008). So it must NOT contain a literal
+ * `«SCORE»`/`«IDEA»` token — the scoring-marker grammar is taught by the session
+ * priming (system prompt), and this prompt only *refers* to it. Returns `''` for
+ * an empty board. Unlike the verb prompts, this one is meant to be SUBMITTED (the
+ * caller appends the carriage return), since it asks for a complete triage pass.
+ */
+export function frameTriage(board: string): string {
+  const trimmed = board.trim();
+  if (!trimmed) return '';
+  return (
+    `Triage the cards on my canvas below. Rate EACH card for impact, effort, and confidence — ` +
+    `each an integer from 1 to 5 (higher impact = more valuable, higher effort = more costly, ` +
+    `higher confidence = more sure). For every card, emit ONE score line in the scoring-marker ` +
+    `format you were primed with, referencing that card's @ref, with nothing else on the line. ` +
+    `Do not rewrite the cards as ideas.\n\n${trimmed}\n`
+  );
+}
+
+/**
  * A directive (idea-graph design §5) telling the agent how to link the ideas
  * this turn produces back to the source card, so the backend parses the link
  * and the canvas draws a connector. Prepended (never appended) so the verb's
