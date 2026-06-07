@@ -35,7 +35,7 @@ try {
 
   // Boot + shell.
   await page.getByText('ai-storm', { exact: true }).waitFor({ timeout: 20000 })
-  const rows = page.locator('ul[role="listbox"] li[role="option"]')
+  const rows = page.locator('[data-sidebar="menu-item"]')
   await rows.first().waitFor({ timeout: 10000 })
   check('shell boots and restores >=1 workspace', (await rows.count()) >= 1)
 
@@ -48,7 +48,7 @@ try {
   const before = await rows.count()
   await page.getByRole('button', { name: 'New workspace' }).click()
   await page.waitForFunction(
-    (n) => document.querySelectorAll('ul[role="listbox"] li[role="option"]').length === n,
+    (n) => document.querySelectorAll('[data-sidebar="menu-item"]').length === n,
     before + 1,
     { timeout: 5000 },
   )

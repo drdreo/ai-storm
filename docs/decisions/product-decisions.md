@@ -253,27 +253,28 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 `(2026-06-07, accepted, replaces @angular/aria)`
 
-- **Decision:** The UI is **Tailwind CSS v4** for styling and **shadcn/ui (Radix primitives, copied
-  into the repo via the official CLI)** for the accessible widgets — initialized with
-  `shadcn init` and components added with `shadcn add` (not hand-written). This **replaces
-  `@angular/aria`**: the per-row kebab is a Radix `DropdownMenu` (shadcn), the canvas/session toolbars
-  are Radix `Toolbar`, and the sidebar's single-select workspace nav is a styled roving-tabindex
-  listbox (shadcn has no drop-in `Listbox`). The existing CSS custom-property design tokens
-  (`--accent`, `--space-*`, `--radius-*`, the dark-shell / light-canvas palette) **carry over 1:1**:
-  they remain the single source of truth and the Tailwind theme (plus a thin shadcn-semantic-token
-  bridge) reads them as variables, so the look is preserved verbatim, not re-themed. tldraw and xterm
-  keep their own CSS, imported as before.
-- **Why:** The app has a bespoke dark-IDE aesthetic, so a heavyweight *styled* library (MUI/Mantine/
-  Ant) would fight the look and read generic. shadcn is Radix + Tailwind with the component code
-  scaffolded *into the repo* (we own and restyle it, not a themed black box), which simultaneously
-  ends the per-component hand-written CSS and supplies the a11y primitives that replace `@angular/aria`
-  — no separate primitives lib. Considered and rejected: **Mantine** (great DX but opinionated default
-  look, adopt-its-API rather than own-the-code); **Radix + CSS Modules** (keeps our tokens but still
-  hand-writing CSS — the thing we set out to retire).
-- **Affects:** `Sidebar` (Radix `DropdownMenu` + roving listbox), `CanvasPane` / `ControlHub` (Radix
-  `Toolbar`). A small irreducible CSS remainder stays in `index.css` for keyframes, status-driven
-  dots, the active-row rail, the boot spinner, and the runtime-built xterm host — the bits that are
-  not expressible as utilities. Removes `@angular/aria` + `@angular/cdk`.
+- **Decision:** The UI is **Tailwind CSS v4** + **shadcn/ui (Radix primitives, copied into the repo
+  via the official CLI)** — initialized with `shadcn init` and components added with `shadcn add` (not
+  hand-written): `button`, `input`, `badge`, `card`, `dropdown-menu`, `tooltip`, `separator`, `tabs`,
+  and the full `sidebar`. This **replaces `@angular/aria`**: the workspace nav is shadcn's `Sidebar`
+  (`SidebarMenu`/`SidebarMenuButton`/`SidebarMenuAction`), the per-row kebab is a Radix `DropdownMenu`
+  (shadcn), and the canvas/session toolbars are Radix `Toolbar` rendering shadcn `Button`s. **We adopt
+  the stock shadcn theme (neutral base, dark mode) verbatim and defer bespoke theming** — the app
+  wears the default shadcn look for now; a themed palette is a later pass. The old Angular CSS
+  custom-property tokens are **not** carried over. tldraw and xterm keep their own CSS.
+- **Why:** shadcn is Radix + Tailwind with the component code scaffolded *into the repo* (we own and
+  restyle it, not a themed black box), which ends per-component hand-written CSS and supplies the a11y
+  primitives that replace `@angular/aria` — no separate primitives lib. Starting from the **unmodified
+  shadcn theme** (rather than re-implementing the previous bespoke palette) gets a clean, consistent
+  baseline up first and keeps theming a separate, deliberate step — the design tokens are a future
+  decision, not a migration constraint. Considered and rejected: **Mantine** (opinionated default look,
+  adopt-its-API rather than own-the-code); **Radix + CSS Modules** (still hand-writing CSS — the thing
+  we set out to retire).
+- **Affects:** `Sidebar` (shadcn `Sidebar` + Radix `DropdownMenu`), `CanvasPane` / `ControlHub`
+  (Radix `Toolbar` + shadcn `Button`/`Input`/`Badge`). `index.css` holds the stock shadcn theme
+  (`:root` / `.dark` token blocks + `@theme inline`) plus a tiny xterm host-sizing rule (xterm builds
+  its own DOM at runtime). Removes `@angular/aria` + `@angular/cdk`. A bespoke theme/palette is left
+  as future work.
 
 ### PD-015 — Convergence is a generated artifact, not a second surface
 

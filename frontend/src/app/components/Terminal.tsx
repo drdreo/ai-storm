@@ -95,9 +95,10 @@ export function Terminal() {
     const term = new Xterm({
       cursorBlink: true,
       scrollback: 5000,
-      fontFamily: styles.getPropertyValue('--mono')?.trim() || 'monospace',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: 13,
-      theme: { background: styles.getPropertyValue('--bg')?.trim() || '#000' },
+      // Match the (dark) panel the terminal sits in.
+      theme: { background: styles.backgroundColor || '#0a0a0a' },
     })
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
@@ -153,9 +154,6 @@ export function Terminal() {
   }
 
   return (
-    <div
-      ref={hostRef}
-      className="box-border h-full w-full bg-bg p-2"
-    />
+    <div ref={hostRef} className="box-border h-full w-full bg-background p-2" />
   )
 }

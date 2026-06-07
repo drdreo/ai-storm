@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { useWorkspaceStore, workspace } from './stores/workspace.store'
 import { backend } from './stores/backend.store'
 import { Sidebar } from './components/Sidebar'
@@ -22,8 +24,6 @@ export function App() {
   const booted = useWorkspaceStore((s) => s.booted)
   const [bootError, setBootError] = useState<string | null>(null)
 
-  // Resizable terminal (hub) pane. Width drives the grid column; the terminal's
-  // own ResizeObserver refits xterm + re-sends cols/rows on change.
   const [hubWidth, setHubWidth] = useState(restoreHubWidth)
   const hubWidthRef = useRef(hubWidth)
   hubWidthRef.current = hubWidth
@@ -70,35 +70,36 @@ export function App() {
 
   if (!booted) {
     return (
-      <div className="grid h-full place-content-center justify-items-center gap-6 text-text-dim [background:radial-gradient(120%_80%_at_50%_0%,var(--panel-bg)_0%,var(--bg)_60%)]">
-        <div className="as-spinner" />
-        <p className="m-0 text-[0.9rem] tracking-[0.01em]">
-          {bootError ?? 'Restoring workspaces…'}
-        </p>
+      <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
+        <Loader2 className="size-7 animate-spin" />
+        <p className="text-sm">{bootError ?? 'Restoring workspaces…'}</p>
       </div>
     )
   }
 
   return (
-    <div
-      className="grid h-full bg-bg"
-      style={{ gridTemplateColumns: `244px 1fr ${hubWidth}px` }}
-    >
+    <SidebarProvider className="h-full">
       <Sidebar />
-      {/* The light canvas is the focal plane — lift it above the dark shell. */}
-      <main className="relative z-[1] min-w-0 overflow-hidden bg-canvas [box-shadow:-8px_0_24px_-12px_rgba(0,0,0,0.55),8px_0_24px_-12px_rgba(0,0,0,0.55)]">
-        <CanvasPane />
-      </main>
-      <aside className="relative flex min-w-0 flex-col border-l border-border-strong bg-panel">
-        <div
-          className="as-resize-handle absolute -left-1 top-0 bottom-0 z-[5] w-2 cursor-col-resize touch-none"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize terminal pane"
-          onPointerDown={startResize}
-        />
-        <ControlHub />
-      </aside>
-    </div>
+      <SidebarInset className="min-w-0 overflow-hidden">
+        <div className="flex h-full min-h-0">
+          <main className="relative min-w-0 flex-1 overflow-hidden bg-card">
+            <CanvasPane />
+          </main>
+          <aside
+            className="relative flex min-w-0 flex-col border-l bg-background"
+            style={{ width: hubWidth }}
+          >
+            <div
+              className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize terminal pane"
+              onPointerDown={startResize}
+            />
+            <ControlHub />
+          </aside>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
