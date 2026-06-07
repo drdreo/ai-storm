@@ -2,23 +2,24 @@
 
 A local-first collaborative product-brainstorming canvas. A Node.js daemon runs
 your local AI CLI in a **real pseudo-terminal** and streams its output into a
-BlockSuite canvas through a stateful parsing buffer, across multiple isolated
-workspaces — with no external AI APIs, no subscriptions, and no cloud keys. It
-reuses the CLI tools already running on your machine.
+**tldraw** canvas — the raw conversation renders in an embedded terminal, while
+extracted ideas land as spatial cards — across multiple isolated workspaces, with
+no external AI APIs, no subscriptions, and no cloud keys. It reuses the CLI tools
+already running on your machine.
 
-> 📋 The PRD and all product decisions now live in
+> 📋 The PRD and all product decisions live in
 > [`docs/decisions/product-decisions.md`](docs/decisions/product-decisions.md).
 > The `PRD §x` references below resolve to Part 1 of that document (section numbering preserved).
 
 ## Architecture
 
 ```
-┌──────────────────────────── Browser (Angular 22, zoneless, signals) ────────────────────────────┐
-│  Sidebar (workspaces)  │   Canvas pane (BlockSuite)        │   Control hub (terminal + agent)     │
+┌──────────────────────────── Browser (React 19 + Vite, Zustand) ─────────────────────────────────┐
+│  Sidebar (workspaces)  │   Canvas pane (tldraw)            │   Control hub (terminal + agent)     │
 │  PRD §3.4              │   PRD §3.1 / §4.1                 │   PRD §3.1                           │
 │                        │                                   │                                      │
-│  WorkspaceService ─────┼─ CanvasService (DocCollection) ───┼── IngestionService ── AgentService   │
-│  CRDT registry (IDB)   │  CRDT docs → IndexedDB (§3.5)      │   buffer→parser→scheduler (§3.3/§5.1)│
+│  workspace store ──────┼─ canvas controller (tldraw) ──────┼── ingestion store ── agent store     │
+│  CRDT registry (IDB)   │  per-workspace store → IndexedDB  │   xterm sink + RenderScheduler       │
 └────────────────────────┴───────────────────────────────────┴──────────────────────────────────────┘
                                           │  WebSocket /pty (JSON, multiplexed by workspaceId)
 ┌─────────────────────────────────────────▼─────────────────────────────────────────────────────────┐
@@ -27,17 +28,29 @@ reuses the CLI tools already running on your machine.
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### The ingestion engine (PRD §3.3, §5.1) — `frontend/src/app/core/`
+The frontend is React (Vite + `@vitejs/plugin-react`). State is **Zustand**: the
+WebSocket multiplexer, the Yjs workspace registry, the per-workspace ingestion
+pipelines and the tldraw `Editor` are imperative module singletons whose reactive
+surface is exposed through small stores (see PD-016/PD-017). UI is **Tailwind v4
++ shadcn/ui** (Radix primitives; PD-018). The conversation surface is a real
+**xterm.js** terminal fed the raw PTY stream — no server-side chat extraction.
 
-Pure, framework-agnostic TypeScript with full unit coverage (`pnpm test`, run by
-[Vitest](https://vitest.dev)):
+### The framework-agnostic core — `frontend/src/app/core/`
+
+Pure TypeScript with unit coverage (`pnpm test`, run by [Vitest](https://vitest.dev)):
 
 | Module | Responsibility | PRD |
 | --- | --- | --- |
-| `ansi.ts` | Strip ANSI/SGR/OSC/control bytes | §3.3 garbage elimination |
-| `slicing-buffer.ts` | Char-level accumulator; partial-escape & CR/CRLF handling | §3.3 slicing & chunking |
-| `markdown-block-parser.ts` | Line → structural block descriptors | §3.3 block translation |
-| `render-scheduler.ts` | rAF double-buffer, throttled batched mutations | §5.1 framerate throttling |
+| `render-scheduler.ts` | rAF double-buffer, throttled batched idea mutations | §5.1 framerate throttling |
+| `markdown-block-parser.ts` | Markdown → structural block descriptors for idea cards | §3.3 |
+| `idea-descriptors.ts` | Idea kind registry + provenance decoration (#21/#31) | §3.3 |
+| `idea-layout.ts` | Graph-driven mind-map "Arrange" layout (#16) | §3.1 |
+| `prompt-framing.ts` | Card-verb prompt framing (#13/#15) | §3.6 |
+| `canvas-text.ts` | Serialize the canvas to normalized markdown | §3.2 |
+
+The tldraw island (`canvas-island.tsx`) owns the `idea-card` shape, the typed-edge
+graph, `applyIdeas`, the card-verb bar and the kind filter; it persists each
+workspace's board to IndexedDB via tldraw `persistenceKey`.
 
 ### The conversational session (PRD §2)
 
@@ -45,37 +58,36 @@ A workspace session does **not** spawn a raw shell — it launches your configur
 **AI harness** (default `claude`) inside a **real pseudo-terminal** (ConPTY on
 Windows, forkpty on POSIX) via `node-pty`. Because it's a genuine TTY, the CLI
 runs fully interactively — its TUI renders, raw-mode keys work — exactly as in a
-normal terminal; the keystrokes you type in the control hub go to the PTY and
-its output is sanitised and parsed onto the canvas. The harness is editable per
-workspace (e.g. `aider`, or a plain shell like `powershell`). On Windows the
-backend resolves npm `.cmd`/`.ps1` shims via `where.exe`, input that races ahead
-of the spawning PTY is buffered until ready, and a missing harness streams a
-clear message instead of failing silently.
+normal terminal; keystrokes typed in the control-hub terminal go to the PTY and
+its output renders verbatim in xterm. The harness is editable per workspace (e.g.
+`aider`, or a plain shell like `powershell`). On Windows the backend resolves npm
+`.cmd`/`.ps1` shims via `where.exe`, input that races ahead of the spawning PTY is
+buffered until ready, and a missing harness streams a clear message instead of
+failing silently.
 
 ### Persistence (PRD §3.5)
 
-All workspace canvas content lives in one BlockSuite `DocCollection` whose root
-Yjs document is persisted to **IndexedDB** via `y-indexeddb` (CRDT binary). The
-workspace registry (titles, status, mode, terminal config) is a second CRDT
-document with its own IndexedDB store. On boot the app rehydrates both and
+Each workspace's canvas is a tldraw store persisted to **IndexedDB** under the key
+`TLDRAW_DOCUMENT_v2ai-storm:ws:{id}`. The workspace registry (titles, status,
+terminal config) is a Yjs CRDT document with its own IndexedDB store
+(`ai-storm-registry`) via `y-indexeddb`. On boot the app rehydrates both and
 restores the most recently active workspace.
 
 ### Hot-switching (PRD §3.4) & memory (PRD §5.2)
 
-A **single** `AffineEditorContainer` instance is reused across all workspaces and
-simply rebound to a different `Doc` on switch — sub-100ms, one heavy object in
-memory. Detaching a workspace tears down its pipeline, render scheduler, and PTY.
+Switching the active workspace remounts the tldraw island onto the next
+workspace's persisted store (the React `key` changes) and swaps the kept-alive
+xterm instance — sub-100ms. Detaching a workspace tears down its pipeline, render
+scheduler, and PTY.
 
 ## Requirements
 
-- **Node.js** ≥ 24.15 (backend runtime — uses native TS type-stripping — and the
-  Angular 22 CLI engine gate)
+- **Node.js** ≥ 24.15 (backend runtime — uses native TS type-stripping)
 - **pnpm** (via `corepack pnpm`, bundled with Node)
 - A modern Chromium-based browser
 
-The ingestion-engine unit tests run on [Vitest](https://vitest.dev) (a
-devDependency installed via `corepack pnpm install`), so they need no extra
-runtime beyond Node itself.
+The unit tests run on [Vitest](https://vitest.dev) (a devDependency installed via
+`corepack pnpm install`), so they need no extra runtime beyond Node itself.
 
 ## Running
 
@@ -87,12 +99,12 @@ corepack pnpm install
 corepack pnpm start    # ws://127.0.0.1:8787/pty
 ```
 
-**Frontend** (Angular dev server, proxies /pty → backend):
+**Frontend** (Vite dev server, proxies /pty → backend):
 
 ```sh
 cd frontend
 corepack pnpm install
-corepack pnpm start    # http://localhost:4200  (ng serve)
+corepack pnpm dev      # http://localhost:4200
 ```
 
 For a single-process production deploy, build the client and let the backend
@@ -100,33 +112,32 @@ serve it:
 
 ```sh
 cd frontend && corepack pnpm build
-cd ../backend && corepack pnpm start -- --static ../frontend/dist/browser
+cd ../backend && corepack pnpm start -- --static ../frontend/dist
 ```
 
 ## Tests
 
 ```sh
-# Unit — framework-agnostic ingestion engine (22 tests, no browser needed)
+# Unit — framework-agnostic core + Zustand stores (no browser needed)
 cd frontend && corepack pnpm test
 
 # Integration — against a running backend (corepack pnpm start first)
 cd backend && node smoke_test.ts
 
-# Browser E2E — against the built app served by the backend on :8790
-#   (boot, BlockSuite mount, IndexedDB stores, mode toggle, <100ms hot-switch)
-cd frontend && node e2e/smoke.mjs http://127.0.0.1:8790
-#   Full PTY → buffer → parser → scheduler → BlockSuite pipeline
-cd frontend && node e2e/pipeline.mjs http://127.0.0.1:8790
+# Browser E2E — against the dev server (or the built app served by the backend)
+#   (boot, tldraw mount, create/rename, ConPTY round-trip, hot-switch, persistence)
+cd frontend && node e2e/smoke.mjs              # defaults to http://localhost:4200
 ```
 
 ### Verification status
 
-All layers are verified on Windows 11: 22/22 engine unit tests pass; the daemon
-type-checks; the WebSocket PTY round-trip, input echo, agent hook, and static
-serving pass the integration smoke test; and the browser E2E confirms the editor
-mounts, both CRDT IndexedDB stores are created, the doc/edgeless toggle works,
-hot-switching is ~8ms, and real streamed terminal output renders as canvas
-blocks — with no console errors.
+All layers are verified on Windows 11: the frontend unit suite passes (core +
+stores); the daemon type-checks; the WebSocket PTY round-trip, input echo, agent
+hook, and static serving pass the integration smoke test; and the browser E2E
+confirms the app boots, tldraw mounts, workspaces create/rename, a real PowerShell
+PTY round-trips through ConPTY, hot-switching preserves terminal scrollback, and
+the tldraw + registry IndexedDB stores use the pinned name scheme — with no
+console errors.
 
 ## Logging & tracing
 

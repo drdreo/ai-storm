@@ -1,9 +1,9 @@
 node_modules/
 packages/shared/dist/
 frontend/dist/
-frontend/.angular/
 frontend/test-results/
 *.log
+*.stackdump
 .DS_Store
 Thumbs.db
 .idea
