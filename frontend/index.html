@@ -5,18 +5,33 @@
     <title>ai-storm</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
+    <!-- UI fonts for the data-font knob (#77). CDN per project choice; offline,
+         each --app-font-sans var falls back to the system stack. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script>
-      // Apply the persisted theme choice before first paint to avoid a flash
-      // (#77). Kept in sync with src/app/stores/theme.store.ts.
+      // Apply the persisted theme knobs (mode + palette + font/radius/density/
+      // contrast) before first paint to avoid a flash (#77). Kept in sync with
+      // src/app/stores/theme.store.ts (applyAll).
       (function () {
         try {
-          var m = localStorage.getItem('ai-storm.theme') || 'system'
+          var ls = localStorage
+          var m = ls.getItem('ai-storm.theme') || 'system'
           var dark =
             m === 'dark' ||
             (m === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
           var root = document.documentElement
           root.classList.toggle('dark', dark)
           root.style.colorScheme = dark ? 'dark' : 'light'
+          if (ls.getItem('ai-storm.palette') === 'ember') root.setAttribute('data-theme', 'ember')
+          root.setAttribute('data-font', ls.getItem('ai-storm.font') || 'grotesque')
+          root.setAttribute('data-radius', ls.getItem('ai-storm.radius') || 'default')
+          root.setAttribute('data-density', ls.getItem('ai-storm.density') || 'comfortable')
+          root.setAttribute('data-contrast', ls.getItem('ai-storm.contrast') || 'normal')
         } catch (e) {
           document.documentElement.classList.add('dark')
         }

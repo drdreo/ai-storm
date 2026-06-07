@@ -78,7 +78,7 @@ export function CanvasPane() {
         </Toolbar.Root>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {active && <CanvasIsland key={active.id} workspaceId={active.id} bridge={canvas.bridge} />}
       </div>
 
