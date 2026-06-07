@@ -23,7 +23,7 @@ import { IdeaCardShapeUtil } from './canvas/idea-card';
 import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
-import { copyTextOverrides } from './canvas/copy-text';
+import { copyTextOptions } from './canvas/copy-text';
 
 // Re-export the editor-driven ports the stores drive against the mounted workspace.
 export { applyIdeas } from './canvas/ingest';
@@ -78,7 +78,8 @@ export function CanvasIsland({
         persistenceKey={`ai-storm:ws:${workspaceId}`}
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
-        overrides={[ideaToolOverrides, copyTextOverrides]}
+        overrides={ideaToolOverrides}
+        options={copyTextOptions}
         components={components}
         onMount={(editor) => bridge.onEditorMount(editor)}
       />

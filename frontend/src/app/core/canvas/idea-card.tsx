@@ -27,7 +27,7 @@ import {
   type TLShapeId,
 } from 'tldraw';
 import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from '../idea-descriptors';
-import type { CardContent } from '../canvas-text';
+import { cardToText, type CardContent } from '../canvas-text';
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
 export type Origin = 'ai' | 'user';
@@ -152,6 +152,13 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
 
   override canResize = () => true;
   override canEdit = () => true;
+
+  // The card's text representation — what tldraw joins into the `text/plain`
+  // clipboard fallback, search, and drag-out. Without it a copied card has no
+  // text and consumers fall back to the shape blob (#74).
+  override getText(shape: IdeaCardShape): string {
+    return cardToText(content(shape));
+  }
 
   override onResize(shape: IdeaCardShape, info: TLResizeInfo<IdeaCardShape>) {
     return resizeBox(shape, info);
