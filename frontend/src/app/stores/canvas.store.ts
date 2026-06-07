@@ -5,17 +5,11 @@ import type { PromptIntent } from '../core/prompt-framing'
 import {
   type CanvasBridge,
   applyIdeas as islandApplyIdeas,
-  arrangeMindMap,
-  arrangePriorityGrid,
-  markSelected as islandMarkSelected,
-  selectMarked as islandSelectMarked,
   serializeEditor,
   serializeForTriage,
   applyScore as islandApplyScore,
   selectedText,
   collectBoard,
-  kindsPresent as islandKindsPresent,
-  setKindVisible as islandSetKindVisible,
 } from '../core/canvas-island'
 import { synthesizeBoard, type ConvergentSummary } from '../core/synthesis'
 
@@ -133,16 +127,6 @@ export const canvas = {
     }
   },
 
-  /** Re-flow the active canvas into a mind map (#16, PD-014) — "Arrange". */
-  arrange(workspaceId: string): void {
-    if (editor && workspaceId === activeId) arrangeMindMap(editor)
-  },
-
-  /** Re-flow the active canvas into a 2×2 impact×effort grid (#60) — "Grid". */
-  arrangeGrid(workspaceId: string): void {
-    if (editor && workspaceId === activeId) arrangePriorityGrid(editor)
-  },
-
   /**
    * Ref-annotated serialization of the board for an AI triage pass (#60), or `''`
    * if this workspace isn't the mounted one. The agent scores each `@ref` and
@@ -156,17 +140,6 @@ export const canvas = {
   /** Apply an extracted triage score to its target card's meta (#60). */
   applyScore(workspaceId: string, score: Score): void {
     if (editor && workspaceId === activeId) islandApplyScore(editor, score)
-  },
-
-  /** Mark/unmark the selected idea cards (#29) — the "★ Mark" toolbar action. */
-  markSelected(workspaceId: string): void {
-    if (editor && workspaceId === activeId) islandMarkSelected(editor)
-  },
-
-  /** Select every marked card (#29); returns the count so the UI can hint. */
-  selectMarked(workspaceId: string): number {
-    if (editor && workspaceId === activeId) return islandSelectMarked(editor)
-    return 0
   },
 
   /**
@@ -189,18 +162,6 @@ export const canvas = {
   /** Plain text of the current selection — or the whole canvas (PRD §3.6). */
   getSelectedText(): string {
     return editor ? selectedText(editor) : ''
-  },
-
-  /** Distinct kinds present on the active workspace canvas (#21). */
-  kindsPresent(workspaceId: string): string[] {
-    if (!editor || workspaceId !== activeId) return []
-    return islandKindsPresent(editor)
-  },
-
-  /** Show/hide every card of a kind on the canvas (#21). */
-  setKindVisible(workspaceId: string, kind: string, visible: boolean): void {
-    if (!editor || workspaceId !== activeId) return
-    islandSetKindVisible(editor, kind, visible)
   },
 
   /** Register the card-verb sink (#13/#15) — see {@link CanvasIsland}'s verb bar. */
