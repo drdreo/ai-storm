@@ -163,6 +163,10 @@ export const ingestion = {
         case 'idea':
           ingestIdea(workspaceId, msg.idea)
           break
+        case 'score':
+          // Triage score (#60) → update the target card's meta on the canvas.
+          canvas.applyScore(workspaceId, msg.score)
+          break
         case 'session-status':
           applyStatus(workspaceId, msg.status)
           break

@@ -32,8 +32,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
-import { IdeaScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
-import type { Idea, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
+import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const TMUX_TIMEOUT_MS = 5_000;
@@ -83,7 +83,10 @@ function writeLaunchScript(command: string): string {
 
 interface Poller {
   scanner: IdeaScanner;
+  /** Triage scanner (#60): `«SCORE@ref»` markers off the same capture. */
+  scoreScanner: ScoreScanner;
   onIdea: (idea: Idea) => void;
+  onScore: (score: Score) => void;
   onError: (message: string) => void;
   timer: NodeJS.Timeout | null;
   lastCapture: string;
@@ -285,6 +288,7 @@ export class TmuxSessionBackend implements SessionBackend {
     workspaceId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
+    onScore: (score: Score) => void,
     onError: (message: string) => void,
   ): Promise<void> {
     assertValidWorkspaceId(workspaceId);
@@ -300,7 +304,9 @@ export class TmuxSessionBackend implements SessionBackend {
           log[level](event, { workspace: workspaceId, ...data });
         },
       }),
+      scoreScanner: new ScoreScanner(),
       onIdea,
+      onScore,
       onError,
       timer: null,
       lastCapture: "",
@@ -322,6 +328,9 @@ export class TmuxSessionBackend implements SessionBackend {
     try {
       poller.lastCapture = await this.#capture(workspaceId);
       poller.scanner.scan(poller.lastCapture, true);
+      // Seed the score scanner too, so scores already on screen (a reattach) and
+      // any echoed example «SCORE» line are not re-emitted.
+      poller.scoreScanner.scan(poller.lastCapture);
     } catch {
       // Session may not exist yet; the poll loop reports it on the next tick.
     }
@@ -370,6 +379,16 @@ export class TmuxSessionBackend implements SessionBackend {
         body: idea.body.slice(0, 120),
       });
       poller.onIdea(idea);
+    }
+
+    for (const score of poller.scoreScanner.scan(capture)) {
+      log.info("score.extracted", {
+        workspace: workspaceId,
+        ref: score.ref,
+        impact: score.impact,
+        effort: score.effort,
+      });
+      poller.onScore(score);
     }
 
     this.#scheduleTick(workspaceId, IDEA_POLL_MS);

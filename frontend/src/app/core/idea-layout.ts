@@ -361,3 +361,152 @@ export function layoutMindMap(
   }
   return out;
 }
+
+/* -------------------------------------------------------------------------- */
+/* 2×2 prioritization grid (#60, PD-015) — impact × effort placement mode      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The minimal card shape the priority grid needs: identity, size, and a triage
+ * score (#60). `impact` / `effort` are the agent-assigned 1..5 scores (delivered
+ * via the `«SCORE@ref»` contract and stored on the card's `meta`). A card missing
+ * EITHER axis is treated as *unscored* and parked in a lane below the grid, so the
+ * mode degrades gracefully on a board that hasn't been triaged yet.
+ */
+export interface ScoredCard {
+  id: string;
+  w: number;
+  h: number;
+  /** Value 1..5 (higher = more impactful); undefined ⇒ unscored. */
+  impact?: number;
+  /** Value 1..5 (higher = more effort); undefined ⇒ unscored. */
+  effort?: number;
+}
+
+export interface PriorityGridOptions {
+  /** Top-left origin of the whole grid. */
+  originX: number;
+  originY: number;
+  /** Inner size of one quadrant (cards tile inside it). */
+  quadW: number;
+  quadH: number;
+  /** Gap between the two quadrant columns / rows. */
+  quadGap: number;
+  /** Gap between tiled cards inside a quadrant (and in the parking lane). */
+  cardGap: number;
+  /** Extra vertical gap before the unscored parking lane. */
+  parkGap: number;
+  /** Split point on the 1..5 scale: a value `>= mid` is "high". */
+  mid: number;
+}
+
+export const DEFAULT_PRIORITY_GRID: PriorityGridOptions = {
+  originX: 160,
+  originY: 160,
+  quadW: 760,
+  quadH: 520,
+  quadGap: 120,
+  cardGap: 28,
+  parkGap: 160,
+  mid: 3,
+};
+
+/**
+ * The four quadrants of the impact×effort grid (#60). The label is what the
+ * canvas can title each region with; `col`/`row` are its grid cell (0,0 = top
+ * -left). Quick wins (high impact, low effort) sit top-left — where the eye lands.
+ */
+export const PRIORITY_QUADRANTS = [
+  { key: 'quick-wins', label: 'Quick wins', col: 0, row: 0 },
+  { key: 'big-bets', label: 'Big bets', col: 1, row: 0 },
+  { key: 'fill-ins', label: 'Fill-ins', col: 0, row: 1 },
+  { key: 'time-sinks', label: 'Time sinks', col: 1, row: 1 },
+] as const;
+
+export type PriorityQuadrant = (typeof PRIORITY_QUADRANTS)[number]['key'];
+
+/** Which quadrant a scored card falls in (high impact = top, low effort = left). */
+export function quadrantOf(
+  impact: number,
+  effort: number,
+  mid = DEFAULT_PRIORITY_GRID.mid,
+): PriorityQuadrant {
+  const highImpact = impact >= mid;
+  const lowEffort = effort < mid;
+  if (highImpact) return lowEffort ? 'quick-wins' : 'big-bets';
+  return lowEffort ? 'fill-ins' : 'time-sinks';
+}
+
+/** Tile a set of cards left-to-right, top-to-bottom inside a box at (x0,y0). */
+function tile(
+  cards: readonly ScoredCard[],
+  x0: number,
+  y0: number,
+  boxW: number,
+  gap: number,
+): LayoutPosition[] {
+  const out: LayoutPosition[] = [];
+  let cx = x0;
+  let cy = y0;
+  let rowH = 0;
+  for (const c of cards) {
+    if (cx > x0 && cx + c.w > x0 + boxW) {
+      // Wrap to the next row within the box.
+      cx = x0;
+      cy += rowH + gap;
+      rowH = 0;
+    }
+    out.push({ id: c.id, x: cx, y: cy });
+    cx += c.w + gap;
+    rowH = Math.max(rowH, c.h);
+  }
+  return out;
+}
+
+/**
+ * Lay the board out as a **2×2 impact×effort prioritization grid** (#60, PD-014's
+ * sibling placement mode). Each scored card is binned into its quadrant — quick
+ * wins (high impact / low effort) top-left, big bets top-right, fill-ins bottom
+ * -left, time sinks bottom-right — and tiled within that quadrant's box. Cards
+ * missing a score are parked in a full-width lane beneath the grid (so an
+ * un-triaged board still arranges cleanly instead of piling at the origin). Pure:
+ * returns top-left target positions, mutates nothing — the canvas applies them
+ * exactly like {@link layoutMindMap}, and bound edge-arrows follow for free.
+ */
+export function layoutPriorityGrid(
+  cards: readonly ScoredCard[],
+  options: Partial<PriorityGridOptions> = {},
+): LayoutPosition[] {
+  const opt = { ...DEFAULT_PRIORITY_GRID, ...options };
+  if (cards.length === 0) return [];
+
+  const buckets = new Map<PriorityQuadrant, ScoredCard[]>();
+  const unscored: ScoredCard[] = [];
+  for (const c of cards) {
+    if (typeof c.impact !== 'number' || typeof c.effort !== 'number') {
+      unscored.push(c);
+      continue;
+    }
+    const q = quadrantOf(c.impact, c.effort, opt.mid);
+    const list = buckets.get(q);
+    if (list) list.push(c);
+    else buckets.set(q, [c]);
+  }
+
+  const out: LayoutPosition[] = [];
+  for (const quad of PRIORITY_QUADRANTS) {
+    const bucket = buckets.get(quad.key);
+    if (!bucket?.length) continue;
+    const x0 = opt.originX + quad.col * (opt.quadW + opt.quadGap);
+    const y0 = opt.originY + quad.row * (opt.quadH + opt.quadGap);
+    out.push(...tile(bucket, x0, y0, opt.quadW, opt.cardGap));
+  }
+
+  if (unscored.length) {
+    const laneY = opt.originY + 2 * opt.quadH + opt.quadGap + opt.parkGap;
+    const laneW = 2 * opt.quadW + opt.quadGap;
+    out.push(...tile(unscored, opt.originX, laneY, laneW, opt.cardGap));
+  }
+
+  return out;
+}

@@ -90,6 +90,23 @@ export function kindColor(kind?: string): string | undefined {
   return kindSpec(kind)?.color;
 }
 
+/**
+ * Kinds excluded from AI triage (#60): a `risk` or `question` is *commentary on*
+ * an idea, not a candidate to prioritize — scoring them pollutes the impact×effort
+ * grid (a high-impact risk reads like a high-value idea). Triage therefore rates
+ * only the actionable cards (features, decisions, todos, and kindless root ideas).
+ */
+export const TRIAGE_SKIP_KINDS: ReadonlySet<string> = new Set(['risk', 'question']);
+
+/**
+ * Whether a card of this kind should be rated by AI triage (#60). True for an
+ * actionable idea (feature / decision / todo / heuristic / kindless); false for
+ * the commentary kinds in {@link TRIAGE_SKIP_KINDS}.
+ */
+export function isTriageableKind(kind?: string): boolean {
+  return !TRIAGE_SKIP_KINDS.has(normalizeKind(kind) ?? '');
+}
+
 /** Prefix a card heading with its kind badge (or `#tag`); bare title if no kind. */
 export function decorateTitle(title: string, kind?: string): string {
   if (!kind) return title;

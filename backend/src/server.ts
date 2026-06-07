@@ -55,10 +55,16 @@ For an idea that truly needs several lines, use a fenced block instead:
   body: <as many lines as you need>
   \`\`\`
 
+When you are asked to TRIAGE or rate the existing cards, score each one on its OWN line in exactly this format — impact/effort/confidence, each an integer 1-5 (higher impact = more valuable, higher effort = more costly, higher confidence = more sure):
+
+  «SCORE@a1» 4/2/3
+
+Use the card's @ref. Confidence is optional — «SCORE@a1» 4/2 is fine. Emit one «SCORE» line per card and nothing else on that line; do NOT rewrite the cards as «IDEA» lines when triaging.
+
 Rules:
 - One idea per «IDEA» line. Put each «IDEA» line on its own line.
 - Use «IDEA» ONLY for real ideas, never for chitchat, status, or questions.
-- Everything that is NOT an «IDEA» line is treated as ordinary chat.`;
+- Everything that is NOT an «IDEA» or «SCORE» line is treated as ordinary chat.`;
 
 /**
  * Derive the harness profile name + priming text from the harness command. A
@@ -255,6 +261,16 @@ async function dispatch(
               body: idea.body.slice(0, 80),
             });
             send({ type: "idea", workspaceId, idea });
+          },
+          // Each newly-extracted triage score → the canvas, updating a card (#60).
+          (score) => {
+            log.info("ai.score.sent", {
+              workspace: workspaceId,
+              ref: score.ref,
+              impact: score.impact,
+              effort: score.effort,
+            });
+            send({ type: "score", workspaceId, score });
           },
           (message) => {
             log.warn("session.error", { workspace: workspaceId, message });

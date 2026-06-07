@@ -12,7 +12,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   IdeaScanner,
+  ScoreScanner,
   scanIdeas,
+  scanScores,
   getProfile,
   commandProfileName,
   DEFAULT_PROFILE,
@@ -429,5 +431,55 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.create({ workspaceId: "ws3", command: "bash", prime: PRIME });
     const launch = fake.sessions.get("ai-storm-ws3")?.launch ?? "";
     expect(launch).not.toContain("--append-system-prompt");
+  });
+});
+
+describe("scanScores (#60 triage)", () => {
+  const scoresOf = (...lines: string[]) => scanScores(lines);
+
+  it("parses impact/effort/confidence from a «SCORE@ref» line", () => {
+    expect(scoresOf("«SCORE@a1» 4/2/3")).toEqual([
+      { ref: "a1", impact: 4, effort: 2, confidence: 3 },
+    ]);
+  });
+
+  it("treats confidence as optional", () => {
+    expect(scoresOf("«SCORE@a2» 5/1")).toEqual([{ ref: "a2", impact: 5, effort: 1 }]);
+  });
+
+  it("accepts the ASCII alias and tolerant spacing", () => {
+    expect(scoresOf("<<SCORE@b3>>  3 / 4 / 2")).toEqual([
+      { ref: "b3", impact: 3, effort: 4, confidence: 2 },
+    ]);
+  });
+
+  it("strips a leading claude turn bullet", () => {
+    expect(scoresOf("● «SCORE@a1» 2/2/2")).toEqual([
+      { ref: "a1", impact: 2, effort: 2, confidence: 2 },
+    ]);
+  });
+
+  it("ignores out-of-range values and mid-sentence mentions", () => {
+    expect(scoresOf("«SCORE@a1» 7/2")).toEqual([]); // 7 > 5
+    expect(scoresOf("I would score @a1 as 4/2 here")).toEqual([]); // not line-leading
+    expect(scoresOf("«SCORE» 4/2")).toEqual([]); // ref is required
+  });
+
+  it("scans many score lines in one capture", () => {
+    expect(scoresOf("«SCORE@a1» 4/2", "chatter", "«SCORE@a2» 1/5/3")).toEqual([
+      { ref: "a1", impact: 4, effort: 2 },
+      { ref: "a2", impact: 1, effort: 5, confidence: 3 },
+    ]);
+  });
+});
+
+describe("ScoreScanner dedupe (#60)", () => {
+  it("emits a re-rendered score once, but a changed re-triage as a fresh update", () => {
+    const s = new ScoreScanner();
+    expect(s.scan("«SCORE@a1» 4/2/3")).toEqual([{ ref: "a1", impact: 4, effort: 2, confidence: 3 }]);
+    // Same line re-rendered next frame → nothing new.
+    expect(s.scan("«SCORE@a1» 4/2/3")).toEqual([]);
+    // Re-triage changes the rating → a fresh update flows through.
+    expect(s.scan("«SCORE@a1» 5/1/4")).toEqual([{ ref: "a1", impact: 5, effort: 1, confidence: 4 }]);
   });
 });

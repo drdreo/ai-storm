@@ -8,10 +8,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   layoutMindMap,
+  layoutPriorityGrid,
+  quadrantOf,
   DEFAULT_MINDMAP,
+  DEFAULT_PRIORITY_GRID,
   type LayoutCard,
   type LayoutEdge,
   type LayoutPosition,
+  type ScoredCard,
 } from './idea-layout';
 
 /** Compact card factory — fixed 250×132 (the canvas default) unless overridden. */
@@ -138,5 +142,80 @@ describe('layoutMindMap', () => {
     const cards = [card('only', 'risk')];
     const [p] = layoutMindMap(cards, [], { originX: 1000, originY: 500 });
     expect(p).toEqual({ id: 'only', x: 1000, y: 500 });
+  });
+});
+
+/** Compact scored-card factory — fixed 250×132 unless overridden. */
+function scored(id: string, impact?: number, effort?: number, w = 250, h = 132): ScoredCard {
+  return { id, w, h, impact, effort };
+}
+
+describe('quadrantOf', () => {
+  const mid = DEFAULT_PRIORITY_GRID.mid; // 3
+  it('bins high impact + low effort as quick wins', () => {
+    expect(quadrantOf(5, 1, mid)).toBe('quick-wins');
+    expect(quadrantOf(3, 2, mid)).toBe('quick-wins');
+  });
+  it('bins high impact + high effort as big bets', () => {
+    expect(quadrantOf(5, 5, mid)).toBe('big-bets');
+    expect(quadrantOf(3, 3, mid)).toBe('big-bets');
+  });
+  it('bins low impact + low effort as fill-ins', () => {
+    expect(quadrantOf(2, 1, mid)).toBe('fill-ins');
+  });
+  it('bins low impact + high effort as time sinks', () => {
+    expect(quadrantOf(1, 5, mid)).toBe('time-sinks');
+  });
+});
+
+describe('layoutPriorityGrid', () => {
+  const opt = DEFAULT_PRIORITY_GRID;
+
+  it('is a no-op on an empty board', () => {
+    expect(layoutPriorityGrid([])).toEqual([]);
+  });
+
+  it('places quick wins top-left and big bets in the right column', () => {
+    const positions = layoutPriorityGrid([
+      scored('win', 5, 1), // quick win: col 0, row 0
+      scored('bet', 5, 5), // big bet:   col 1, row 0
+    ]);
+    const win = positions.find((p) => p.id === 'win')!;
+    const bet = positions.find((p) => p.id === 'bet')!;
+    expect(win.x).toBe(opt.originX);
+    expect(win.y).toBe(opt.originY);
+    // Big bets sit a full quadrant + gap to the right, same top row.
+    expect(bet.x).toBe(opt.originX + opt.quadW + opt.quadGap);
+    expect(bet.y).toBe(opt.originY);
+  });
+
+  it('places low-impact cards in the bottom row', () => {
+    const [fill] = layoutPriorityGrid([scored('fill', 1, 1)]);
+    expect(fill.x).toBe(opt.originX);
+    expect(fill.y).toBe(opt.originY + opt.quadH + opt.quadGap);
+  });
+
+  it('parks unscored cards in a lane below the grid', () => {
+    const positions = layoutPriorityGrid([
+      scored('win', 5, 1),
+      scored('loose'), // no scores → parked
+    ]);
+    const loose = positions.find((p) => p.id === 'loose')!;
+    const laneY = opt.originY + 2 * opt.quadH + opt.quadGap + opt.parkGap;
+    expect(loose.y).toBe(laneY);
+    expect(loose.x).toBe(opt.originX);
+  });
+
+  it('tiles multiple cards in one quadrant without overlap, wrapping by width', () => {
+    // Many narrow cards in the same quadrant: x advances, then wraps to a new row.
+    const cards = Array.from({ length: 5 }, (_, i) => scored(`q${i}`, 5, 1, 250, 132));
+    const positions = layoutPriorityGrid(cards, { quadW: 600 }); // ~2 per row (250+gap)
+    const first = positions.find((p) => p.id === 'q0')!;
+    const second = positions.find((p) => p.id === 'q1')!;
+    const third = positions.find((p) => p.id === 'q2')!;
+    expect(second.x).toBeGreaterThan(first.x); // same row, to the right
+    expect(second.y).toBe(first.y);
+    expect(third.x).toBe(first.x); // wrapped back to the left
+    expect(third.y).toBeGreaterThan(first.y);
   });
 });

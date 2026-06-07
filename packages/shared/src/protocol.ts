@@ -118,6 +118,7 @@ export type ServerMessage =
   | SessionStatusMessage
   | DataMessage
   | IdeaMessage
+  | ScoreMessage
   | ExitMessage
   | AgentStatusMessage
   | ErrorMessage;
@@ -197,6 +198,39 @@ export function ideaIdentityKey(idea: Idea): string {
     .join(",");
   // U+0001 separates the fields — it never occurs in rendered terminal text.
   return [norm(idea.title), (idea.kind ?? "").trim(), links].join("");
+}
+
+/**
+ * An AI triage score for one EXISTING card (#60). Unlike an {@link Idea} (which
+ * creates a card), a score *updates* a card already on the board: it targets the
+ * card's short ref (idea-graph §4) and carries the agent's impact / effort /
+ * confidence rating on a 1..5 scale. Extracted from the `«SCORE@ref»` marker the
+ * agent emits when asked to triage the board, and applied to the card's `meta`
+ * (driving the 2×2 prioritization layout, #60). `confidence` is optional — the
+ * agent may rate only impact × effort.
+ */
+export interface Score {
+  /** Short ref of the card being scored (idea-graph §4). */
+  ref: string;
+  /** 1..5, higher = more impactful. */
+  impact: number;
+  /** 1..5, higher = more effort. */
+  effort: number;
+  /** 1..5, higher = more confident; omitted when the agent didn't rate it. */
+  confidence?: number;
+}
+
+/**
+ * A single triage score extracted from the `«SCORE@ref»` contract (#60),
+ * destined to update an existing card on the canvas. Emitted one at a time as
+ * each marker line completes; the backend dedupes a given `(ref, values)` within
+ * a session so a re-rendered line is delivered once, while a *re-triage* that
+ * changes a card's score passes through as a fresh update.
+ */
+export interface ScoreMessage {
+  type: "score";
+  workspaceId: string;
+  score: Score;
 }
 
 /**
