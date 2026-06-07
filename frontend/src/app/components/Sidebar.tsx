@@ -23,6 +23,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from '../stores/workspace.store'
 import { useBackendStore } from '../stores/backend.store'
@@ -62,6 +72,7 @@ export function Sidebar() {
   const connState = useBackendStore((s) => s.state)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceMeta | null>(null)
 
   /** Focus (and select) the freshly-rendered inline rename input. */
   const renameInputRef = useCallback((el: HTMLInputElement | null) => {
@@ -93,10 +104,14 @@ export function Sidebar() {
     }
   }
 
-  const remove = (id: string) => {
-    if (!confirm('Delete this workspace and its canvas? This cannot be undone.')) return
-    ingestion.detach(id)
-    void workspace.remove(id)
+  // Deleting a workspace drops its canvas + IndexedDB store for good, so the
+  // kebab only *requests* deletion (opens a themed confirm dialog, audit H5);
+  // the irreversible work runs on explicit confirm, never on window.confirm.
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    ingestion.detach(deleteTarget.id)
+    void workspace.remove(deleteTarget.id)
+    setDeleteTarget(null)
   }
 
   return (
@@ -174,7 +189,7 @@ export function Sidebar() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
-                              onSelect={() => remove(ws.id)}
+                              onSelect={() => setDeleteTarget(ws)}
                             >
                               Delete
                             </DropdownMenuItem>
@@ -220,6 +235,28 @@ export function Sidebar() {
       </SidebarFooter>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete workspace?</DialogTitle>
+            <DialogDescription>
+              “{deleteTarget?.title}” and its canvas will be permanently deleted. This can’t be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button variant="destructive" size="sm" onClick={confirmDelete}>
+              Delete workspace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <SidebarRail />
     </UISidebar>

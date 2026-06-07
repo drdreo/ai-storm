@@ -3,12 +3,44 @@ import * as Toolbar from '@radix-ui/react-toolbar'
 import { Button } from '@/components/ui/button'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useWorkspaceStore, selectActive } from '../stores/workspace.store'
 import { canvas } from '../stores/canvas.store'
 import { agent } from '../stores/agent.store'
 import { CanvasIsland } from '../core/canvas-island'
 import { SummaryPanel } from './SummaryPanel'
 import type { ConvergentSummary } from '../core/synthesis'
+
+/**
+ * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
+ * replaces the old `title=`, which never showed on keyboard focus or touch). The
+ * Radix `asChild` chain (TooltipTrigger → Toolbar.Button → Button) keeps it a
+ * single real <button> with the toolbar's roving-focus and the tooltip's a11y.
+ */
+function ToolbarVerb({
+  onClick,
+  tip,
+  variant = 'default',
+  children,
+}: {
+  onClick: () => void
+  tip: string
+  variant?: 'default' | 'ghost'
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toolbar.Button asChild>
+          <Button size="sm" variant={variant} onClick={onClick}>
+            {children}
+          </Button>
+        </Toolbar.Button>
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 /**
  * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the tldraw canvas (the
@@ -55,26 +87,18 @@ export function CanvasPane() {
         <Separator orientation="vertical" className="!h-5" />
         <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
-          <Toolbar.Button asChild>
-            <Button size="sm" variant="ghost" onClick={triage} title="Ask the agent to rate every card (impact/effort/confidence) (#60)">
-              ⚖ Triage
-            </Button>
-          </Toolbar.Button>
-          <Toolbar.Button asChild>
-            <Button size="sm" variant="ghost" onClick={synthesize} title="Read the board into a convergent summary (#28)">
-              ✦ Synthesize
-            </Button>
-          </Toolbar.Button>
-          <Toolbar.Button asChild>
-            <Button size="sm" variant="ghost" onClick={injectContext} title="Serialize canvas into the terminal loop (PRD 3.2)">
-              Inject context
-            </Button>
-          </Toolbar.Button>
-          <Toolbar.Button asChild>
-            <Button size="sm" onClick={dispatchSelection} title="Send selection to the local agent (PRD 3.6)">
-              Send to agent ▸
-            </Button>
-          </Toolbar.Button>
+          <ToolbarVerb onClick={triage} variant="ghost" tip="Ask the agent to rate every card — impact, effort, confidence (#60)">
+            ⚖ Triage
+          </ToolbarVerb>
+          <ToolbarVerb onClick={synthesize} variant="ghost" tip="Read the board into a convergent summary (#28)">
+            ✦ Synthesize
+          </ToolbarVerb>
+          <ToolbarVerb onClick={injectContext} variant="ghost" tip="Serialize the canvas into the terminal loop (PRD §3.2)">
+            Inject context
+          </ToolbarVerb>
+          <ToolbarVerb onClick={dispatchSelection} tip="Send the current selection to the local agent (PRD §3.6)">
+            Send to agent ▸
+          </ToolbarVerb>
         </Toolbar.Root>
       </div>
 
