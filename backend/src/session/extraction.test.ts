@@ -19,6 +19,7 @@ import {
   CLAUDE_PROFILE,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
+import { ideaIdentityKey } from "@ai-storm/shared";
 
 /** Build a capture string from screen lines (as `capture-pane -p` would emit). */
 const cap = (...lines: string[]): string => lines.join("\n");
@@ -259,6 +260,17 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     expect(scanner.scan(frame)).toEqual([]);
   });
 
+  it("dedupes an idea whose interior spacing drifts after a reflow (#38)", () => {
+    const scanner = new IdeaScanner();
+    expect(scanner.scan(cap("  «IDEA» Edge cache :: serve from the CDN", "❯"))).toEqual([
+      { title: "Edge cache", body: "serve from the CDN" },
+    ]);
+    // A pane resize re-wraps the line, so the next capture carries the same idea
+    // with extra interior spaces. Identity is whitespace-normalized, so it is NOT
+    // re-emitted — no duplicate card lands on the canvas (the resize-dup bug).
+    expect(scanner.scan(cap("  «IDEA»  Edge   cache ::  serve from  the  CDN", "❯"))).toEqual([]);
+  });
+
   it("dedupes a re-rendered linked idea but keeps distinct link targets apart (#42)", () => {
     const scanner = new IdeaScanner();
     const linked = { title: "Leak", body: "races", kind: "risk", links: [{ to: "a1", relation: "about" }] };
@@ -287,6 +299,35 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     expect(scanner.scan(cap("  «IDEA» Real one :: with substance", "❯"))).toEqual([
       { title: "Real one", body: "with substance" },
     ]);
+  });
+});
+
+describe("ideaIdentityKey — reflow-stable identity (#38)", () => {
+  it("is invariant to interior/edge whitespace (the reflow that caused resize dups)", () => {
+    expect(ideaIdentityKey({ title: "Edge cache", body: "serve from the CDN" })).toBe(
+      ideaIdentityKey({ title: "  Edge   cache ", body: "serve  from\tthe  CDN" }),
+    );
+  });
+
+  it("separates fields so content can't blur across the boundary", () => {
+    // title "ab" must not collide with title "a" + body "b".
+    expect(ideaIdentityKey({ title: "ab", body: "" })).not.toBe(
+      ideaIdentityKey({ title: "a", body: "b" }),
+    );
+  });
+
+  it("keeps distinct link targets / relations apart (idea-graph §5.1)", () => {
+    const base = { title: "Leak", body: "races", kind: "risk" };
+    const aboutA1 = ideaIdentityKey({ ...base, links: [{ to: "a1", relation: "about" }] });
+    expect(aboutA1).toBe(ideaIdentityKey({ ...base, links: [{ to: "a1" }] })); // about is the default
+    expect(aboutA1).not.toBe(ideaIdentityKey({ ...base, links: [{ to: "b2", relation: "about" }] }));
+    expect(aboutA1).not.toBe(ideaIdentityKey({ ...base, links: [{ to: "a1", relation: "supersedes" }] }));
+  });
+
+  it("ignores the idea's own id (identity is content + edges, not the minted ref)", () => {
+    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(
+      ideaIdentityKey({ title: "X", body: "y" }),
+    );
   });
 });
 

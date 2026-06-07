@@ -37,7 +37,7 @@ import {
   DefaultColorStyle,
 } from 'tldraw';
 import 'tldraw/tldraw.css';
-import type { Idea, IdeaRelation } from '@ai-storm/shared';
+import { ideaIdentityKey, type Idea, type IdeaRelation } from '@ai-storm/shared';
 import {
   kindLabel,
   kindColor,
@@ -92,6 +92,11 @@ interface IdeaCardMeta {
   ref?: string;
   /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
   starred?: boolean;
+  /** Canonical, reflow-stable identity of the idea this card was minted from
+   *  (the shared `ideaIdentityKey`). Lets {@link applyIdeas} resolve a
+   *  re-extracted idea to THIS card instead of duplicating it when a terminal
+   *  resize re-wraps the source text (#38). */
+  identity?: string;
   [key: string]: unknown;
 }
 
@@ -323,9 +328,23 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
   // minted refs never collide across sessions (idea-graph §4).
   let nextRef = maxRefIndex(editor) + 1;
   let gridIndex = ideaCards(editor).length;
+  // Idempotency (#38): never mint a second card for an idea we already have. The
+  // backend reads ideas off a *reflowing* terminal and can re-emit the same idea
+  // after a pane resize (its rejoined body text drifts); keying on the canonical,
+  // reflow-stable identity — the SAME `ideaIdentityKey` the backend dedupes on —
+  // resolves a repeat to the existing card instead of duplicating it.
+  const seen = new Set<string>();
+  for (const card of ideaCards(editor)) {
+    const key = (card.meta as IdeaCardMeta).identity;
+    if (key) seen.add(key);
+  }
 
   editor.run(() => {
     for (const idea of ideas) {
+      const identity = ideaIdentityKey(idea);
+      if (seen.has(identity)) continue; // already on the canvas — skip the duplicate
+      seen.add(identity);
+
       // Resolve the first link whose target ref already has a card (graceful
       // degradation: an unresolved link just lands the card on the grid).
       const link = (idea.links ?? []).find((l) => refToShape.has(l.to) || !!resolveRef(editor, l.to));
@@ -355,7 +374,7 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         type: 'idea-card',
         x,
         y,
-        meta: { ref },
+        meta: { ref, identity },
         props: {
           w: CARD_W,
           h: CARD_H,

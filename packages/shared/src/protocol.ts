@@ -171,6 +171,36 @@ export interface Idea {
 }
 
 /**
+ * Canonical, reflow-stable identity key for an {@link Idea} — the single source
+ * of truth both the backend scanner (session-scoped dedupe) and the canvas
+ * (`applyIdeas` idempotency) key on, so a re-extracted idea resolves to the SAME
+ * card instead of duplicating it (#38).
+ *
+ * Why normalize: the backend reads ideas off a *reflowing* terminal grid, and a
+ * pane resize re-wraps an idea's body so the rejoined text gains or loses
+ * interior whitespace. Keying on the raw text makes the very same idea look
+ * "new" after a resize — the cause of the resize-duplicates-every-note bug.
+ * Collapsing whitespace runs to a single space (and trimming) makes the key
+ * invariant under that reflow. Casing is preserved (reflow never changes it).
+ *
+ * Links are part of identity (idea-graph design §5.1): the same title/body
+ * pointed at a *different* target — or with a *different* relation — is a
+ * distinct edge and must NOT collapse together. The link list is
+ * order-independent. The idea's own `id` is deliberately excluded: identity is
+ * what the idea *says* (content + edges), not the ref a producer happened to
+ * mint for it.
+ */
+export function ideaIdentityKey(idea: Idea): string {
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const links = (idea.links ?? [])
+    .map((l) => `${l.to}:${l.relation ?? "about"}`)
+    .sort()
+    .join(",");
+  // U+0001 separates the fields — it never occurs in rendered terminal text.
+  return [norm(idea.title), norm(idea.body), (idea.kind ?? "").trim(), links].join("");
+}
+
+/**
  * Raw PTY output for a workspace's session — streamed to the browser's xterm.js
  * terminal verbatim (the conversation surface). `data` is base64-encoded so the
  * control bytes of a cursor-addressed TUI survive JSON transport unchanged; the
