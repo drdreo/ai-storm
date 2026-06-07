@@ -17,7 +17,7 @@
  * widen this union, add a matching {@link PROMPT_TEMPLATES} entry, and add a row
  * to `CARD_VERBS` in `discuss-toolbar.ts` (the menu item that carries it).
  */
-export type PromptIntent = 'discuss' | 'expand' | 'challenge' | 'find-risks';
+export type PromptIntent = 'discuss' | 'expand' | 'challenge' | 'find-risks' | 'combine';
 
 /**
  * Frames a (trimmed, non-empty) selection into an editable prompt per intent.
@@ -36,6 +36,8 @@ export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => strin
     `Challenge this idea from the canvas — stress-test it for the strongest objections, then give me a refined, stronger version that addresses them and supersedes the original:\n\n${selection}\n\nPush hardest on: `,
   'find-risks': (selection) =>
     `Find the risks, failure modes, and hidden assumptions in this idea from the canvas:\n\n${selection}\n\nI'm most worried about: `,
+  combine: (selection) =>
+    `Combine these ideas from the canvas into ONE stronger, unified idea — synthesize their best elements, resolve overlaps and tensions, and produce a single refined idea that stands on its own and supersedes its sources:\n\n${selection}\n\nWhat matters most in the merge: `,
 };
 
 /**
@@ -45,20 +47,24 @@ export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => strin
  * otherwise applies the {@link PromptIntent}'s template to the trimmed selection.
  * The result intentionally has a trailing space and no trailing newline.
  *
- * When `sourceRef` is given (the short ref of the card the verb fired from,
+ * When `sourceRef` is given (the short ref(s) of the card(s) the verb fired from,
  * idea-graph design §4/§5), a tagging directive is PREPENDED so the ideas this
- * turn produces come back linked to that card — without disturbing the
- * trailing-space editable seam (the cursor stays at the very end).
+ * turn produces come back linked to those cards — without disturbing the
+ * trailing-space editable seam (the cursor stays at the very end). A single ref
+ * is accepted as a bare string; the multi-select `combine` verb (#62) passes the
+ * full array of selected source refs.
  */
 export function framePrompt(
   selection: string,
   intent: PromptIntent = 'discuss',
-  sourceRef?: string,
+  sourceRef?: string | readonly string[],
 ): string {
   const trimmed = selection.trim();
   if (!trimmed) return '';
+  const refs = sourceRef == null ? [] : typeof sourceRef === 'string' ? [sourceRef] : sourceRef;
   const body = PROMPT_TEMPLATES[intent](trimmed);
-  return sourceRef ? `${refDirective(sourceRef, intent)}\n\n${body}` : body;
+  const directive = refs.length ? refDirective(refs, intent) : '';
+  return directive ? `${directive}\n\n${body}` : body;
 }
 
 /**
@@ -92,20 +98,25 @@ export function frameTriage(board: string): string {
  * and the canvas draws a connector. Prepended (never appended) so the verb's
  * open clause and the cursor stay at the very end.
  *
- * The relation depends on the verb (PD-012): {@link supersedeDirective} for
- * `challenge` (the refined idea *replaces* the source — a `supersedes` edge);
- * {@link aboutDirective} for every other verb (the idea is simply *about* it).
+ * The relation depends on the verb (PD-012): {@link combineDirective} for
+ * `combine` (the merged idea *replaces* all its sources — a fan of `supersedes`
+ * edges, #62); {@link supersedeDirective} for `challenge` (the refined idea
+ * *replaces* the single source); {@link aboutDirective} for every other verb
+ * (the idea is simply *about* it).
  *
- * CRITICAL: neither directive may contain the `«IDEA»` marker token. The
- * directive is typed into the terminal and echoed onto the screen, and the
- * backend scans every screen line for markers (PD-008 — it deliberately does
- * NOT try to isolate the agent's reply region). A literal marker here is echoed
- * and re-extracted as a bogus card. The marker grammar (including the `@ref` and
- * `!` forms) is taught instead by the session priming, which is delivered as a
- * system prompt and never echoed. So a directive only ever supplies the *ref*.
+ * CRITICAL: no directive may contain the `«IDEA»` marker token. The directive is
+ * typed into the terminal and echoed onto the screen, and the backend scans every
+ * screen line for markers (PD-008 — it deliberately does NOT try to isolate the
+ * agent's reply region). A literal marker here is echoed and re-extracted as a
+ * bogus card. The marker grammar (including the `@ref` and `!` forms) is taught
+ * instead by the session priming, which is delivered as a system prompt and never
+ * echoed. So a directive only ever supplies the *ref(s)*.
  */
-function refDirective(sourceRef: string, intent: PromptIntent): string {
-  return intent === 'challenge' ? supersedeDirective(sourceRef) : aboutDirective(sourceRef);
+function refDirective(sourceRefs: readonly string[], intent: PromptIntent): string {
+  if (intent === 'combine') return combineDirective(sourceRefs);
+  // The single-card verbs always carry exactly one ref; the first is the source.
+  if (intent === 'challenge') return supersedeDirective(sourceRefs[0]);
+  return aboutDirective(sourceRefs[0]);
 }
 
 /**
@@ -133,5 +144,25 @@ function supersedeDirective(sourceRef: string): string {
     `(This challenges card @${sourceRef}. Capture your refined, stronger version as a single idea and ` +
     `link it back as a REPLACEMENT using the @${sourceRef}! form — the trailing ! right after the ref — ` +
     `so it supersedes the original rather than just relating to it.)`
+  );
+}
+
+/**
+ * Combine-as-supersede directive (#62): the multi-select merge verb. Supplies
+ * every selected source ref AND asks the agent to emit a SINGLE merged idea that
+ * supersedes them all — via the chained `@a1!@a2!@a3!` form (each ref followed by
+ * `!`, all appended to the one marker; the priming teaches this chain). The
+ * sources fold into the merge and recede to grey ghosts (PD-012), history kept.
+ * No `«IDEA»` token — see {@link refDirective}.
+ */
+function combineDirective(sourceRefs: readonly string[]): string {
+  const list = sourceRefs.map((r) => `@${r}`).join(', ');
+  const chain = sourceRefs.map((r) => `@${r}!`).join('');
+  return (
+    `(Combine cards ${list} into ONE stronger idea. Capture the merged result as a SINGLE idea — its ` +
+    `description can run to a few sentences, since it synthesizes several cards, so don't force it into one ` +
+    `line — and link it back as a REPLACEMENT of every source by chaining their refs on its marker as ` +
+    `${chain} — each ref followed by a ! and appended directly after the previous — so the merged idea ` +
+    `supersedes them all.)`
   );
 }

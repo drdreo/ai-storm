@@ -28,9 +28,9 @@ export function CanvasPane() {
   // text and type it into the active workspace's live terminal. Registered once;
   // reads the latest active workspace at fire time.
   useEffect(() => {
-    canvas.onCardVerb((text, intent, sourceRef) => {
+    canvas.onCardVerb((text, intent, sourceRefs) => {
       const ws = selectActive(useWorkspaceStore.getState())
-      if (ws) agent.discussText(ws.id, text, intent, sourceRef)
+      if (ws) agent.discussText(ws.id, text, intent, sourceRefs)
     })
   }, [])
 

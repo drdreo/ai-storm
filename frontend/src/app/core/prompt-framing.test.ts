@@ -155,8 +155,47 @@ describe('framePrompt — challenge supersede directive (#20/#22, PD-012)', () =
   });
 });
 
+describe('framePrompt — combine merge verb (#62, PD-019)', () => {
+  it('chains every source ref with a trailing ! so the merge supersedes them all', () => {
+    const out = framePrompt('A\n\nB\n\nC', 'combine', ['a1', 'a2', 'a3']);
+    // The merged idea replaces each source via the chained `@aN!` form.
+    expect(out).toContain('@a1!@a2!@a3!');
+    // Each source is also named in the human-readable list.
+    expect(out).toContain('@a1, @a2, @a3');
+  });
+
+  it('accepts a single ref as a bare string too (uniform with the other verbs)', () => {
+    const arr = framePrompt('S', 'combine', ['a1']);
+    const str = framePrompt('S', 'combine', 'a1');
+    expect(arr).toBe(str);
+    expect(arr).toContain('@a1!');
+  });
+
+  it('keeps the editable-cursor invariant (trailing space, no newline)', () => {
+    const out = framePrompt('A\n\nB', 'combine', ['a1', 'a2']);
+    expect(out.endsWith(' ')).toBe(true);
+    expect(out.endsWith('\n')).toBe(false);
+  });
+
+  it('the directive leads; the selection + open clause still follow', () => {
+    const out = framePrompt('A\n\nB', 'combine', ['a1', 'a2']);
+    expect(out.indexOf('@a1!@a2!')).toBeLessThan(out.indexOf('What matters most'));
+  });
+
+  it('carries the refs but NO «IDEA» marker token (would be re-extracted)', () => {
+    const out = framePrompt('A\n\nB', 'combine', ['a1', 'a2']);
+    expect(out).not.toContain('«IDEA');
+    expect(out).not.toContain('<<IDEA');
+  });
+
+  it('frames the merge prompt distinctly and still yields nothing when empty', () => {
+    expect(framePrompt('A', 'combine')).toContain('into ONE stronger');
+    expect(framePrompt('   ', 'combine', ['a1', 'a2'])).toBe('');
+  });
+});
+
 describe('PROMPT_TEMPLATES', () => {
-  const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks'];
+  const intents: PromptIntent[] = ['discuss', 'expand', 'challenge', 'find-risks', 'combine'];
 
   it('has an entry per intent that honours the trailing-space-no-newline invariant', () => {
     for (const intent of intents) {

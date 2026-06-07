@@ -276,6 +276,33 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   its own DOM at runtime). Removes `@angular/aria` + `@angular/cdk`. A bespoke theme/palette is left
   as future work.
 
+### PD-019 — Combine (merge) is a multi-source supersede, like challenge
+
+`(2026-06-07, accepted, extends PD-012)`
+
+- **Decision:** The multi-select **Combine** verb (#62) — "merge these cards into one stronger idea" —
+  is modelled as a **convergent supersede**, the same shape as the single-card Challenge (PD-012),
+  just fanned out: the agent emits **one** merged idea that **`supersedes` every selected source**, and
+  each source **dims/archives** (lifecycle, #20) rather than disappearing. We rejected the `about`
+  alternative (keep all sources live, merge merely *about*-links them): a merge is an act of
+  *convergence*, so leaving the originals as live peers of their own synthesis re-clutters the board —
+  exactly what supersede-and-dim avoids. The user retains the originals as ghosts (history kept,
+  breadcrumb per #22), so nothing is lost; if they truly want a source kept live, they don't merge it.
+- **Why:** The board's job is to converge (#22/#28), and Challenge already established the pattern —
+  the strongest version wins while the path to it stays visible (PD-012). A merge is just that move
+  over N sources instead of one, so it should reuse the same edge (`supersedes`), the same lifecycle
+  dimming, and the same breadcrumb rather than inventing a new relation. Keeping it a supersede also
+  means no new kind and no new lifecycle state — `combine` is *what was done*, an edge, not *what a
+  card is* (PD-010/PD-012). The bar shows **only** Combine for a 2+ selection: the single-card moves
+  (discuss/expand/challenge) are about one idea and don't map onto a multi-card convergent action.
+- **Affects:** Adds the `combine` `PromptIntent` + template + `combineDirective` (prompt-framing) and a
+  multi-select branch in the `CardVerbBar` (#13/#15 seam). The supersede fan rides the **single-line
+  marker** as a **chained ref form** — `«IDEA@a1!@a2!@a3!»` — extending the idea contract grammar
+  (one `@ref[!]` → a chain of them; backend `extraction` + the session priming both teach/parse it),
+  because the fenced `rel:` form is unreliable (PD-008: the TUI renders the fence away). Frontend
+  `applyIdeas` now connects **all** resolved links and ghosts every superseded target, not just the
+  first. Closes the `merge` scope dropped from #15 (PD-011 anticipated this "multi-select action bar").
+
 ### PD-015 — Convergence is a generated artifact, not a second surface
 
 `(2026-06-07, accepted)`
