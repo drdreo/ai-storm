@@ -1,11 +1,19 @@
 /**
- * The card-verb bar (#13/#15) — the bidirectional-canvas seam. When exactly one
- * idea card is selected, a small action bar floats above it offering the AI verbs;
- * picking one serializes the card and fires the handler (wired to the terminal).
- * Rendered `InFrontOfTheCanvas` by {@link ../canvas-island}.
+ * The card-verb bar (#13/#15/#62) — the bidirectional-canvas seam. With exactly
+ * one idea card selected, a small action bar floats above it offering the single-
+ * card AI verbs; with 2+ selected it offers the multi-select **Combine** verb
+ * (#62, PD-019). Picking one serializes the selection and fires the handler
+ * (wired to the terminal). Rendered `InFrontOfTheCanvas` by {@link ../canvas-island}.
  */
-import { stopEventPropagation, track, useEditor } from 'tldraw';
-import { cardToText } from '../canvas-text';
+import {
+  stopEventPropagation,
+  TldrawUiButton,
+  TldrawUiButtonLabel,
+  TldrawUiToolbar,
+  track,
+  useEditor,
+} from 'tldraw';
+import { cardToText, serializeCards } from '../canvas-text';
 import type { PromptIntent } from '../prompt-framing';
 import { cardRef, content, type IdeaCardShape } from './idea-card';
 
@@ -17,27 +25,51 @@ const CARD_VERBS: ReadonlyArray<{ intent: PromptIntent; label: string }> = [
   { intent: 'find-risks', label: 'Find risks' },
 ];
 
-/** The verb fired by the bar: the serialized card text, the intent, and the card ref. */
-export type CardVerbHandler = (text: string, intent: PromptIntent, sourceRef?: string) => void;
+/**
+ * The verb fired by the bar: the serialized selection text, the intent, and the
+ * source card refs (one for the single-card verbs, several for `combine`).
+ */
+export type CardVerbHandler = (
+  text: string,
+  intent: PromptIntent,
+  sourceRefs: readonly string[],
+) => void;
 
 /**
- * The bidirectional-canvas seam (#13, #15): when exactly one idea card is
- * selected, a small action bar offers the card verbs. Clicking one serializes
- * the card, mints/looks up its source ref, and fires the handler (wired to
- * `AgentService.discussText`, which types a framed prompt into the terminal).
- * Rendered as `InFrontOfTheCanvas`, so it lives natively above the canvas.
+ * The bidirectional-canvas seam (#13, #15, #62): a small action bar over the
+ * selected idea card(s). Clicking a verb serializes the selection, mints/looks up
+ * each source ref, and fires the handler (wired to `AgentService.discussText`,
+ * which types a framed prompt into the terminal). Rendered as `InFrontOfTheCanvas`,
+ * so it lives natively above the canvas.
+ *
+ * One selected card → the single-card verbs. Two or more → the **Combine** verb
+ * only (PD-019): a merge is convergent, so the single-card moves (discuss/expand/
+ * challenge) don't apply to a multi-card selection.
  */
 export const CardVerbBar = track(function CardVerbBar({ onVerb }: { onVerb: CardVerbHandler }) {
   const editor = useEditor();
-  const only = editor.getOnlySelectedShape();
-  if (!only || only.type !== 'idea-card') return null;
-  const card = only as IdeaCardShape;
+  const cards = editor
+    .getSelectedShapes()
+    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  if (cards.length === 0) return null;
+  const multi = cards.length >= 2;
 
+  // Fire a single-card verb on the lone selected card.
   const fire = (intent: PromptIntent) => {
+    const card = cards[0];
     const text = cardToText(content(card));
     if (!text.trim()) return;
-    const sourceRef = cardRef(editor, card.id);
-    onVerb(text, intent, sourceRef);
+    const ref = cardRef(editor, card.id);
+    onVerb(text, intent, ref ? [ref] : []);
+  };
+
+  // Fire the multi-select combine verb: serialize every selected card and mint a
+  // ref for each so the merged idea can supersede them all (#62).
+  const fireCombine = () => {
+    const text = serializeCards(cards.map(content));
+    if (!text.trim()) return;
+    const refs = cards.map((c) => cardRef(editor, c.id)).filter((r): r is string => !!r);
+    onVerb(text, 'combine', refs);
   };
 
   return (
@@ -49,36 +81,33 @@ export const CardVerbBar = track(function CardVerbBar({ onVerb }: { onVerb: Card
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
-        gap: 6,
         padding: 4,
-        borderRadius: 8,
-        background: 'var(--color-panel, #fff)',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.18)',
+        borderRadius: 'var(--tl-radius-3, 8px)',
+        background: 'var(--tl-color-panel, #fff)',
+        boxShadow: 'var(--tl-shadow-2, 0 2px 10px rgba(0,0,0,0.18))',
         pointerEvents: 'all',
         zIndex: 300,
       }}
     >
-      {CARD_VERBS.map((verb) => (
-        <button
-          key={verb.intent}
-          type="button"
-          onPointerDown={stopEventPropagation}
-          onClick={() => fire(verb.intent)}
-          style={{
-            border: '1px solid var(--color-muted-1, rgba(0,0,0,0.12))',
-            borderRadius: 6,
-            background: 'var(--color-low, transparent)',
-            color: 'var(--color-text, #1c1c1c)',
-            padding: '4px 10px',
-            cursor: 'pointer',
-            font: 'inherit',
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
-          {verb.label}
-        </button>
-      ))}
+      {/* Native tldraw toolbar + buttons: hover/focus states, keyboard nav, and
+          tooltips come from tldraw's own UI layer (its CSS is already loaded). */}
+      <TldrawUiToolbar label="Card actions">
+        {multi ? (
+          <TldrawUiButton
+            type="normal"
+            onClick={fireCombine}
+            tooltip={`Merge the ${cards.length} selected cards into one stronger idea`}
+          >
+            <TldrawUiButtonLabel>✦ Combine into one</TldrawUiButtonLabel>
+          </TldrawUiButton>
+        ) : (
+          CARD_VERBS.map((verb) => (
+            <TldrawUiButton key={verb.intent} type="normal" onClick={() => fire(verb.intent)}>
+              <TldrawUiButtonLabel>{verb.label}</TldrawUiButtonLabel>
+            </TldrawUiButton>
+          ))
+        )}
+      </TldrawUiToolbar>
     </div>
   );
 });

@@ -169,6 +169,36 @@ describe("scanIdeas — idea-graph links (#42)", () => {
     ]);
   });
 
+  it("parses a chained `@a1!@a2!` marker into one idea superseding every source (#62)", () => {
+    expect(
+      ideasOf(cap("  «IDEA:feature@a1!@a2!@a3!» Unified store :: one CRDT-backed canvas")),
+    ).toEqual([
+      {
+        title: "Unified store",
+        body: "one CRDT-backed canvas",
+        kind: "feature",
+        links: [
+          { to: "a1", relation: "supersedes" },
+          { to: "a2", relation: "supersedes" },
+          { to: "a3", relation: "supersedes" },
+        ],
+      },
+    ]);
+  });
+
+  it("parses a mixed chain (`@a1@a2!`) — about for the bare ref, supersedes for the !", () => {
+    expect(ideasOf(cap("  «IDEA@a1@a2!» Merge :: keep a1, replace a2"))).toEqual([
+      {
+        title: "Merge",
+        body: "keep a1, replace a2",
+        links: [
+          { to: "a1", relation: "about" },
+          { to: "a2", relation: "supersedes" },
+        ],
+      },
+    ]);
+  });
+
   it("detects a marker the agent leads its turn with (claude '● ' bullet)", () => {
     // The first row of a claude turn carries a "● " bullet; later rows only a
     // 2-space margin. An idea emitted as the very first line must still parse.

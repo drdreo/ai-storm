@@ -129,10 +129,12 @@ Grammar (EBNF-ish):
 ```
 idea-line   = ws* , marker , ws* , title , [ ws* , "::" , ws* , body ] , ws* ;
 marker      = ( "«IDEA" , tag , "»" ) | ( "<<IDEA" , tag , ">>" ) ;
-tag         = [ ":" , kind ] , [ "@" , ref , [ "!" ] ] ;   (* all optional; kind before ref *)
+tag         = [ ":" , kind ] , { "@" , ref , [ "!" ] } ;   (* kind optional; zero or more refs, kind first *)
 kind        = lower-alpha , { word-char | "-" } ;          (* e.g. risk, feature, question, todo *)
 ref         = word-char , { word-char | "-" } ;            (* short ref of the linked card, e.g. a1 *)
-                                                           (* a trailing "!" makes the link 'supersedes' (PD-012) *)
+                                                           (* a trailing "!" makes that link 'supersedes' (PD-012) *)
+                                                           (* a CHAIN of refs (@a1!@a2!) = one idea superseding
+                                                              several sources — the combine/merge verb (PD-019) *)
 title       = printable - ( "::" ) ;                        (* required, non-empty after trim *)
 body        = printable ;                                   (* optional; "" if "::" omitted *)
 ```
@@ -148,7 +150,11 @@ body        = printable ;                                   (* optional; "" if "
 > code fence away before the backend captures the screen (PD-008), so in practice
 > the inline `!` is the form that survives. The default edge stays generic
 > (`about`) — the *flavour* lives on the source card's `kind`, so no relation
-> taxonomy is carried inline beyond the one structural `supersedes`. If the agent
+> taxonomy is carried inline beyond the one structural `supersedes`. **Several refs
+> may be chained** (`«IDEA@a1!@a2!@a3!» …` → three `supersedes` links) so a single
+> idea can replace *several* sources at once — the multi-select combine/merge verb
+> (#62, PD-019); each ref carries its own optional `!`, so a mixed `@a1@a2!` links
+> `about` a1 and `supersedes` a2. If the agent
 > omits `@ref` the idea lands unlinked, exactly as before (graceful degradation).
 > The session-scoped dedupe key includes the links, so the same title/body pointed
 > at a *different* target (or with a *different* relation) is a distinct idea.
@@ -829,10 +835,13 @@ Each step independently shippable; app stays working throughout.
 ## Appendix B — key regexes (single source of truth for the impl)
 
 ```ts
-// Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref[!]] (idea-graph §5.1):
-//   groups 1/4 = kind (guillemet/ASCII), 2/5 = ref, 3/6 = supersedes "!", 7 = remainder ("title :: body").
-//   A trailing "!" after the ref makes the link 'supersedes' instead of the default 'about' (PD-012).
-const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?>>)\s*(.*)$/u;
+// Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref[!]…] (idea-graph §5.1):
+//   groups 1/3 = kind (guillemet/ASCII), 2/4 = the ref CHAIN ("@a1!@a2"), 5 = remainder ("title :: body").
+//   A trailing "!" after a ref makes THAT link 'supersedes' instead of the default 'about' (PD-012).
+//   The chain (@a1!@a2!) = one idea superseding several sources — the combine/merge verb (PD-019);
+//   individual {to, relation} links are parsed from the chain by REF_TOKEN.
+const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?»|<<IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?>>)\s*(.*)$/u;
+const REF_TOKEN        = /@([\w-]+)(!)?/gu;  // one ref (+ optional supersede "!") within the chain
 const IDEA_FENCE_OPEN  = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 const FENCE_KEY        = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;  // idea-graph keys added

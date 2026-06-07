@@ -21,7 +21,13 @@
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
 
-import { ideaIdentityKey, type Idea, type IdeaRelation, type Score } from "@ai-storm/shared";
+import {
+  ideaIdentityKey,
+  type Idea,
+  type IdeaLink,
+  type IdeaRelation,
+  type Score,
+} from "@ai-storm/shared";
 
 export type { Idea, Score };
 
@@ -113,18 +119,23 @@ export function commandProfileName(command: string): string | undefined {
 // ── Contract grammar (extraction-contract Appendix B — single source of truth) ──
 
 /**
- * `«IDEA[:kind][@ref[!]]»` / `<<IDEA[:kind][@ref[!]]>>` at line start. The
- * in-marker tag is `[:kind][@ref[!]]` (idea-graph design §5.1): an optional
- * `@ref` links this idea to the card with that short ref; a trailing `!` makes
- * that link a `supersedes` (the refined idea REPLACES the target) instead of the
- * default `about`. The `!` form keeps `supersedes` on the robust single-line
- * marker — the fenced `rel:` key (below) is unreliable because the agent's TUI
- * renders the code fence away before the backend captures the screen (PD-008).
- * Groups: 1/4 = kind (guillemet/ASCII), 2/5 = ref, 3/6 = supersedes `!`,
- * 7 = the remainder (`title :: body`).
+ * `«IDEA[:kind][@ref[!]…]»` / `<<IDEA[:kind][@ref[!]…]>>` at line start. The
+ * in-marker tag is `[:kind][@ref[!]…]` (idea-graph design §5.1): one or more
+ * `@ref` tokens link this idea to the cards with those short refs; a trailing `!`
+ * on a ref makes THAT link a `supersedes` (the idea REPLACES the target) instead
+ * of the default `about`. Multiple chained refs (`@a1!@a2!`) let a single idea
+ * supersede several sources — the multi-select `combine`/merge verb (#62). The
+ * `!` form keeps `supersedes` on the robust single-line marker — the fenced
+ * `rel:` key (below) is unreliable because the agent's TUI renders the code fence
+ * away before the backend captures the screen (PD-008).
+ * Groups: 1/3 = kind (guillemet/ASCII), 2/4 = the ref chain (`@a1!@a2`),
+ * 5 = the remainder (`title :: body`). Individual refs are parsed from the chain
+ * by {@link REF_TOKEN}.
  */
 const IDEA_MARKER =
-  /^\s*(?:«IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?»|<<IDEA(?::([a-z][\w-]*))?(?:@([\w-]+)(!)?)?>>)\s*(.*)$/u;
+  /^\s*(?:«IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?»|<<IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?>>)\s*(.*)$/u;
+/** One `@ref` (with optional trailing `!`) within an {@link IDEA_MARKER} chain. */
+const REF_TOKEN = /@([\w-]+)(!)?/gu;
 /** ` ```idea [kind=…] ` opens a fenced (multi-line body) idea. */
 const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 /** A bare ` ``` ` closes a fenced idea. */
@@ -180,24 +191,39 @@ function parseRelation(value: string): IdeaRelation | undefined {
 }
 
 /**
- * Parse a single-line idea: `title :: body`, split on the FIRST `::`. An in-marker
- * `@ref` becomes a single link to that card (idea-graph §5.1) — `supersedes` when
- * the ref carried a trailing `!`, otherwise the default `about`.
+ * Parse a single-line idea: `title :: body`, split on the FIRST `::`. Each in-marker
+ * `@ref` in the chain becomes a link to that card (idea-graph §5.1) — `supersedes`
+ * when that ref carried a trailing `!`, otherwise the default `about`. A chain of
+ * supersede refs (`@a1!@a2!`) is the multi-select `combine` verb folding several
+ * sources into one merged idea (#62).
  */
 function ideaFromLine(
   kind: string | undefined,
-  ref: string | undefined,
-  supersedes: boolean,
+  refChain: string | undefined,
   logical: string,
 ): Idea {
-  const rest = logical.replace(IDEA_MARKER, "$7").trim(); // remainder after marker
+  const rest = logical.replace(IDEA_MARKER, "$5").trim(); // remainder after marker
   const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
   const body = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
   const idea: Idea = { title, body };
   if (kind) idea.kind = kind;
-  if (ref) idea.links = [{ to: ref, relation: supersedes ? "supersedes" : "about" }];
+  const links = parseRefChain(refChain);
+  if (links.length) idea.links = links;
   return idea;
+}
+
+/**
+ * Split a marker ref chain (`@a1!@a2`) into typed links — one per `@ref`, each
+ * `supersedes` if it carried a trailing `!`, else `about` (idea-graph §5.1).
+ */
+function parseRefChain(refChain: string | undefined): IdeaLink[] {
+  if (!refChain) return [];
+  const links: IdeaLink[] = [];
+  for (const m of refChain.matchAll(REF_TOKEN)) {
+    links.push({ to: m[1], relation: m[2] ? "supersedes" : "about" });
+  }
+  return links;
 }
 
 /**
@@ -313,9 +339,8 @@ export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
     // Form 1 — single-line marker, rejoining word-wrapped continuation rows.
     const m = IDEA_MARKER.exec(line);
     if (m) {
-      const kind = m[1] ?? m[4];
-      const ref = m[2] ?? m[5];
-      const supersedes = !!(m[3] ?? m[6]);
+      const kind = m[1] ?? m[3];
+      const refChain = m[2] ?? m[4];
       let logical = line;
       let k = i;
       // Absorb continuation rows until a blank line / next marker / fence /
@@ -331,7 +356,7 @@ export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
         logical += " " + region[k].trim(); // re-insert the space consumed at the wrap
       }
       if (!final && k >= lastNonBlank) break; // growing idea at the tail → hold back
-      ideas.push(ideaFromLine(kind, ref, supersedes, logical));
+      ideas.push(ideaFromLine(kind, refChain, logical));
       i = k + 1;
       continue;
     }

@@ -119,10 +119,10 @@ export const agent = {
     workspaceId: string,
     text: string,
     intent: PromptIntent = 'discuss',
-    sourceRef?: string,
+    sourceRefs: readonly string[] = [],
   ): boolean {
     if (!ingestion.isAttached(workspaceId)) return false
-    const prompt = framePrompt(text.trim() ? text : '', intent, sourceRef)
+    const prompt = framePrompt(text.trim() ? text : '', intent, sourceRefs)
     if (!prompt) return false
     // No '\r': the prompt stays editable in the terminal until the user submits.
     ingestion.sendInput(workspaceId, prompt)

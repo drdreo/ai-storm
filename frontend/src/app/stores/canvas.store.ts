@@ -57,7 +57,7 @@ let activeId: string | null = null
 const pending = new Map<string, Idea[]>()
 /** Fired when a card verb (#13 Discuss / #15 expand/challenge/find-risks) is picked. */
 let cardVerbHandler:
-  | ((text: string, intent: PromptIntent, sourceRef?: string) => void)
+  | ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void)
   | null = null
 
 function bumpIdeasTick(): void {
@@ -85,7 +85,7 @@ export const canvas = {
    */
   bridge: {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
-    onCardVerb: (text, intent, sourceRef) => cardVerbHandler?.(text, intent, sourceRef),
+    onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
   } as CanvasBridge,
 
   /** No CRDT collection to stand up — just flip ready (parity with old boot). */
@@ -164,8 +164,8 @@ export const canvas = {
     return editor ? selectedText(editor) : ''
   },
 
-  /** Register the card-verb sink (#13/#15) — see {@link CanvasIsland}'s verb bar. */
-  onCardVerb(cb: (text: string, intent: PromptIntent, sourceRef?: string) => void): void {
+  /** Register the card-verb sink (#13/#15/#62) — see {@link CanvasIsland}'s verb bar. */
+  onCardVerb(cb: (text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void): void {
     cardVerbHandler = cb
   },
 

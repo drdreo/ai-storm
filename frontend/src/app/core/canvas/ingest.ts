@@ -66,10 +66,15 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
 
   editor.run(() => {
     for (const idea of ideas) {
-      // Resolve the first link whose target ref already has a card (graceful
-      // degradation: an unresolved link just lands the card on the grid).
-      const link = (idea.links ?? []).find((l) => refToShape.has(l.to) || !!resolveRef(editor, l.to));
-      const targetId = link ? refToShape.get(link.to) ?? resolveRef(editor, link.to) : undefined;
+      // Resolve every link whose target ref already has a card (graceful
+      // degradation: an unresolved link is dropped; an idea with none lands on
+      // the grid). A merge (#62) carries several supersede links at once, so we
+      // connect them all — not just the first.
+      const links = (idea.links ?? [])
+        .map((l) => ({ link: l, id: refToShape.get(l.to) ?? resolveRef(editor, l.to) }))
+        .filter((r): r is { link: typeof r.link; id: TLShapeId } => !!r.id);
+      // The first resolved link anchors layout; the rest still get connectors.
+      const targetId = links[0]?.id;
 
       let x: number;
       let y: number;
@@ -110,10 +115,10 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
       });
       refToShape.set(ref, id);
 
-      if (targetId && link) {
+      for (const { link, id: tId } of links) {
         const relation = link.relation ?? 'about';
-        connect(editor, id, targetId, relation);
-        if (relation === 'supersedes') toGhost.add(targetId);
+        connect(editor, id, tId, relation);
+        if (relation === 'supersedes') toGhost.add(tId);
       }
     }
 

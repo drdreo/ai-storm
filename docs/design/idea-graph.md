@@ -204,12 +204,14 @@ the marker (`«IDEA:risk»`). The target ref slots into the same pattern:
 «IDEA:risk@a1» <title> :: <body>        # kind=risk, link to a1 (relation 'about')
 «IDEA@a1» <title> :: <body>             # no kind, link to a1
 «IDEA:feature@a1!» <title> :: <body>    # trailing ! → 'supersedes' a1 (PD-012)
+«IDEA@a1!@a2!@a3!» <title> :: <body>    # chained refs → supersedes a1+a2+a3 (combine/merge, PD-019)
 ```
 
 Grammar delta (see `ai-response-extraction-contract.md` §3.2): the in-marker tag becomes
-`[:kind][@ref[!]]`. A **trailing `!`** on the ref makes the link `supersedes` instead of
+`[:kind][@ref[!]…]`. A **trailing `!`** on a ref makes that link `supersedes` instead of
 the default `about` (PD-012) — keeping the one structural relation on the robust single-line
-marker. The fenced form *also* expresses it via `rel: supersedes`, but the agent's TUI
+marker. **Refs may be chained** (`@a1!@a2!`) so one idea supersedes several sources at once —
+the multi-select combine/merge verb (#62, PD-019); each ref carries its own optional `!`. The fenced form *also* expresses it via `rel: supersedes`, but the agent's TUI
 renders the code fence away before the backend captures the screen (PD-008), so in practice
 the inline `!` is the form that reaches the parser; the Challenge verb emits `!`, not a
 fence. The fenced form additionally has keys `id:`, `link:` (alias `parent:`), and `rel:`.

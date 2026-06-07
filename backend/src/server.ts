@@ -48,6 +48,10 @@ If your idea is a stronger version that REPLACES (supersedes) that card, put a !
 
   «IDEA:feature@a1!» <short title> :: <one-line description>
 
+When you are asked to COMBINE or merge several cards into one stronger idea, emit a SINGLE «IDEA» line that chains every source ref, each with a trailing !, so the merged idea supersedes them all (they recede while it takes their place):
+
+  «IDEA:feature@a1!@a2!@a3!» <short title> :: <one-line description>
+
 For an idea that truly needs several lines, use a fenced block instead:
 
   \`\`\`idea kind=<kind>
