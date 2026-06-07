@@ -136,6 +136,11 @@ payload passed as a clear functional argument.
 
 ### 4.1. Framework-agnostic core principles
 
+> ⚠️ **Superseded — see PD-016.** The Angular shell was replaced with React; tldraw is no longer a
+> mounted island under a foreign framework but a first-class part of the React tree, so the
+> `createRoot`/`unmount` boundary and the `CanvasService` facade described below are gone. Retained
+> for reference and citation.
+
 The canvas is a React (tldraw) island mounted under the Angular shell at a single, framework-agnostic
 boundary (`createRoot` on render, `unmount` on teardown) — no `@angular/elements`, Zone bridging, or
 proprietary wrapper hooks. Angular owns the shell; React owns the canvas subtree; the two communicate
@@ -169,6 +174,10 @@ strictly on active browser paint cycles. This prevents the document store from b
 successive micro-mutations while keeping user interaction rendering fluid. Modern Angular signals and
 reactivity concepts must be used; Angular 22 uses OnPush change detection by default.
 
+> ⚠️ **Reactivity stack superseded — see PD-017.** The RAF-throttled `RenderScheduler` requirement
+> stands verbatim (it is framework-agnostic and ported unchanged); only the "Angular signals / OnPush"
+> mechanism is replaced — Zustand external stores + React 19 are the equivalent.
+
 ### 5.2. Memory management safety
 
 The application must actively monitor open workspace instances. Switching projects via the navigation
@@ -184,6 +193,88 @@ Recent decisions first; foundational PRD-v3.0 baseline decisions at the bottom. 
 decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
+
+### PD-016 — React + Vite, retiring Angular
+
+`(2026-06-07, accepted, supersedes the Angular shell of §4.1; refines PD-013)`
+
+- **Decision:** The frontend is **React (via Vite + `@vitejs/plugin-react`)**, replacing the Angular 22
+  shell. The canvas is no longer a React island `createRoot`-mounted under Angular through the
+  `CanvasService` facade (§4.1, PD-013): tldraw is now a first-class node in the app's own React tree,
+  rendered directly by `CanvasPane`. `CanvasService` is **deleted**; its imperative responsibilities
+  (hold the live `Editor`, `applyIdeas`, arrange, mark, serialize, kind visibility, the background
+  idea queue, per-workspace IndexedDB cleanup) move into a thin `canvas` controller module that the
+  out-of-tree stores drive. The build swaps Angular CLI → Vite (Vitest kept; the `/pty` + `/health`
+  proxy ported to `server.proxy`); the project was scaffolded with the official `create vite` /
+  `react-ts` template, not a hand-assembled config. We are pre-prod (v0), so this was a clean rewrite,
+  not an Angular↔React interop bridge.
+- **Why:** **tldraw is a React library.** The whole reason the canvas was an island was to host a React
+  component inside Angular; that impedance-mismatch seam (`createRoot`/`unmount`, the bridge facade,
+  the React→Angular rendering techniques explored in #52) exists only to paper over the framework
+  boundary. Making the host React removes the seam entirely — the canvas, the verb bar (#13/#15), the
+  kind filter (#21) and the idea-card shape all live in one tree with one reconciler. The app is small
+  (~2.2k LOC, 5 components, 5 services, no routing/forms/Material/NgRx) and the hard logic
+  (render-scheduler, prompt-framing, idea-layout/descriptors, canvas-text, models, the tldraw island)
+  is already framework-agnostic or already React, so the port carries them **verbatim** with their
+  tests.
+- **Affects:** Removes all `@angular/*`, `rxjs`, `tslib`; adds Vite + React toolchain. Rewrites §4.1
+  (no Angular shell, no island boundary, no `CanvasService`). Refines **PD-013**: tldraw stays the
+  canvas with the same shape/edge/persistence model — only its host changes; the pinned IndexedDB
+  name scheme `TLDRAW_DOCUMENT_v2ai-storm:ws:{id}` is preserved so existing local boards are not
+  orphaned. State layer is **PD-017**; UI/styling is **PD-018**. Backend, the `/pty` protocol, and
+  `@ai-storm/shared` are untouched (PD-008 stands).
+
+### PD-017 — Zustand as the state layer (external-store pattern)
+
+`(2026-06-07, accepted, supersedes the Angular-signals mechanism of §5.1)`
+
+- **Decision:** Client state is **Zustand**. Most of this app's "state" is not React-owned data — it is
+  **external mutable singletons React subscribes to**: a Yjs `Y.Doc` registry (the real source of
+  truth, persisted to IndexedDB), one imperative multiplexing `WebSocket`, live `xterm.js` instances,
+  the tldraw `Editor` handle, and per-workspace ingestion pipelines. The five Angular services port
+  near 1:1 to "singleton store + subscribe hook": `signal()` → store state, `computed()` →
+  selectors/`useMemo`, `effect()` → `useEffect`. The socket, Y.Doc, pipelines, and editor stay as
+  imperative module singletons (exactly as before); only their *reactive surface* (connection state,
+  workspace list, attached set, agent-run output, `ideasTick`) lives in a store, so code running
+  **outside** the component tree (the WebSocket dispatcher, the ingestion pipelines) reads/writes via
+  `store.getState()` / `setState()`.
+- **Why:** Zustand is a ~1KB ergonomic wrapper over React 19's `useSyncExternalStore` — the exact
+  primitive these external singletons need — with imperative out-of-tree access built in. Considered
+  and rejected: **`useSyncExternalStore` directly** (purest/zero-dep but more per-store boilerplate —
+  Zustand is just this with selectors); **Jotai** (atomic model solves fine-grained derived state we
+  don't have); **Redux Toolkit** (action/reducer ceremony, overkill for single-user v0); **plain
+  Context** (whole-subtree re-renders — fatal for the high-frequency terminal/idea streams).
+- **Affects:** `workspace` / `backend` / `ingestion` / `agent` stores + the `canvas` controller. The
+  RAF-throttled `RenderScheduler` (§5.1) is unchanged and still the idea-stream decoupler; only the
+  signals/OnPush mechanism is replaced. The three service unit specs port to the stores (fresh module
+  per test via `vi.resetModules()`) and pass alongside the framework-agnostic specs.
+
+### PD-018 — UI/styling stack: shadcn/ui + Tailwind (Radix primitives)
+
+`(2026-06-07, accepted, replaces @angular/aria)`
+
+- **Decision:** The UI is **Tailwind CSS v4** + **shadcn/ui (Radix primitives, copied into the repo
+  via the official CLI)** — initialized with `shadcn init` and components added with `shadcn add` (not
+  hand-written): `button`, `input`, `badge`, `card`, `dropdown-menu`, `tooltip`, `separator`, `tabs`,
+  and the full `sidebar`. This **replaces `@angular/aria`**: the workspace nav is shadcn's `Sidebar`
+  (`SidebarMenu`/`SidebarMenuButton`/`SidebarMenuAction`), the per-row kebab is a Radix `DropdownMenu`
+  (shadcn), and the canvas/session toolbars are Radix `Toolbar` rendering shadcn `Button`s. **We adopt
+  the stock shadcn theme (neutral base, dark mode) verbatim and defer bespoke theming** — the app
+  wears the default shadcn look for now; a themed palette is a later pass. The old Angular CSS
+  custom-property tokens are **not** carried over. tldraw and xterm keep their own CSS.
+- **Why:** shadcn is Radix + Tailwind with the component code scaffolded *into the repo* (we own and
+  restyle it, not a themed black box), which ends per-component hand-written CSS and supplies the a11y
+  primitives that replace `@angular/aria` — no separate primitives lib. Starting from the **unmodified
+  shadcn theme** (rather than re-implementing the previous bespoke palette) gets a clean, consistent
+  baseline up first and keeps theming a separate, deliberate step — the design tokens are a future
+  decision, not a migration constraint. Considered and rejected: **Mantine** (opinionated default look,
+  adopt-its-API rather than own-the-code); **Radix + CSS Modules** (still hand-writing CSS — the thing
+  we set out to retire).
+- **Affects:** `Sidebar` (shadcn `Sidebar` + Radix `DropdownMenu`), `CanvasPane` / `ControlHub`
+  (Radix `Toolbar` + shadcn `Button`/`Input`/`Badge`). `index.css` holds the stock shadcn theme
+  (`:root` / `.dark` token blocks + `@theme inline`) plus a tiny xterm host-sizing rule (xterm builds
+  its own DOM at runtime). Removes `@angular/aria` + `@angular/cdk`. A bespoke theme/palette is left
+  as future work.
 
 ### PD-015 — Convergence is a generated artifact, not a second surface
 
@@ -260,7 +351,12 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 ### PD-013 — The canvas is tldraw (native edgeless surface)
 
-`(2026-06-06, accepted)`
+`(2026-06-06, accepted; host framework updated by PD-016)`
+
+> ℹ️ **Refined by PD-016.** tldraw remains the canvas with the same shape/edge/persistence model
+> described here. What changed: the host is now React (not an Angular shell), so the "React island
+> under Angular" framing and the `CanvasService` Angular facade below are gone — the editor is held by
+> a plain `canvas` controller module and rendered directly in the React tree.
 
 - **Decision:** The spatial canvas is **tldraw**, rendered as a React island under the Angular
   shell. Ideas are custom `idea-card` shapes; typed edges are native arrows bound to cards (the
