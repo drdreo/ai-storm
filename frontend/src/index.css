@@ -1,0 +1,299 @@
+/* Tailwind v4 — single import (official Vite setup). */
+@import 'tailwindcss';
+/* Enter/leave keyframes used by shadcn/Radix overlays (DropdownMenu). */
+@import 'tw-animate-css';
+
+/* xterm.js terminal styles (the conversation surface renders the raw PTY). */
+@import '@xterm/xterm/css/xterm.css';
+
+/* Inter (the UI typeface) is loaded via a <link> in index.html so it does not
+   trip Tailwind's "@import must precede all rules" CSS ordering rule. */
+
+/*
+ * Design tokens (carried over 1:1 from the Angular app's styles.css). These CSS
+ * custom properties are the single source of truth for the dark-shell /
+ * light-canvas palette; the Tailwind theme below reads them as variables so
+ * utility classes (bg-panel, text-dim, …) resolve to the same values — the
+ * palette is preserved verbatim, not re-themed (see PD-018).
+ */
+:root {
+  /* Type families. Inter for UI text, a refined mono ramp for the stream. */
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* ---- Neutral ramp (dark-first, tinted toward the brand hue) ---- */
+  --bg: #0a0e14; /* app backdrop, deepest plane */
+  --panel-bg: #10151d; /* hub / toolbars */
+  --sidebar-bg: #0c1118; /* nav rail, slightly recessed */
+  --surface-raised: #161d27; /* cards / raised controls */
+  --surface-overlay: #1b232f; /* hover wells / popovers */
+  --canvas-bg: #ffffff; /* canvas pane backdrop behind the tldraw surface */
+
+  /* Borders: a base hairline plus a brighter divider for structural seams. */
+  --border: #1f2733;
+  --border-strong: #2b3543;
+  --border-subtle: #171e28;
+
+  /* Text ramp. */
+  --text: #e9eef6;
+  --text-dim: #93a1b3;
+  --text-faint: #647084;
+  --on-accent: #06121f; /* foreground sitting on the accent fill */
+
+  /* ---- Accent: a confident azure-to-iris. ---- */
+  --accent: #5b9dff;
+  --accent-hover: #74aeff;
+  --accent-press: #4a8af0;
+  --accent-soft: #18283f; /* tinted fill behind active items */
+  --accent-ring: rgba(91, 157, 255, 0.45); /* focus ring */
+
+  /* Semantic status. */
+  --ok: #43c98a;
+  --warn: #e6b450;
+  --danger: #f0655d;
+
+  /* Controls. */
+  --btn-bg: #161d27;
+  --btn-hover: #1d2734;
+  --btn-press: #131a23;
+  --input-bg: #0b1119;
+
+  /* ---- Spacing scale (4px base) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* ---- Radius scale ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 110ms;
+  --dur: 170ms;
+}
+
+/*
+ * Expose the tokens to Tailwind's theme so utilities resolve against them.
+ * (Tailwind v4 reads `@theme` at build time; referencing the :root vars keeps
+ * one source of truth.)
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel-bg);
+  --color-sidebar: var(--sidebar-bg);
+  --color-raised: var(--surface-raised);
+  --color-overlay: var(--surface-overlay);
+  --color-canvas: var(--canvas-bg);
+  --color-border-base: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-on-accent: var(--on-accent);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-press: var(--accent-press);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+
+  /*
+   * shadcn/ui semantic tokens, mapped onto the ai-storm palette above so the
+   * CLI-generated Radix components (DropdownMenu, Button) inherit our dark
+   * theme rather than shadcn's default neutral one (PD-018). We own these
+   * components; this is the minimal token bridge that keeps them on-palette.
+   */
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--panel-bg);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--panel-bg);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-overlay);
+  --color-muted-foreground: var(--text-dim);
+  --color-accent: var(--surface-overlay);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border-strong);
+  --color-input: var(--border-strong);
+  --color-ring: var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  font-family: var(--sans);
+  font-feature-settings: 'cv05' 1, 'ss01' 1; /* Inter: nicer lowercase l / curved details */
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border-strong) 70%, var(--text-faint));
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * Component decorations that don't map cleanly to Tailwind utilities — keyframes,
+ * status-driven dots, the active-row rail, the boot spinner, and the xterm host
+ * sizing (xterm builds its own DOM at runtime, outside React). The component
+ * chrome itself (layout, spacing, color) is Tailwind utilities; this is the
+ * irreducible remainder.
+ */
+@keyframes as-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes as-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Status dot (sidebar rows + hub connection light). */
+.as-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 3px transparent;
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+.as-dot[data-status='streaming'] {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: as-pulse 1.4s var(--ease-out) infinite;
+}
+.as-dot[data-status='active'] {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.as-dot[data-status='error'] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+/* Connection light in the control hub diagnostics. */
+.as-conn {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+.as-conn[data-state='open'] {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.as-conn[data-state='connecting'] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+  animation: as-pulse 1.4s var(--ease-out) infinite;
+}
+
+/* Active-row accent rail — a clearer "you are here" than a flat fill. */
+.as-rail::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 1.1rem;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+/* Boot spinner. */
+.as-spinner {
+  width: 30px;
+  height: 30px;
+  border: 2.5px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: as-spin 0.7s var(--ease-out) infinite;
+}
+
+/* Draggable splitter accent on the hub's left border. */
+.as-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.as-resize-handle:hover::after,
+.as-resize-handle:active::after {
+  background: var(--accent);
+}
+
+/* The xterm container + xterm's own DOM are created at runtime (term.open), so
+   they live outside React. These height rules let FitAddon measure a full box. */
+.as-term {
+  height: 100%;
+  width: 100%;
+}
+.as-term .xterm,
+.as-term .xterm-viewport {
+  height: 100% !important;
+}

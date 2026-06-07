@@ -1,109 +1,106 @@
 /**
- * Browser smoke test for the ai-storm client (run against the built app served
- * by the Node backend, e.g. on http://127.0.0.1:8790).
+ * Browser smoke test for the ai-storm React client (#65). Run against the dev
+ * server (http://localhost:4200) or the built app served by the Node backend.
  *
  * Validates the in-browser runtime that the unit/build steps can't:
  *   - the app boots through the crash-recovery sequence (PRD §3.5)
- *   - all three panes render (PRD §3.1)
- *   - BlockSuite mounts as a web component (PRD §4.1)
- *   - the CRDT IndexedDB stores are created (PRD §3.5)
- *   - doc/edgeless mode toggle works (PRD §3.1)
- *   - a second workspace can be created and hot-switched (PRD §3.4)
+ *   - all three panes render (PRD §3.1) and tldraw mounts (PD-013/PD-016)
+ *   - a workspace can be created (+) and inline-renamed (PRD §3.4)
+ *   - a real PTY session round-trips through ConPTY (data → xterm → input)
+ *   - hot-switch preserves a workspace's terminal scrollback (PRD §3.4)
+ *   - the tldraw + registry IndexedDB stores use the pinned name scheme (§3.5)
  *
- * Usage: node e2e/smoke.mjs [baseURL]
+ * Usage: node e2e/smoke.mjs [baseURL]   (default http://localhost:4200)
  */
-import { chromium } from 'playwright';
+import { chromium } from 'playwright'
 
-const BASE = process.argv[2] ?? 'http://127.0.0.1:8790';
-const results = [];
-let failures = 0;
-
-function check(name, cond) {
-  results.push(`${cond ? 'ok  ' : 'FAIL'} - ${name}`);
-  if (!cond) failures++;
+const BASE = process.argv[2] ?? 'http://localhost:4200'
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+let failures = 0
+const check = (name, cond) => {
+  console.log(`${cond ? 'ok  ' : 'FAIL'} - ${name}`)
+  if (!cond) failures++
 }
 
-const browser = await chromium.launch();
-const page = await browser.newPage();
-const consoleErrors = [];
+const browser = await chromium.launch()
+const page = await browser.newPage()
+const consoleErrors = []
 page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text());
-});
-page.on('pageerror', (e) => consoleErrors.push(String(e)));
+  if (m.type() === 'error') consoleErrors.push(m.text())
+})
+page.on('pageerror', (e) => consoleErrors.push(String(e)))
 
 try {
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
 
-  // Boot + shell panes.
-  await page.waitForSelector('as-sidebar', { timeout: 20000 });
-  check('sidebar renders', !!(await page.$('as-sidebar')));
-  check('canvas pane renders', !!(await page.$('as-canvas-pane')));
-  check('control hub renders', !!(await page.$('as-control-hub')));
+  // Boot + shell.
+  await page.getByText('ai-storm', { exact: true }).waitFor({ timeout: 20000 })
+  const rows = page.locator('ul[role="listbox"] li[role="option"]')
+  await rows.first().waitFor({ timeout: 10000 })
+  check('shell boots and restores >=1 workspace', (await rows.count()) >= 1)
 
-  // BlockSuite editor mounted as a custom element.
-  await page.waitForSelector('affine-editor-container', { timeout: 20000 });
-  const upgraded = await page.evaluate(() => {
-    const el = document.querySelector('affine-editor-container');
-    return !!el && el.constructor?.name !== 'HTMLElement';
-  });
-  check('affine-editor-container present', !!(await page.$('affine-editor-container')));
-  check('editor custom element upgraded (Lit registered)', upgraded);
+  // tldraw canvas (the spatial surface, PD-011/PD-013).
+  await page.locator('.tl-container').first().waitFor({ timeout: 15000 })
+  check('tldraw canvas mounts', true)
+  check('control hub renders', (await page.getByText('harness').count()) > 0)
 
-  // CRDT IndexedDB persistence stores created (PRD §3.5).
-  const dbs = await page.evaluate(async () => {
-    const list = (await indexedDB.databases?.()) ?? [];
-    return list.map((d) => d.name);
-  });
-  check('canvas IndexedDB store created', dbs.includes('ai-storm-canvas'));
-  check('registry IndexedDB store created', dbs.includes('ai-storm-registry'));
+  // Create + inline-rename.
+  const before = await rows.count()
+  await page.getByRole('button', { name: 'New workspace' }).click()
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('ul[role="listbox"] li[role="option"]').length === n,
+    before + 1,
+    { timeout: 5000 },
+  )
+  check('create (+) adds a workspace', (await rows.count()) === before + 1)
 
-  // Mode toggle: Document -> Canvas -> Document (PRD §3.1).
-  // The mode switch is now an @angular/aria tablist, so the controls expose
-  // role="tab" (not role="button").
-  await page.getByRole('tab', { name: 'Canvas' }).click();
-  await page.waitForTimeout(400);
-  const edgeless = await page.evaluate(
-    () => document.querySelector('affine-editor-container')?.mode,
-  );
-  check('toggled to edgeless mode', edgeless === 'edgeless');
-  await page.getByRole('tab', { name: 'Document' }).click();
-  await page.waitForTimeout(300);
-  const pageMode = await page.evaluate(
-    () => document.querySelector('affine-editor-container')?.mode,
-  );
-  check('toggled back to page mode', pageMode === 'page');
+  const newRow = rows.last()
+  await newRow.getByText('Untitled Project').dblclick()
+  const input = newRow.getByRole('textbox', { name: 'Rename workspace' })
+  await input.waitFor({ timeout: 3000 })
+  await input.fill('Smoke QA')
+  await input.press('Enter')
+  await newRow.getByText('Smoke QA').waitFor({ timeout: 3000 })
+  check('inline rename commits on Enter', true)
 
-  // Multi-workspace create + hot-switch (PRD §3.4).
-  const before = await page.$$eval('as-sidebar .item', (n) => n.length);
-  await page.click('as-sidebar .add');
-  await page.waitForTimeout(300);
-  const after = await page.$$eval('as-sidebar .item', (n) => n.length);
-  check('new workspace added to sidebar', after === before + 1);
-  const activeCount = await page.$$eval('as-sidebar .item.active', (n) => n.length);
-  check('exactly one active workspace after switch', activeCount === 1);
+  // Real PTY round-trip — powershell avoids depending on the claude CLI.
+  await page.getByPlaceholder('claude').fill('powershell')
+  await page.getByPlaceholder('claude').press('Tab')
+  await page.getByRole('button', { name: 'Start session' }).click()
+  await page.locator('.xterm-rows').waitFor({ timeout: 10000 })
+  await sleep(4000)
+  await page.locator('.xterm').click()
+  await page.keyboard.type('echo smoke-ok-42')
+  await page.keyboard.press('Enter')
+  await sleep(3000)
+  check(
+    'terminal round-trips PTY output (ConPTY)',
+    /smoke-ok-42/.test(await page.locator('.xterm-rows').innerText()),
+  )
 
-  // Switch back to the first workspace and time the transition (PRD §3.4 <100ms).
-  const t = await page.evaluate(async () => {
-    const items = [...document.querySelectorAll('as-sidebar .item')];
-    const start = performance.now();
-    items[0].click();
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    return performance.now() - start;
-  });
-  check(`hot-switch under 100ms (measured ${t.toFixed(1)}ms)`, t < 100);
+  // Hot-switch preserves the session terminal.
+  await rows.first().click()
+  await sleep(500)
+  await rows.last().click()
+  await sleep(800)
+  check(
+    'hot-switch preserves terminal scrollback',
+    /smoke-ok-42/.test(await page.locator('.xterm-rows').innerText()),
+  )
 
-  check('no uncaught console/page errors', consoleErrors.length === 0);
-} catch (err) {
-  results.push('FAIL - exception: ' + (err?.message ?? String(err)));
-  failures++;
+  // Persistence (PRD §3.5) — the pinned tldraw DB name scheme + the registry.
+  const dbs = await page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name))
+  check(
+    'tldraw IndexedDB uses TLDRAW_DOCUMENT_v2ai-storm:ws:{id}',
+    dbs.some((n) => typeof n === 'string' && n.startsWith('TLDRAW_DOCUMENT_v2ai-storm:ws:')),
+  )
+  check('workspace registry persisted (ai-storm-registry)', dbs.includes('ai-storm-registry'))
+
+  check('no console/page errors', consoleErrors.length === 0)
+  if (consoleErrors.length) console.log('  errors:\n   ' + consoleErrors.slice(0, 8).join('\n   '))
 } finally {
-  await browser.close();
+  await browser.close()
 }
 
-console.log(results.join('\n'));
-if (consoleErrors.length) {
-  console.log('\n--- console/page errors ---');
-  console.log(consoleErrors.slice(0, 10).join('\n'));
-}
-console.log(`\n${failures === 0 ? 'ALL BROWSER CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
-process.exit(failures === 0 ? 0 : 1);
+console.log(failures === 0 ? '\nALL SMOKE CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`)
+process.exit(failures === 0 ? 0 : 1)
