@@ -1,8 +1,17 @@
 import { useEffect } from 'react'
 import * as Toolbar from '@radix-ui/react-toolbar'
+import { ChevronDown } from 'lucide-react'
+import { FACILITATION_MODES, getFacilitationMode } from '@ai-storm/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
 import { useIngestionStore, ingestion } from '../stores/ingestion.store'
@@ -43,6 +52,7 @@ export function ControlHub() {
   if (!ws) return null
 
   const harness = ws.terminal.agentCommand || 'claude'
+  const mode = getFacilitationMode(ws.terminal.mode)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -89,7 +99,36 @@ export function ControlHub() {
           }
           title="The AI CLI launched for this workspace's session (PRD §2). Keystrokes are sent to its PTY."
         />
-        <span className="italic">type directly — ideas land on the canvas</span>
+        <span className="truncate italic">{mode.hint}</span>
+        {/* Facilitation mode picker (#61): swaps the priming preset the agent is
+            launched with. Baked at launch, so it's locked while attached —
+            Stop & Start to switch how the agent ideates. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild disabled={attached}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto h-7 gap-1 font-mono text-xs"
+              title="Facilitation mode — how the agent ideates (#61). Applied on session start."
+            >
+              {mode.label}
+              <ChevronDown className="size-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuRadioGroup
+              value={mode.id}
+              onValueChange={(id) => workspace.patchTerminal(ws.id, { mode: id })}
+            >
+              {FACILITATION_MODES.map((m) => (
+                <DropdownMenuRadioItem key={m.id} value={m.id} className="flex-col items-start gap-0">
+                  <span className="font-medium">{m.label}</span>
+                  <span className="text-xs text-muted-foreground">{m.hint}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <section className="relative min-h-0 flex-1">

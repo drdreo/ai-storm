@@ -283,11 +283,18 @@ export class NodePtySessionBackend implements SessionBackend {
   async kill(workspaceId: string): Promise<void> {
     const session = this.#sessions.get(workspaceId);
     if (!session) return;
+    // Skip `term.kill()` if the PTY has already exited (onExit set `closed`):
+    // node-pty's Windows kill queries the console process list and throws on an
+    // already-dead process inside a promise tick (see main.ts guard). The
+    // process-level handler is the real safety net; this just avoids tripping it.
+    const alreadyExited = session.closed;
     session.closed = true;
-    try {
-      session.term?.kill();
-    } catch {
-      // already dead
+    if (!alreadyExited) {
+      try {
+        session.term?.kill();
+      } catch {
+        // already dead
+      }
     }
     this.#sessions.delete(workspaceId);
     log.info("session.killed", { workspace: workspaceId });

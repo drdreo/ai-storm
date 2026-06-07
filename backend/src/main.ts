@@ -28,6 +28,26 @@ function parseArgs(): ServerConfig {
 
 const config = parseArgs();
 
+// Resilience guard for a known @lydell/node-pty Windows teardown bug: its
+// `kill()` does `_getConsoleProcessList().then(list => list.forEach(...))` with
+// NO `.catch`, and when the forked console-list agent resolves `undefined`
+// (the harness process already exited — the exact stop→restart flow used to
+// switch facilitation modes, #61), `undefined.forEach` throws inside a promise
+// tick. That surfaces as an unhandled rejection which, left alone, terminates
+// the whole daemon and every other workspace's durable session. The fault fires
+// asynchronously inside node-pty, so a try/catch at the call site can't catch
+// it — only a process-level handler can. We log and keep running rather than
+// die; the underlying PTY is already gone, only its handle cleanup is skipped.
+process.on("unhandledRejection", (reason) => {
+  log.error("backend.unhandled_rejection", {
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+process.on("uncaughtException", (err) => {
+  log.error("backend.uncaught_exception", { message: err.message, stack: err.stack });
+});
+
 // Probe the session runtime up front so a missing prerequisite (e.g. tmux on
 // POSIX) surfaces a clear error at startup rather than on first attach (§9).
 const backend = getRuntime();

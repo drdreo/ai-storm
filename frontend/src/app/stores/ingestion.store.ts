@@ -194,6 +194,7 @@ export const ingestion = {
         cwd: config.cwd,
         cols,
         rows,
+        mode: config.mode,
       })
     }
     // Re-issue the attach whenever the socket (re)opens so a backend restart or

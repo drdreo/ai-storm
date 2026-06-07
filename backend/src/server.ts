@@ -21,7 +21,7 @@ import type { SessionBackend } from "./session/types.ts";
 import { commandProfileName, getProfile } from "./session/extraction.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import { parseClientMessage, type ServerMessage } from "@ai-storm/shared";
+import { parseClientMessage, getFacilitationMode, type ServerMessage } from "@ai-storm/shared";
 
 let connectionSeq = 0;
 
@@ -73,14 +73,19 @@ Rules:
 - Everything that is NOT an «IDEA» or «SCORE» line is treated as ordinary chat.`;
 
 /**
- * Derive the harness profile name + priming text from the harness command. A
- * contract-aware harness (claude) is primed via its system-prompt flag; anything
- * else gets no prime (extraction-contract §4.6).
+ * Derive the harness profile name + priming text from the harness command and
+ * the selected facilitation mode (#61). A contract-aware harness (claude) is
+ * primed via its system-prompt flag with the base `«IDEA»` instruction plus the
+ * mode's preset (when not the free-form default); anything else gets no prime
+ * (extraction-contract §4.6).
  */
-function harnessSetup(command: string): { harnessProfile?: string; prime?: string } {
+function harnessSetup(command: string, mode?: string): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
   const supportsContract = getProfile(harnessProfile).supportsIdeaContract;
-  return { harnessProfile, prime: supportsContract ? PRIME_INSTRUCTION : undefined };
+  if (!supportsContract) return { harnessProfile, prime: undefined };
+  const preset = getFacilitationMode(mode).prime;
+  const prime = preset ? `${PRIME_INSTRUCTION}\n\n${preset}` : PRIME_INSTRUCTION;
+  return { harnessProfile, prime };
 }
 
 /**
@@ -231,13 +236,14 @@ async function dispatch(
         shell: msg.shell,
         args: (msg.args ?? []).join(" "),
         cwd: msg.cwd,
+        mode: msg.mode,
       });
       try {
         // Idempotent: create the named session if absent (else reuse), then
         // (re)attach the response stream. Decoupled from input readiness —
         // the session always exists by the time `input` is processed (§3.3).
-        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "");
-        log.debug("attach.setup", { workspace: workspaceId, harnessProfile, prime });
+        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", msg.mode);
+        log.debug("attach.setup", { workspace: workspaceId, harnessProfile, mode: msg.mode, prime });
         await backend.create({
           workspaceId,
           command: msg.shell ?? "",
