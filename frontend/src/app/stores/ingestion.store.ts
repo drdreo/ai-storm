@@ -195,6 +195,7 @@ export const ingestion = {
         cols,
         rows,
         mode: config.mode,
+        background: config.background,
       })
     }
     // Re-issue the attach whenever the socket (re)opens so a backend restart or
