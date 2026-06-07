@@ -171,24 +171,23 @@ export interface Idea {
 }
 
 /**
- * Canonical, reflow-stable identity key for an {@link Idea} — the single source
- * of truth both the backend scanner (session-scoped dedupe) and the canvas
- * (`applyIdeas` idempotency) key on, so a re-extracted idea resolves to the SAME
- * card instead of duplicating it (#38).
+ * Canonical identity key for an {@link Idea} — the key the backend scanner uses
+ * to track which ideas it has already emitted this session, so a marker the
+ * terminal re-renders every frame is sent to the canvas exactly once (#38).
  *
- * Why normalize: the backend reads ideas off a *reflowing* terminal grid, and a
- * pane resize re-wraps an idea's body so the rejoined text gains or loses
- * interior whitespace. Keying on the raw text makes the very same idea look
- * "new" after a resize — the cause of the resize-duplicates-every-note bug.
- * Collapsing whitespace runs to a single space (and trimming) makes the key
- * invariant under that reflow. Casing is preserved (reflow never changes it).
+ * Identity is ANCHORED ON THE TITLE (plus the distinguishing kind + links) and
+ * deliberately EXCLUDES the body. The title is the stable heading; the body is
+ * the volatile description — a long one re-wraps as the pane resizes (and the
+ * agent may re-stream it), which would make the same idea look "new" and defeat
+ * the dedupe. Anchoring on the title sidesteps that drift. The trade-off,
+ * accepted deliberately: two ideas that share a title (same kind, same links)
+ * are treated as one.
  *
- * Links are part of identity (idea-graph design §5.1): the same title/body
- * pointed at a *different* target — or with a *different* relation — is a
- * distinct edge and must NOT collapse together. The link list is
- * order-independent. The idea's own `id` is deliberately excluded: identity is
- * what the idea *says* (content + edges), not the ref a producer happened to
- * mint for it.
+ * `kind` + `links` stay in the key so a same-titled risk vs. feature, or an idea
+ * pointed at a different card, stay distinct (idea-graph design §5.1; links are
+ * order-independent). The title's whitespace is normalized for safety; the
+ * idea's own `id` is excluded (identity is what the idea is about, not the ref a
+ * producer minted).
  */
 export function ideaIdentityKey(idea: Idea): string {
   const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
@@ -197,7 +196,7 @@ export function ideaIdentityKey(idea: Idea): string {
     .sort()
     .join(",");
   // U+0001 separates the fields — it never occurs in rendered terminal text.
-  return [norm(idea.title), norm(idea.body), (idea.kind ?? "").trim(), links].join("");
+  return [norm(idea.title), (idea.kind ?? "").trim(), links].join("");
 }
 
 /**

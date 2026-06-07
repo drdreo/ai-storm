@@ -302,17 +302,31 @@ describe("IdeaScanner — session-scoped dedupe", () => {
   });
 });
 
-describe("ideaIdentityKey — reflow-stable identity (#38)", () => {
-  it("is invariant to interior/edge whitespace (the reflow that caused resize dups)", () => {
+describe("ideaIdentityKey — title-anchored identity (#38)", () => {
+  it("ignores the body: same title+kind is one idea regardless of the description", () => {
+    // The body is volatile (terminal reflow / re-streaming); anchoring on the
+    // title is what stops a resize resurfacing the same idea as "new".
     expect(ideaIdentityKey({ title: "Edge cache", body: "serve from the CDN" })).toBe(
-      ideaIdentityKey({ title: "  Edge   cache ", body: "serve  from\tthe  CDN" }),
+      ideaIdentityKey({ title: "Edge cache", body: "totally different wording here" }),
     );
   });
 
-  it("separates fields so content can't blur across the boundary", () => {
-    // title "ab" must not collide with title "a" + body "b".
+  it("normalizes title whitespace", () => {
+    expect(ideaIdentityKey({ title: "Edge cache", body: "" })).toBe(
+      ideaIdentityKey({ title: "  Edge   cache ", body: "" }),
+    );
+  });
+
+  it("separates title from kind so they can't blur across the boundary", () => {
+    // title "ab" (no kind) must not collide with title "a" + kind "b".
     expect(ideaIdentityKey({ title: "ab", body: "" })).not.toBe(
-      ideaIdentityKey({ title: "a", body: "b" }),
+      ideaIdentityKey({ title: "a", body: "", kind: "b" }),
+    );
+  });
+
+  it("distinguishes kind: a same-titled risk vs. feature are different ideas", () => {
+    expect(ideaIdentityKey({ title: "Caching", body: "x", kind: "risk" })).not.toBe(
+      ideaIdentityKey({ title: "Caching", body: "x", kind: "feature" }),
     );
   });
 
@@ -324,7 +338,7 @@ describe("ideaIdentityKey — reflow-stable identity (#38)", () => {
     expect(aboutA1).not.toBe(ideaIdentityKey({ ...base, links: [{ to: "a1", relation: "supersedes" }] }));
   });
 
-  it("ignores the idea's own id (identity is content + edges, not the minted ref)", () => {
+  it("ignores the idea's own id (identity is what it's about, not the minted ref)", () => {
     expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(
       ideaIdentityKey({ title: "X", body: "y" }),
     );

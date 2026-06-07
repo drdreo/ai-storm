@@ -13,10 +13,10 @@
  * the full, flattened text of the pane as it currently reads (a `tmux
  * capture-pane -p` snapshot on POSIX, a `TerminalScreen` render on Windows) —
  * and returns the newly-seen ideas. Because the same marker line re-renders on
- * every frame until it scrolls off, ideas are deduped by their reflow-stable
- * identity (`ideaIdentityKey` — title/body/kind/links, whitespace-normalized)
- * across the WHOLE session, so a pane resize that re-wraps a body can't resurface
- * it as a "new" idea (#38). There are no response boundaries any more.
+ * every frame until it scrolls off, ideas are deduped by their identity
+ * (`ideaIdentityKey` — title + kind + links; the volatile body is excluded so a
+ * pane resize that re-wraps it can't resurface the idea as "new", #38) across the
+ * WHOLE session. There are no response boundaries any more.
  *
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
@@ -332,11 +332,12 @@ export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
   return ideas;
 }
 
-// Per-idea identity for session-scoped dedupe (§7.1) is the shared, reflow-stable
-// `ideaIdentityKey` (title/body/kind/links, whitespace-normalized) — the SAME key
-// the canvas dedupes on, so a pane resize that re-wraps an idea's body can't make
-// the scanner re-send it as a "new" idea (#38). Links stay part of identity
-// (idea-graph §5.1): the same title/body at a different target is a distinct edge.
+// Per-idea identity for session-scoped dedupe (§7.1) is the shared
+// `ideaIdentityKey` (title + kind + links; the volatile body is excluded — a pane
+// resize re-wraps it and would otherwise make the idea look "new", #38). The
+// scanner is the single dedupe authority: a re-rendered marker is never re-sent,
+// so the canvas just draws what it receives. Links stay part of identity
+// (idea-graph §5.1): the same title at a different target is a distinct edge.
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */
 function toTrimmedLines(capture: string): string[] {
