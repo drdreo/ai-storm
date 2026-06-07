@@ -19,6 +19,7 @@ import {
   CLAUDE_PROFILE,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
+import { ideaIdentityKey } from "@ai-storm/shared";
 
 /** Build a capture string from screen lines (as `capture-pane -p` would emit). */
 const cap = (...lines: string[]): string => lines.join("\n");
@@ -259,6 +260,17 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     expect(scanner.scan(frame)).toEqual([]);
   });
 
+  it("dedupes an idea whose interior spacing drifts after a reflow (#38)", () => {
+    const scanner = new IdeaScanner();
+    expect(scanner.scan(cap("  «IDEA» Edge cache :: serve from the CDN", "❯"))).toEqual([
+      { title: "Edge cache", body: "serve from the CDN" },
+    ]);
+    // A pane resize re-wraps the line, so the next capture carries the same idea
+    // with extra interior spaces. Identity is whitespace-normalized, so it is NOT
+    // re-emitted — no duplicate card lands on the canvas (the resize-dup bug).
+    expect(scanner.scan(cap("  «IDEA»  Edge   cache ::  serve from  the  CDN", "❯"))).toEqual([]);
+  });
+
   it("dedupes a re-rendered linked idea but keeps distinct link targets apart (#42)", () => {
     const scanner = new IdeaScanner();
     const linked = { title: "Leak", body: "races", kind: "risk", links: [{ to: "a1", relation: "about" }] };
@@ -287,6 +299,49 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     expect(scanner.scan(cap("  «IDEA» Real one :: with substance", "❯"))).toEqual([
       { title: "Real one", body: "with substance" },
     ]);
+  });
+});
+
+describe("ideaIdentityKey — title-anchored identity (#38)", () => {
+  it("ignores the body: same title+kind is one idea regardless of the description", () => {
+    // The body is volatile (terminal reflow / re-streaming); anchoring on the
+    // title is what stops a resize resurfacing the same idea as "new".
+    expect(ideaIdentityKey({ title: "Edge cache", body: "serve from the CDN" })).toBe(
+      ideaIdentityKey({ title: "Edge cache", body: "totally different wording here" }),
+    );
+  });
+
+  it("normalizes title whitespace", () => {
+    expect(ideaIdentityKey({ title: "Edge cache", body: "" })).toBe(
+      ideaIdentityKey({ title: "  Edge   cache ", body: "" }),
+    );
+  });
+
+  it("separates title from kind so they can't blur across the boundary", () => {
+    // title "ab" (no kind) must not collide with title "a" + kind "b".
+    expect(ideaIdentityKey({ title: "ab", body: "" })).not.toBe(
+      ideaIdentityKey({ title: "a", body: "", kind: "b" }),
+    );
+  });
+
+  it("distinguishes kind: a same-titled risk vs. feature are different ideas", () => {
+    expect(ideaIdentityKey({ title: "Caching", body: "x", kind: "risk" })).not.toBe(
+      ideaIdentityKey({ title: "Caching", body: "x", kind: "feature" }),
+    );
+  });
+
+  it("keeps distinct link targets / relations apart (idea-graph §5.1)", () => {
+    const base = { title: "Leak", body: "races", kind: "risk" };
+    const aboutA1 = ideaIdentityKey({ ...base, links: [{ to: "a1", relation: "about" }] });
+    expect(aboutA1).toBe(ideaIdentityKey({ ...base, links: [{ to: "a1" }] })); // about is the default
+    expect(aboutA1).not.toBe(ideaIdentityKey({ ...base, links: [{ to: "b2", relation: "about" }] }));
+    expect(aboutA1).not.toBe(ideaIdentityKey({ ...base, links: [{ to: "a1", relation: "supersedes" }] }));
+  });
+
+  it("ignores the idea's own id (identity is what it's about, not the minted ref)", () => {
+    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(
+      ideaIdentityKey({ title: "X", body: "y" }),
+    );
   });
 });
 

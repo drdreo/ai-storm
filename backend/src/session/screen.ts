@@ -69,12 +69,7 @@ export class TerminalScreen {
    */
   snapshot(): string {
     const buf = this.#term.buffer.active;
-    const top = buf.baseY;
-    const rows: string[] = [];
-    for (let i = 0; i < this.#rows; i++) {
-      rows.push(buf.getLine(top + i)?.translateToString(true) ?? "");
-    }
-    return rows.join("\n");
+    return this.#logicalLines(buf.baseY, buf.baseY + this.#rows).join("\n");
   }
 
   /**
@@ -85,12 +80,42 @@ export class TerminalScreen {
    * inevitable re-scan of still-visible lines idempotent.
    */
   snapshotAll(): string {
+    return this.#logicalLines(0, this.#term.buffer.active.length).join("\n");
+  }
+
+  /**
+   * Reconstruct LOGICAL lines from grid rows `[from, to)`, rejoining a terminal
+   * SOFT-wrap (an auto-wrap continuation — `isWrapped`) onto its start row with
+   * NO separator. This is the Windows analog of `tmux capture-pane -J`, and it
+   * is load-bearing for idea dedupe (#38).
+   *
+   * Auto-wrap breaks at the column, not at spaces, so a word can split mid-token
+   * ("resili│ence"). Reading the grid row-by-row and letting the scanner rejoin
+   * the halves with a space yields "resili ence" — and, worse, the split column
+   * MOVES when the pane is resized, so the SAME idea reads differently after
+   * every resize and the scanner re-emits it as "new", duplicating every card.
+   * Concatenating `isWrapped` rows with no separator recovers the original line
+   * ("resilience") identically at any width. `translateToString(false)` keeps
+   * each row's full width (no right-trim) so a wrap that lands on a real space
+   * preserves it on the next row; only the assembled line's tail is trimmed.
+   */
+  #logicalLines(from: number, to: number): string[] {
     const buf = this.#term.buffer.active;
-    const total = buf.length; // scrollback + viewport rows currently retained
-    const rows: string[] = [];
-    for (let i = 0; i < total; i++) {
-      rows.push(buf.getLine(i)?.translateToString(true) ?? "");
+    const lines: string[] = [];
+    let i = Math.max(0, from);
+    const end = Math.min(to, buf.length);
+    while (i < end) {
+      let text = buf.getLine(i)?.translateToString(false) ?? "";
+      let j = i + 1;
+      // Absorb auto-wrap continuations (they may run past `end` to complete the
+      // logical line — bounded only by the buffer).
+      while (j < buf.length && buf.getLine(j)?.isWrapped) {
+        text += buf.getLine(j)?.translateToString(false) ?? "";
+        j++;
+      }
+      lines.push(text.replace(/\s+$/, "")); // trim only the assembled line's tail
+      i = j;
     }
-    return rows.join("\n");
+    return lines;
   }
 }

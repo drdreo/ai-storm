@@ -13,13 +13,15 @@
  * the full, flattened text of the pane as it currently reads (a `tmux
  * capture-pane -p` snapshot on POSIX, a `TerminalScreen` render on Windows) —
  * and returns the newly-seen ideas. Because the same marker line re-renders on
- * every frame until it scrolls off, ideas are deduped by `(title, body, kind)`
- * across the WHOLE session (there are no response boundaries any more).
+ * every frame until it scrolls off, ideas are deduped by their identity
+ * (`ideaIdentityKey` — title + kind + links; the volatile body is excluded so a
+ * pane resize that re-wraps it can't resurface the idea as "new", #38) across the
+ * WHOLE session. There are no response boundaries any more.
  *
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
 
-import type { Idea, IdeaLink, IdeaRelation } from "@ai-storm/shared";
+import { ideaIdentityKey, type Idea, type IdeaRelation } from "@ai-storm/shared";
 
 export type { Idea };
 
@@ -330,23 +332,12 @@ export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
   return ideas;
 }
 
-/**
- * Stable per-idea identity key for session-scoped dedupe (§7.1). Links are part
- * of identity (idea-graph design §5.1): the same title/body pointed at a
- * different target is a distinct edge and must not dedupe away.
- */
-function ideaKey(idea: Idea): string {
-  return `${idea.title} ${idea.body} ${idea.kind ?? ""} ${linkKey(idea.links)}`;
-}
-
-/** Order-independent identity of an idea's links, for the dedupe key (§5.1). */
-function linkKey(links: IdeaLink[] | undefined): string {
-  if (!links || links.length === 0) return "";
-  return links
-    .map((l) => `${l.to}:${l.relation ?? "about"}`)
-    .sort()
-    .join(",");
-}
+// Per-idea identity for session-scoped dedupe (§7.1) is the shared
+// `ideaIdentityKey` (title + kind + links; the volatile body is excluded — a pane
+// resize re-wraps it and would otherwise make the idea look "new", #38). The
+// scanner is the single dedupe authority: a re-rendered marker is never re-sent,
+// so the canvas just draws what it receives. Links stay part of identity
+// (idea-graph §5.1): the same title at a different target is a distinct edge.
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */
 function toTrimmedLines(capture: string): string[] {
@@ -391,7 +382,7 @@ export class IdeaScanner {
     const ideas = scanIdeas(lines, final);
     const fresh: Idea[] = [];
     for (const idea of ideas) {
-      const key = ideaKey(idea);
+      const key = ideaIdentityKey(idea);
       if (this.#seen.has(key)) continue;
       this.#seen.add(key);
       fresh.push(idea);

@@ -171,6 +171,35 @@ export interface Idea {
 }
 
 /**
+ * Canonical identity key for an {@link Idea} — the key the backend scanner uses
+ * to track which ideas it has already emitted this session, so a marker the
+ * terminal re-renders every frame is sent to the canvas exactly once (#38).
+ *
+ * Identity is ANCHORED ON THE TITLE (plus the distinguishing kind + links) and
+ * deliberately EXCLUDES the body. The title is the stable heading; the body is
+ * the volatile description — a long one re-wraps as the pane resizes (and the
+ * agent may re-stream it), which would make the same idea look "new" and defeat
+ * the dedupe. Anchoring on the title sidesteps that drift. The trade-off,
+ * accepted deliberately: two ideas that share a title (same kind, same links)
+ * are treated as one.
+ *
+ * `kind` + `links` stay in the key so a same-titled risk vs. feature, or an idea
+ * pointed at a different card, stay distinct (idea-graph design §5.1; links are
+ * order-independent). The title's whitespace is normalized for safety; the
+ * idea's own `id` is excluded (identity is what the idea is about, not the ref a
+ * producer minted).
+ */
+export function ideaIdentityKey(idea: Idea): string {
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const links = (idea.links ?? [])
+    .map((l) => `${l.to}:${l.relation ?? "about"}`)
+    .sort()
+    .join(",");
+  // U+0001 separates the fields — it never occurs in rendered terminal text.
+  return [norm(idea.title), (idea.kind ?? "").trim(), links].join("");
+}
+
+/**
  * Raw PTY output for a workspace's session — streamed to the browser's xterm.js
  * terminal verbatim (the conversation surface). `data` is base64-encoded so the
  * control bytes of a cursor-addressed TUI survive JSON transport unchanged; the
