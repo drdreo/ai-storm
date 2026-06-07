@@ -25,6 +25,8 @@
  * itself, and only the robust, contract-defined idea scan remains.
  */
 
+export * from "./modes.js";
+
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =
   | AttachMessage
@@ -56,6 +58,12 @@ export interface AttachMessage {
   cwd?: string;
   cols?: number;
   rows?: number;
+  /**
+   * Facilitation mode id (#61) — selects the priming preset appended to the base
+   * `«IDEA»` contract. Optional; defaults to the free-form mode (base contract
+   * only). See `modes.ts`.
+   */
+  mode?: string;
 }
 
 /** Send a prompt to the workspace's session (delivered to the harness stdin). */
