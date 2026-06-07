@@ -15,6 +15,7 @@ import {
   getColorValue,
   stopEventPropagation,
   useEditor,
+  useIsEditing,
   useColorMode,
   DefaultColorStyle,
   type Editor,
@@ -75,6 +76,13 @@ export interface IdeaCardMeta {
    * triaged — `meta` so no schema migration, exactly like `starred`.
    */
   score?: { impact: number; effort: number; confidence?: number };
+  /**
+   * Set the first time the user edits an AI card's text (#72). The card keeps its
+   * `origin: 'ai'` provenance (and the 🤖 badge) but gains a `· edited` mark, so a
+   * human take-over of an AI idea stays honest about both halves of its history.
+   * `meta` (like `starred`/`score`) so no schema migration.
+   */
+  editedByUser?: boolean;
   [key: string]: unknown;
 }
 
@@ -92,6 +100,23 @@ declare module 'tldraw' {
 
 export const CARD_W = 250;
 export const CARD_H = 132;
+
+/**
+ * Shared style for the in-edit title/body fields (#72): a borderless, transparent
+ * textarea that sits exactly where the read-only text was, so entering edit mode
+ * doesn't shift the card's layout. Font/size/color are applied per-field.
+ */
+const EDIT_FIELD: React.CSSProperties = {
+  width: '100%',
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  padding: 0,
+  margin: 0,
+  resize: 'none',
+  fontFamily: 'inherit',
+  overflow: 'hidden',
+};
 
 export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   static override type = 'idea-card' as const;
@@ -155,6 +180,7 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
 function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const editor = useEditor();
   const colorMode = useColorMode();
+  const isEditing = useIsEditing(shape.id);
   const { kind, title, body, origin, superseded, color } = shape.props;
   const colors = editor.getCurrentTheme().colors[colorMode];
   const swatch = superseded ? 'grey' : color;
@@ -173,12 +199,27 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   // migration), persists with the card, toggled by the ★ in the corner.
   const starred = !!(shape.meta as IdeaCardMeta).starred;
   const score = (shape.meta as IdeaCardMeta).score;
+  const editedByUser = !!(shape.meta as IdeaCardMeta).editedByUser;
   const toggleStar = (e: React.SyntheticEvent) => {
     stopEventPropagation(e);
     editor.updateShape({
       id: shape.id,
       type: 'idea-card',
       meta: { ...shape.meta, starred: !starred },
+    });
+  };
+
+  // Live text edit (#72). tldraw enters this shape's edit mode on double-click /
+  // Enter (canEdit === true); we then swap the read-only title/body for inputs.
+  // The first user keystroke on an AI card stamps `editedByUser` — provenance
+  // stays `ai` (the 🤖 endures) but a `· edited` mark records the human take-over.
+  const edit = (patch: Partial<Pick<IdeaCardShape['props'], 'title' | 'body'>>) => {
+    const stampEdited = origin === 'ai' && !editedByUser;
+    editor.updateShape({
+      id: shape.id,
+      type: 'idea-card',
+      props: patch,
+      ...(stampEdited ? { meta: { ...shape.meta, editedByUser: true } } : {}),
     });
   };
 
@@ -229,10 +270,46 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: '0.02em' }}>
           {badge}
           {superseded ? ' · superseded' : ''}
+          {editedByUser ? ' · edited' : ''}
         </div>
       ) : null}
-      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{title}</div>
-      {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
+      {isEditing ? (
+        <>
+          <textarea
+            autoFocus
+            value={title}
+            placeholder="Title"
+            onPointerDown={stopEventPropagation}
+            onChange={(e) => edit({ title: e.target.value })}
+            style={{
+              ...EDIT_FIELD,
+              color: text,
+              fontSize: 14,
+              fontWeight: 600,
+              lineHeight: 1.25,
+            }}
+          />
+          <textarea
+            value={body}
+            placeholder="Add detail…"
+            onPointerDown={stopEventPropagation}
+            onChange={(e) => edit({ body: e.target.value })}
+            style={{
+              ...EDIT_FIELD,
+              color: text,
+              fontSize: 12,
+              lineHeight: 1.35,
+              opacity: 0.85,
+              flex: 1,
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{title}</div>
+          {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
+        </>
+      )}
       {score ? (
         // AI triage score (#60): impact / effort / confidence, pinned to the
         // bottom so it reads as a stat strip below the idea.
