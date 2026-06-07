@@ -33,6 +33,7 @@ import { kindLabel, KNOWN_KINDS } from '../idea-descriptors';
 import { ideaCards, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from './filter';
 import { arrangeMindMap, arrangePriorityGrid, markSelected } from './layout';
+import { createUserIdea } from './idea-tool';
 
 /** A workspace's live filter, held in a tldraw signal so it outlives menu open/close. */
 export type FilterAtom = Atom<BoardFilter>;
@@ -224,12 +225,22 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
   return (
     <DefaultContextMenu {...props}>
-      {selectedCards.length > 0 && (
+      {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
           <TldrawUiMenuItem
             id="mark"
             label={allStarred ? 'Unmark' : '★ Mark'}
             onSelect={() => markSelected(editor)}
+          />
+        </TldrawUiMenuGroup>
+      ) : (
+        // Right-click on empty canvas: drop a tracked user idea where they clicked
+        // (#31) — the manual counterpart to the AI ingest path.
+        <TldrawUiMenuGroup id="ai-storm-new">
+          <TldrawUiMenuItem
+            id="new-idea"
+            label="✚ New idea here"
+            onSelect={() => createUserIdea(editor, editor.inputs.currentPagePoint)}
           />
         </TldrawUiMenuGroup>
       )}

@@ -22,6 +22,8 @@ import { useMemo } from 'react';
 import { IdeaCardShapeUtil } from './canvas/idea-card';
 import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
+import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
+import { copyTextOptions } from './canvas/copy-text';
 
 // Re-export the editor-driven ports the stores drive against the mounted workspace.
 export { applyIdeas } from './canvas/ingest';
@@ -58,6 +60,8 @@ export function CanvasIsland({
     () => ({
       MainMenu: () => <CanvasMainMenu $filter={$filter} />,
       ContextMenu: CanvasContextMenu,
+      // Surface the manual "Idea" tool (#31) next to tldraw's native tools.
+      Toolbar: IdeaToolbar,
       InFrontOfTheCanvas: () => (
         <>
           <CardVerbBar onVerb={bridge.onCardVerb} />
@@ -73,6 +77,9 @@ export function CanvasIsland({
         key={workspaceId}
         persistenceKey={`ai-storm:ws:${workspaceId}`}
         shapeUtils={SHAPE_UTILS}
+        tools={IDEA_TOOLS}
+        overrides={ideaToolOverrides}
+        options={copyTextOptions}
         components={components}
         onMount={(editor) => bridge.onEditorMount(editor)}
       />
