@@ -30,6 +30,13 @@ export interface TerminalConfig {
    * (re)started. Undefined → free-form default. See `@ai-storm/shared` modes.
    */
   mode?: string;
+  /**
+   * Pre-brainstorm background context (#76) — freeform "set the scene" priming
+   * baked into the launch system-prompt, steering every idea this session.
+   * Locked while the session is attached (edit ⇒ Stop & Start; PD-020). Undefined
+   * or empty contributes nothing to the prime.
+   */
+  background?: string;
 }
 
 export function defaultTerminalConfig(): TerminalConfig {

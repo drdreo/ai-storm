@@ -276,6 +276,40 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   its own DOM at runtime). Removes `@angular/aria` + `@angular/cdk`. A bespoke theme/palette is left
   as future work.
 
+### PD-020 — Background context is baked at launch, a third priming lever
+
+`(2026-06-07, accepted, extends PD-008/#61)`
+
+- **Decision:** Pre-brainstorm **background context** (#76) — a freeform "set the scene" string the
+  user authors before starting (e.g. *"We're a B2B fintech, audience is CFOs, avoid ideas needing new
+  hardware"*) — is **baked into the launch system-prompt** as a **third priming segment**, beside the
+  base `«IDEA»` contract (`PRIME_INSTRUCTION`) and the facilitation-mode preset (#61). The prime is
+  composed `[PRIME_INSTRUCTION, modePreset, formatBackground(background)].filter(Boolean).join("\n\n")`;
+  `formatBackground` wraps the user text in a labelled "BACKGROUND CONTEXT — standing context…" block so
+  it reads as **guidance, not instructions**. Because it rides the launch prompt, it is **locked while
+  the session is attached** — editing means **Stop & Start**, exactly like facilitation mode. We
+  deliberately do **not** route it through the mid-session `ContextMessage` lane (PRD §3.2), which stays
+  for *evolving* context (the serialized canvas). Three roles, three lanes: **background is
+  foundational, mode is how, canvas is what's emerged.**
+- **Why:** Background is *standing* context that should shape **turn one** and every turn after — the
+  launch system-prompt is the strongest, earliest steering surface, so that's where it belongs. The
+  session layer already treats priming as a first-class, swappable concept and already layers two
+  segments on this exact seam (PD-008 passthrough prime + #61 mode), so background is a third segment on
+  a path we've walked twice — **no new extraction, no new wire types, no new card kinds.** We rejected
+  **live-injection** (mid-session, re-sent each turn): it competes with the canvas context lane, can't
+  shape turn one, and makes "what's priming the agent right now" ambiguous. We rejected **structured
+  fields** (audience / domain / constraints as separate inputs): freeform is lower-friction and the
+  agent reads prose fine; structure can come later if a need appears. **Empty = byte-identical to
+  today** — a blank background contributes nothing to the prime, so there is no behavioural regression
+  and no migration.
+- **Affects:** `background?: string` added to `AttachMessage` (`packages/shared`), to the frontend
+  `TerminalConfig`, and to the `attach` payload the ingestion store sends. Backend `harnessSetup` gains
+  the third compose segment via `formatBackground`. UI groups harness + mode + background under one
+  **"Session setup · applied on start"** header in `ControlHub.tsx` — all three share the lock rule;
+  while attached the group dims, inputs are `disabled`, and the header flips to a "🔒 session live — Stop
+  to edit setup" tag with a hover tooltip giving the *how*. The textarea carries a ~1500-char soft cap
+  (amber past it, not enforced — it rides every turn's prompt) and persists per workspace.
+
 ### PD-019 — Combine (merge) is a multi-source supersede, like challenge
 
 `(2026-06-07, accepted, extends PD-012)`

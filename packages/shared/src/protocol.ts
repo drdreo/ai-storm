@@ -64,6 +64,15 @@ export interface AttachMessage {
    * only). See `modes.ts`.
    */
   mode?: string;
+  /**
+   * Pre-brainstorm background context (#76) — freeform user-authored priming that
+   * "sets the scene" for every idea the agent generates this session (audience,
+   * domain, constraints). Baked into the launch system-prompt as a third priming
+   * segment beside the base contract and the facilitation `mode`, so it is LOCKED
+   * while the session is attached (edit ⇒ Stop & Start; PD-020). Optional; empty
+   * or absent contributes nothing — the prime is byte-identical to today.
+   */
+  background?: string;
 }
 
 /** Send a prompt to the workspace's session (delivered to the harness stdin). */

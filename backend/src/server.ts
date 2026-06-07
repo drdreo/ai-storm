@@ -73,18 +73,42 @@ Rules:
 - Everything that is NOT an «IDEA» or «SCORE» line is treated as ordinary chat.`;
 
 /**
- * Derive the harness profile name + priming text from the harness command and
- * the selected facilitation mode (#61). A contract-aware harness (claude) is
- * primed via its system-prompt flag with the base `«IDEA»` instruction plus the
- * mode's preset (when not the free-form default); anything else gets no prime
- * (extraction-contract §4.6).
+ * Wrap the user's pre-brainstorm background context (#76) in a labelled block so
+ * it reads to the agent as standing *guidance* ("here is the scene"), not as
+ * instructions to follow literally. Returns "" for empty/whitespace-only input,
+ * so a blank background contributes nothing to the prime (byte-identical to
+ * today — PD-020).
  */
-function harnessSetup(command: string, mode?: string): { harnessProfile?: string; prime?: string } {
+function formatBackground(background?: string): string {
+  const text = background?.trim();
+  if (!text) return "";
+  return (
+    "BACKGROUND CONTEXT — standing context for every idea this session " +
+    "(the user set the scene; treat it as guidance shaping what fits, not as " +
+    `instructions to act on):\n${text}`
+  );
+}
+
+/**
+ * Derive the harness profile name + priming text from the harness command, the
+ * selected facilitation mode (#61), and the user's background context (#76). A
+ * contract-aware harness (claude) is primed via its system-prompt flag with the
+ * base `«IDEA»` instruction, then the mode's preset (when not the free-form
+ * default), then the background block (when non-empty) — three segments on the
+ * same launch seam (PD-020). Anything else gets no prime (extraction-contract
+ * §4.6). Empty mode + empty background ⇒ the prime is exactly PRIME_INSTRUCTION.
+ */
+function harnessSetup(
+  command: string,
+  mode?: string,
+  background?: string,
+): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
   const supportsContract = getProfile(harnessProfile).supportsIdeaContract;
   if (!supportsContract) return { harnessProfile, prime: undefined };
-  const preset = getFacilitationMode(mode).prime;
-  const prime = preset ? `${PRIME_INSTRUCTION}\n\n${preset}` : PRIME_INSTRUCTION;
+  const prime = [PRIME_INSTRUCTION, getFacilitationMode(mode).prime, formatBackground(background)]
+    .filter(Boolean)
+    .join("\n\n");
   return { harnessProfile, prime };
 }
 
@@ -237,13 +261,20 @@ async function dispatch(
         args: (msg.args ?? []).join(" "),
         cwd: msg.cwd,
         mode: msg.mode,
+        background: msg.background,
       });
       try {
         // Idempotent: create the named session if absent (else reuse), then
         // (re)attach the response stream. Decoupled from input readiness —
         // the session always exists by the time `input` is processed (§3.3).
-        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", msg.mode);
-        log.debug("attach.setup", { workspace: workspaceId, harnessProfile, mode: msg.mode, prime });
+        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", msg.mode, msg.background);
+        log.debug("attach.setup", {
+          workspace: workspaceId,
+          harnessProfile,
+          mode: msg.mode,
+          background: msg.background,
+          prime,
+        });
         await backend.create({
           workspaceId,
           command: msg.shell ?? "",
