@@ -24,8 +24,19 @@ import {
   getColorValue,
   stopEventPropagation,
   track,
+  atom,
+  type Atom,
   useEditor,
   useColorMode,
+  DefaultMainMenu,
+  DefaultMainMenuContent,
+  DefaultContextMenu,
+  DefaultContextMenuContent,
+  type TLUiContextMenuProps,
+  TldrawUiMenuGroup,
+  TldrawUiMenuSubmenu,
+  TldrawUiMenuCheckboxItem,
+  TldrawUiMenuItem,
   type Editor,
   type Geometry2d,
   type RecordProps,
@@ -37,12 +48,14 @@ import {
   DefaultColorStyle,
 } from 'tldraw';
 import 'tldraw/tldraw.css';
+import { useEffect, useMemo, useState } from 'react';
 import type { Idea, IdeaRelation, Score } from '@ai-storm/shared';
 import {
   kindLabel,
   kindColor,
   normalizeKind,
   isTriageableKind,
+  KNOWN_KINDS,
   AI_PROVENANCE_BADGE,
 } from './idea-descriptors';
 import { cardToText, serializeCards, type CardContent } from './canvas-text';
@@ -481,32 +494,99 @@ export function selectedText(editor: Editor): string {
   return serializeCards(selected.map(content));
 }
 
-/** Distinct kinds with at least one card on the canvas (#21). */
-export function kindsPresent(editor: Editor): string[] {
+/**
+ * The board's filterable dimensions (#21+): the full multi-facet model behind the
+ * canvas Filter dropdown. A card is visible iff it passes EVERY active facet —
+ * kind, provenance, mark, lifecycle, and triage — so the facets compose (AND).
+ * Pure data; {@link applyFilter} turns it into per-card opacity.
+ */
+export interface BoardFilter {
+  /** Kinds toggled OFF (#21). Empty ⇒ every kind shown. */
+  hiddenKinds: ReadonlySet<string>;
+  /** Provenance facet (#31): everything, or only AI / only user cards. */
+  origin: 'all' | Origin;
+  /** Show only starred cards (#29). */
+  markedOnly: boolean;
+  /** Show superseded ghosts (#20/PD-012). Off ⇒ they drop out entirely. */
+  showSuperseded: boolean;
+  /** Show only cards carrying an AI triage score (#60). */
+  triagedOnly: boolean;
+}
+
+/** The no-op filter — every card visible. The Filter dropdown's reset target. */
+export const EMPTY_FILTER: BoardFilter = {
+  hiddenKinds: new Set(),
+  origin: 'all',
+  markedOnly: false,
+  showSuperseded: true,
+  triagedOnly: false,
+};
+
+/**
+ * Which facet values actually occur on the current board — drives the dropdown's
+ * "always show every option, grey out the ones with no cards" behaviour (#21). A
+ * facet with no matching card would silently hide the whole board, so the UI
+ * disables it rather than offering a filter that blanks the canvas.
+ */
+export interface BoardFacets {
+  /** Distinct kinds with at least one card. */
+  kinds: string[];
+  hasAi: boolean;
+  hasUser: boolean;
+  hasMarked: boolean;
+  hasSuperseded: boolean;
+  hasTriaged: boolean;
+}
+
+/** Scan the board once for {@link BoardFacets} (#21). */
+export function boardFacets(editor: Editor): BoardFacets {
   const kinds = new Set<string>();
+  let hasAi = false;
+  let hasUser = false;
+  let hasMarked = false;
+  let hasSuperseded = false;
+  let hasTriaged = false;
   for (const card of ideaCards(editor)) {
     const k = normalizeKind(card.props.kind);
     if (k) kinds.add(k);
+    if (card.props.origin === 'ai') hasAi = true;
+    else hasUser = true;
+    const meta = card.meta as IdeaCardMeta;
+    if (meta.starred) hasMarked = true;
+    if (card.props.superseded) hasSuperseded = true;
+    if (meta.score) hasTriaged = true;
   }
-  return [...kinds];
+  return { kinds: [...kinds], hasAi, hasUser, hasMarked, hasSuperseded, hasTriaged };
+}
+
+/** Whether a card survives every active facet of `filter`. Pure. */
+function cardVisible(card: IdeaCardShape, filter: BoardFilter): boolean {
+  const k = normalizeKind(card.props.kind);
+  if (k && filter.hiddenKinds.has(k)) return false;
+  if (filter.origin !== 'all' && card.props.origin !== filter.origin) return false;
+  const meta = card.meta as IdeaCardMeta;
+  if (filter.markedOnly && !meta.starred) return false;
+  if (!filter.showSuperseded && card.props.superseded) return false;
+  if (filter.triagedOnly && !meta.score) return false;
+  return true;
 }
 
 /**
- * Show or hide every card of a given `kind` (#21) by toggling its opacity (0 ⇒
- * hidden) and locking hidden cards out of interaction. Native-tldraw replacement
- * for BlockSuite's `displayMode` toggle; the card stays on the board (data is
- * never removed — just dimmed out).
+ * Apply the whole {@link BoardFilter} to the canvas (#21) by toggling each card's
+ * opacity (0 ⇒ hidden) and locking hidden cards out of interaction. Native-tldraw
+ * replacement for BlockSuite's `displayMode` toggle; cards stay on the board (data
+ * is never removed — just dimmed out), so clearing the filter restores them. Recomputes
+ * every card from scratch each call, so it's safe to re-run after new cards stream in.
  */
-export function setKindVisible(editor: Editor, kind: string, visible: boolean): void {
-  const target = normalizeKind(kind);
-  if (!target) return;
-  const ids = ideaCards(editor)
-    .filter((c) => normalizeKind(c.props.kind) === target)
-    .map((c) => c.id);
-  if (ids.length === 0) return;
+export function applyFilter(editor: Editor, filter: BoardFilter): void {
+  const cards = ideaCards(editor);
+  if (cards.length === 0) return;
   editor.run(() =>
     editor.updateShapes(
-      ids.map((id) => ({ id, type: 'idea-card' as const, opacity: visible ? 1 : 0, isLocked: !visible })),
+      cards.map((c) => {
+        const visible = cardVisible(c, filter);
+        return { id: c.id, type: 'idea-card' as const, opacity: visible ? 1 : 0, isLocked: !visible };
+      }),
     ),
   );
 }
@@ -651,18 +731,6 @@ export function markSelected(editor: Editor): void {
 }
 
 /**
- * Select every marked idea card (#29) so the user can act on them as a batch
- * (Send to agent / Inject context). Returns how many were selected.
- */
-export function selectMarked(editor: Editor): number {
-  const ids = ideaCards(editor)
-    .filter((c) => (c.meta as IdeaCardMeta).starred)
-    .map((c) => c.id);
-  editor.select(...ids);
-  return ids.length;
-}
-
-/**
  * The stable short ref of a card (idea-graph §4), minting one (`a1`, `a2`, …) on
  * first reference. {@link applyIdeas} mints refs for AI cards as they are created;
  * this is the lazy path for a user-drawn card the first time an edge names it.
@@ -764,6 +832,216 @@ const CardVerbBar = track(function CardVerbBar({ onVerb }: { onVerb: CardVerbHan
 });
 
 /* -------------------------------------------------------------------------- */
+/* Filter (#21) — a "Filter" submenu in the native main menu (top-left ☰).      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The live board filter (#21), held in a tldraw {@link atom} rather than React
+ * state: the main-menu content unmounts every time the menu closes, so the
+ * selection has to outlive that. The atom is created per {@link CanvasIsland} mount
+ * (see {@link useFilterAtom}) and passed to the two consumers below — so it's
+ * naturally per-workspace and resets when you switch boards, with no cross-workspace
+ * bookkeeping. {@link FilterApplier} subscribes and applies it; {@link CanvasMainMenu}
+ * reads and writes it.
+ */
+type FilterAtom = Atom<BoardFilter>;
+
+/** A fresh filter atom for the current workspace, discarded when the island remounts. */
+function useFilterAtom(): FilterAtom {
+  return useState(() => atom<BoardFilter>('boardFilter', EMPTY_FILTER))[0];
+}
+
+/** Count of engaged facets — drives the "(N)" hint on the submenu label. */
+function filterCount(f: BoardFilter): number {
+  return (
+    (f.hiddenKinds.size > 0 ? 1 : 0) +
+    (f.origin !== 'all' ? 1 : 0) +
+    (f.markedOnly ? 1 : 0) +
+    (f.triagedOnly ? 1 : 0) +
+    (!f.showSuperseded ? 1 : 0)
+  );
+}
+
+/**
+ * Invisible board⇄filter binding (#21): re-applies {@link $filter} as per-card
+ * opacity whenever the filter or the set of cards changes. Always mounted (it
+ * renders `InFrontOfTheCanvas`, not in the menu), so freshly-streamed cards honour
+ * the active filter even while the menu is closed. `track` re-runs it on board
+ * changes; `cardsKey` keys the effect off card identity (not opacity), so applying
+ * the filter — which only touches opacity/lock — can't loop.
+ */
+const FilterApplier = track(function FilterApplier({ $filter }: { $filter: FilterAtom }): null {
+  const editor = useEditor();
+  const filter = $filter.get();
+  const cardsKey = ideaCards(editor)
+    .map((c) => c.id)
+    .join(',');
+  useEffect(() => {
+    applyFilter(editor, filter);
+  }, [editor, filter, cardsKey]);
+  return null;
+});
+
+/**
+ * The native main menu (top-left ☰) with a "Filter" submenu appended (#21) — the
+ * idiomatic tldraw way to extend a menu (tldraw.dev/examples/custom-menus): keep
+ * {@link DefaultMainMenuContent} and add our own {@link TldrawUiMenuGroup}. `track`
+ * makes {@link boardFacets} reactive, so absent facets grey out (disabled) but every
+ * option always shows. Toggling writes the filter atom; {@link FilterApplier} applies it.
+ */
+const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filter: FilterAtom }): React.JSX.Element {
+  const editor = useEditor();
+  const filter = $filter.get();
+  const facets = boardFacets(editor);
+
+  const patch = (p: Partial<BoardFilter>) => {
+    $filter.set({ ...filter, ...p });
+  };
+  const toggleKind = (kind: string) => {
+    const hidden = new Set(filter.hiddenKinds);
+    if (hidden.has(kind)) hidden.delete(kind);
+    else hidden.add(kind);
+    $filter.set({ ...filter, hiddenKinds: hidden });
+  };
+
+  const count = filterCount(filter);
+  const extraKinds = facets.kinds.filter((k) => !(KNOWN_KINDS as readonly string[]).includes(k));
+  const displayKinds = [...KNOWN_KINDS, ...extraKinds];
+
+  return (
+    <DefaultMainMenu>
+      <DefaultMainMenuContent />
+      <TldrawUiMenuGroup id="ai-storm">
+        <TldrawUiMenuSubmenu id="arrange" label="Arrange" size="small">
+          <TldrawUiMenuGroup id="arrange-layouts">
+            <TldrawUiMenuItem
+              id="arrange-mind-map"
+              label="Mind map · by idea"
+              readonlyOk
+              onSelect={() => arrangeMindMap(editor)}
+            />
+            <TldrawUiMenuItem
+              id="arrange-priority-grid"
+              label="Priority grid · by score"
+              readonlyOk
+              onSelect={() => arrangePriorityGrid(editor)}
+            />
+          </TldrawUiMenuGroup>
+        </TldrawUiMenuSubmenu>
+        <TldrawUiMenuSubmenu id="filter" label={count > 0 ? `Filter (${count})` : 'Filter'} size="small">
+          <TldrawUiMenuGroup id="filter-kind">
+            {displayKinds.map((kind) => (
+              <TldrawUiMenuCheckboxItem
+                key={kind}
+                id={`filter-kind-${kind}`}
+                label={kindLabel(kind)}
+                checked={!filter.hiddenKinds.has(kind)}
+                disabled={!facets.kinds.includes(kind)}
+                readonlyOk
+                onSelect={() => toggleKind(kind)}
+              />
+            ))}
+          </TldrawUiMenuGroup>
+          <TldrawUiMenuGroup id="filter-origin">
+            <TldrawUiMenuCheckboxItem
+              id="filter-origin-all"
+              label="All origins"
+              checked={filter.origin === 'all'}
+              readonlyOk
+              onSelect={() => patch({ origin: 'all' })}
+            />
+            <TldrawUiMenuCheckboxItem
+              id="filter-origin-ai"
+              label="🤖 AI only"
+              checked={filter.origin === 'ai'}
+              disabled={!facets.hasAi}
+              readonlyOk
+              onSelect={() => patch({ origin: filter.origin === 'ai' ? 'all' : 'ai' })}
+            />
+            <TldrawUiMenuCheckboxItem
+              id="filter-origin-user"
+              label="User only"
+              checked={filter.origin === 'user'}
+              disabled={!facets.hasUser}
+              readonlyOk
+              onSelect={() => patch({ origin: filter.origin === 'user' ? 'all' : 'user' })}
+            />
+          </TldrawUiMenuGroup>
+          <TldrawUiMenuGroup id="filter-more">
+            <TldrawUiMenuCheckboxItem
+              id="filter-marked"
+              label="★ Marked only"
+              checked={filter.markedOnly}
+              disabled={!facets.hasMarked}
+              readonlyOk
+              onSelect={() => patch({ markedOnly: !filter.markedOnly })}
+            />
+            <TldrawUiMenuCheckboxItem
+              id="filter-triaged"
+              label="⚖ Triaged only"
+              checked={filter.triagedOnly}
+              disabled={!facets.hasTriaged}
+              readonlyOk
+              onSelect={() => patch({ triagedOnly: !filter.triagedOnly })}
+            />
+            <TldrawUiMenuCheckboxItem
+              id="filter-superseded"
+              label="Show superseded"
+              checked={filter.showSuperseded}
+              disabled={!facets.hasSuperseded}
+              readonlyOk
+              onSelect={() => patch({ showSuperseded: !filter.showSuperseded })}
+            />
+          </TldrawUiMenuGroup>
+          {count > 0 && (
+            <TldrawUiMenuGroup id="filter-clear">
+              <TldrawUiMenuItem
+                id="filter-clear"
+                label="Clear filters"
+                readonlyOk
+                onSelect={() => {
+                  $filter.set(EMPTY_FILTER);
+                }}
+              />
+            </TldrawUiMenuGroup>
+          )}
+        </TldrawUiMenuSubmenu>
+      </TldrawUiMenuGroup>
+    </DefaultMainMenu>
+  );
+});
+
+/**
+ * The native right-click context menu with the card "Mark" action (#29) prepended
+ * — the idiomatic home for a selection action (tldraw.dev/examples/custom-menus):
+ * keep {@link DefaultContextMenuContent} and add our own {@link TldrawUiMenuGroup}.
+ * `track` makes it reactive to the selection, so the item only appears when an idea
+ * card is selected and flips its label between Mark / Unmark to match group state
+ * (the same toggle {@link markSelected} performs).
+ */
+const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiContextMenuProps): React.JSX.Element {
+  const editor = useEditor();
+  const selectedCards = editor
+    .getSelectedShapes()
+    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
+  return (
+    <DefaultContextMenu {...props}>
+      {selectedCards.length > 0 && (
+        <TldrawUiMenuGroup id="ai-storm-card">
+          <TldrawUiMenuItem
+            id="mark"
+            label={allStarred ? 'Unmark' : '★ Mark'}
+            onSelect={() => markSelected(editor)}
+          />
+        </TldrawUiMenuGroup>
+      )}
+      <DefaultContextMenuContent />
+    </DefaultContextMenu>
+  );
+});
+
+/* -------------------------------------------------------------------------- */
 /* React entry — the island the Angular CanvasService mounts.                  */
 /* -------------------------------------------------------------------------- */
 
@@ -787,9 +1065,25 @@ export function CanvasIsland({
   // One store per workspace, keyed by id → its own IndexedDB room (PD-001,
   // local-first; survives reload). Changing `key`/`persistenceKey` remounts
   // <Tldraw> onto the next workspace's store — the hot-switch of PRD §3.4.
-  const components: TLComponents = {
-    InFrontOfTheCanvas: () => <CardVerbBar onVerb={bridge.onCardVerb} />,
-  };
+  //
+  // The filter atom is created here, so it's scoped to this island: switching
+  // workspaces remounts CanvasIsland (it's keyed by id in CanvasPane), which
+  // discards this atom and mints a fresh one — each board gets its own filter,
+  // reset on switch, with no shared global state to clear (#21).
+  const $filter = useFilterAtom();
+  const components = useMemo<TLComponents>(
+    () => ({
+      MainMenu: () => <CanvasMainMenu $filter={$filter} />,
+      ContextMenu: CanvasContextMenu,
+      InFrontOfTheCanvas: () => (
+        <>
+          <CardVerbBar onVerb={bridge.onCardVerb} />
+          <FilterApplier $filter={$filter} />
+        </>
+      ),
+    }),
+    [$filter, bridge],
+  );
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
       <Tldraw
