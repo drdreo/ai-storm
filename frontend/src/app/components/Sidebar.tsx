@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Plus, MoreHorizontal, Sparkles, ChevronDown } from 'lucide-react'
+import { Plus, MoreHorizontal, Sparkles, ChevronDown, Settings } from 'lucide-react'
 import {
   Sidebar as UISidebar,
   SidebarContent,
@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from '../stores/workspace.store'
 import { useBackendStore } from '../stores/backend.store'
 import { ingestion } from '../stores/ingestion.store'
+import { SettingsDialog } from './SettingsDialog'
 import type { WorkspaceMeta, WorkspaceStatus } from '../core/models'
 
 /** Status → dot color (Tailwind utilities; theming comes later). */
@@ -56,6 +57,7 @@ export function Sidebar() {
   const activeId = useWorkspaceStore((s) => s.activeId)
   const connState = useBackendStore((s) => s.state)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   /** Focus (and select) the freshly-rendered inline rename input. */
   const renameInputRef = useCallback((el: HTMLInputElement | null) => {
@@ -199,8 +201,20 @@ export function Sidebar() {
               <span className="truncate text-xs text-muted-foreground">backend {connState}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              onClick={() => setSettingsOpen(true)}
+              tooltip="Settings"
+            >
+              <Settings className="size-4" />
+              <span className="truncate text-xs">Settings</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       <SidebarRail />
     </UISidebar>

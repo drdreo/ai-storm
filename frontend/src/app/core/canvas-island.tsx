@@ -18,7 +18,8 @@
  */
 import { Tldraw, type Editor, type TLComponents } from 'tldraw';
 import 'tldraw/tldraw.css';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useThemeStore } from '../stores/theme.store';
 import { IdeaCardShapeUtil } from './canvas/idea-card';
 import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
@@ -56,6 +57,16 @@ export function CanvasIsland({
   // discards this atom and mints a fresh one — each board gets its own filter,
   // reset on switch, with no shared global state to clear (#21).
   const $filter = useFilterAtom();
+
+  // Mirror the app theme (#77) into tldraw's own color scheme. The preference
+  // accepts the same 'light' | 'dark' | 'system' values as our store, so we feed
+  // `mode` straight through once the editor for this workspace has mounted.
+  const themeMode = useThemeStore((s) => s.mode);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  useEffect(() => {
+    editor?.user.updateUserPreferences({ colorScheme: themeMode });
+  }, [editor, themeMode]);
+
   const components = useMemo<TLComponents>(
     () => ({
       MainMenu: () => <CanvasMainMenu $filter={$filter} />,
@@ -81,7 +92,10 @@ export function CanvasIsland({
         overrides={ideaToolOverrides}
         options={copyTextOptions}
         components={components}
-        onMount={(editor) => bridge.onEditorMount(editor)}
+        onMount={(ed) => {
+          setEditor(ed);
+          bridge.onEditorMount(ed);
+        }}
       />
     </div>
   );
