@@ -127,12 +127,12 @@ cd backend && node smoke_test.ts
 # Browser E2E — Playwright runner (auto-starts vite dev on :4200)
 #   UI suite (backend-free): boot, three panes, tldraw mount, create/rename,
 #   IndexedDB naming, theming, dialogs, empty state, tooltips
-cd frontend && corepack pnpm e2e
-cd frontend && corepack pnpm e2e:ui            # headed/watch UI mode
+cd frontend && pnpm e2e
+cd frontend && pnpm e2e:ui            # headed/watch UI mode
 
 #   Full suite incl. the ConPTY PTY round-trip + hot-switch scrollback
-#   (needs the Node backend on :8787 — start `corepack pnpm dev:backend` first)
-cd frontend && corepack pnpm e2e:all
+#   (needs the Node backend on :8787 — start `pnpm dev:backend` first)
+cd frontend && pnpm e2e:all
 ```
 
 ### Verification status
