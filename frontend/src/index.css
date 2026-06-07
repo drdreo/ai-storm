@@ -6,75 +6,207 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Stock shadcn/ui theme (neutral base). Untouched on purpose — theming comes
-   later; for now the app wears the default shadcn look. */
+/* ----------------------------------------------------------------------------
+   App theming (#77 follow-up). Two dimensions, kept orthogonal:
+     • MODE  — light / dark, toggled by the `.dark` class on <html>.
+     • PALETTE — the brand identity, selected by `data-theme` on <html>.
+                 Storm Slate (cool blue-slate + indigo accent) is the DEFAULT,
+                 living in :root / .dark. Signal Ember (warm graphite + ember
+                 accent) overrides via [data-theme="ember"].
+   Neutrals are intentionally TINTED toward each palette's brand hue (never pure
+   black/white); each palette commits to one confident accent (no gradients).
+   The `[data-theme="x"].dark` rules win on specificity, so palette × mode
+   resolves cleanly. An inline boot script in index.html applies both before
+   first paint to avoid a flash. ------------------------------------------------ */
+
+/* ── Storm Slate · LIGHT (default) ───────────────────────────────────────── */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --background: oklch(0.992 0.002 247);
+  --foreground: oklch(0.23 0.012 265);
+  --card: oklch(1 0.001 247);
+  --card-foreground: oklch(0.23 0.012 265);
+  --popover: oklch(1 0.001 247);
+  --popover-foreground: oklch(0.23 0.012 265);
+  --primary: oklch(0.52 0.18 274);
+  --primary-foreground: oklch(0.985 0.004 247);
+  --secondary: oklch(0.96 0.006 247);
+  --secondary-foreground: oklch(0.27 0.014 265);
+  --muted: oklch(0.96 0.006 247);
+  --muted-foreground: oklch(0.49 0.022 265);
+  --accent: oklch(0.95 0.012 274);
+  --accent-foreground: oklch(0.3 0.03 274);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.92 0.008 247);
+  --input: oklch(0.92 0.008 247);
+  --ring: oklch(0.6 0.15 274);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.975 0.005 247);
+  --sidebar-foreground: oklch(0.23 0.012 265);
+  --sidebar-primary: oklch(0.52 0.18 274);
+  --sidebar-primary-foreground: oklch(0.985 0.004 247);
+  --sidebar-accent: oklch(0.95 0.01 274);
+  --sidebar-accent-foreground: oklch(0.3 0.03 274);
+  --sidebar-border: oklch(0.92 0.008 247);
+  --sidebar-ring: oklch(0.6 0.15 274);
 }
 
+/* ── Storm Slate · DARK ──────────────────────────────────────────────────── */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.165 0.012 255);
+  --foreground: oklch(0.93 0.008 255);
+  --card: oklch(0.205 0.012 255);
+  --card-foreground: oklch(0.93 0.008 255);
+  --popover: oklch(0.205 0.012 255);
+  --popover-foreground: oklch(0.93 0.008 255);
+  --primary: oklch(0.66 0.16 274);
+  --primary-foreground: oklch(0.18 0.02 255);
+  --secondary: oklch(0.27 0.014 255);
+  --secondary-foreground: oklch(0.93 0.008 255);
+  --muted: oklch(0.27 0.014 255);
+  --muted-foreground: oklch(0.72 0.018 255);
+  --accent: oklch(0.3 0.02 274);
+  --accent-foreground: oklch(0.93 0.008 255);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --border: oklch(0.31 0.014 255);
+  --input: oklch(0.33 0.016 255);
+  --ring: oklch(0.6 0.14 274);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.185 0.012 255);
+  --sidebar-foreground: oklch(0.93 0.008 255);
+  --sidebar-primary: oklch(0.66 0.16 274);
+  --sidebar-primary-foreground: oklch(0.18 0.02 255);
+  --sidebar-accent: oklch(0.3 0.02 274);
+  --sidebar-accent-foreground: oklch(0.93 0.008 255);
+  --sidebar-border: oklch(0.31 0.014 255);
+  --sidebar-ring: oklch(0.6 0.14 274);
+}
+
+/* ── Signal Ember · LIGHT ────────────────────────────────────────────────── */
+[data-theme='ember'] {
+  --background: oklch(0.991 0.0015 60);
+  --foreground: oklch(0.235 0.006 40);
+  --card: oklch(1 0.001 60);
+  --card-foreground: oklch(0.235 0.006 40);
+  --popover: oklch(1 0.001 60);
+  --popover-foreground: oklch(0.235 0.006 40);
+  --primary: oklch(0.62 0.2 34);
+  --primary-foreground: oklch(0.99 0.005 60);
+  --secondary: oklch(0.96 0.004 60);
+  --secondary-foreground: oklch(0.27 0.008 40);
+  --muted: oklch(0.96 0.004 60);
+  --muted-foreground: oklch(0.49 0.008 40);
+  --accent: oklch(0.95 0.012 40);
+  --accent-foreground: oklch(0.34 0.04 34);
+  --destructive: oklch(0.55 0.2 18);
+  --border: oklch(0.92 0.005 50);
+  --input: oklch(0.92 0.005 50);
+  --ring: oklch(0.66 0.17 34);
+  --sidebar: oklch(0.978 0.003 50);
+  --sidebar-foreground: oklch(0.235 0.006 40);
+  --sidebar-primary: oklch(0.62 0.2 34);
+  --sidebar-primary-foreground: oklch(0.99 0.005 60);
+  --sidebar-accent: oklch(0.95 0.012 40);
+  --sidebar-accent-foreground: oklch(0.34 0.04 34);
+  --sidebar-border: oklch(0.92 0.005 50);
+  --sidebar-ring: oklch(0.66 0.17 34);
+}
+
+/* ── Signal Ember · DARK ─────────────────────────────────────────────────── */
+[data-theme='ember'].dark {
+  --background: oklch(0.17 0.006 40);
+  --foreground: oklch(0.93 0.005 60);
+  --card: oklch(0.21 0.007 40);
+  --card-foreground: oklch(0.93 0.005 60);
+  --popover: oklch(0.21 0.007 40);
+  --popover-foreground: oklch(0.93 0.005 60);
+  --primary: oklch(0.7 0.18 34);
+  --primary-foreground: oklch(0.19 0.02 40);
+  --secondary: oklch(0.27 0.008 40);
+  --secondary-foreground: oklch(0.93 0.005 60);
+  --muted: oklch(0.27 0.008 40);
+  --muted-foreground: oklch(0.72 0.01 50);
+  --accent: oklch(0.31 0.025 34);
+  --accent-foreground: oklch(0.93 0.005 60);
+  --destructive: oklch(0.62 0.18 18);
+  --border: oklch(0.31 0.009 40);
+  --input: oklch(0.33 0.01 40);
+  --ring: oklch(0.6 0.15 34);
+  --sidebar: oklch(0.19 0.006 40);
+  --sidebar-foreground: oklch(0.93 0.005 60);
+  --sidebar-primary: oklch(0.7 0.18 34);
+  --sidebar-primary-foreground: oklch(0.19 0.02 40);
+  --sidebar-accent: oklch(0.31 0.025 34);
+  --sidebar-accent-foreground: oklch(0.93 0.005 60);
+  --sidebar-border: oklch(0.31 0.009 40);
+  --sidebar-ring: oklch(0.6 0.15 34);
+}
+
+/* ----------------------------------------------------------------------------
+   Independent knobs (#77 follow-up). Each maps to a `data-*` attribute on <html>
+   (set by theme.store.ts) and drives ONE concern, so they compose freely with the
+   palette × mode tokens above:
+     • data-font    → --app-font-sans (the UI face; the terminal stays --font-mono)
+     • data-radius  → --radius (corner rounding)
+     • data-density → --spacing (Tailwind v4's spacing/size base; one var scales all)
+     • data-contrast→ stronger fg/muted/border (a11y), scoped per mode so it wins
+                      over the palette tokens regardless of light/dark.
+   Fonts arrive via Google Fonts (<link> in index.html); offline they fall back to
+   the system stack in each var. ----------------------------------------------- */
+
+[data-font='grotesque'] {
+  --app-font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+[data-font='humanist'] {
+  --app-font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+[data-font='mono'] {
+  --app-font-sans: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+[data-radius='sharp'] {
+  --radius: 0.25rem;
+}
+[data-radius='default'] {
+  --radius: 0.625rem;
+}
+[data-radius='round'] {
+  --radius: 1rem;
+}
+
+/* Tailwind v4 derives every spacing AND size utility from --spacing, so this one
+   override rescales the whole chrome's density without touching any component. */
+[data-density='compact'] {
+  --spacing: 0.215rem;
+}
+[data-density='comfortable'] {
+  --spacing: 0.26rem;
+}
+
+/* High-contrast (WCAG-friendly): near-neutral overrides of the text/line tokens.
+   Compound selectors (attr + mode) reach specificity (0,2,0) so they beat even
+   [data-theme='ember'].dark; placed after all palette blocks to win on order. */
+[data-contrast='high']:not(.dark) {
+  --foreground: oklch(0.16 0.01 265);
+  --muted-foreground: oklch(0.4 0.012 265);
+  --border: oklch(0.82 0.008 265);
+  --card-foreground: oklch(0.16 0.01 265);
+  --popover-foreground: oklch(0.16 0.01 265);
+}
+[data-contrast='high'].dark {
+  --foreground: oklch(0.985 0.004 255);
+  --muted-foreground: oklch(0.82 0.012 255);
+  --border: oklch(0.46 0.014 255);
+  --card-foreground: oklch(0.985 0.004 255);
+  --popover-foreground: oklch(0.985 0.004 255);
 }
 
 @theme inline {
@@ -128,6 +260,8 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
+    /* The selectable UI face (data-font knob); the terminal keeps its own mono. */
+    font-family: var(--app-font-sans, ui-sans-serif, system-ui, sans-serif);
   }
   #root {
     overflow: hidden;

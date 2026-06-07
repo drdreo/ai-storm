@@ -30,12 +30,16 @@ import { ingestion } from '../stores/ingestion.store'
 import { SettingsDialog } from './SettingsDialog'
 import type { WorkspaceMeta, WorkspaceStatus } from '../core/models'
 
-/** Status → dot color (Tailwind utilities; theming comes later). */
+/**
+ * Status → dot styling. Each state carries a NON-COLOR channel too (WCAG 1.4.1):
+ * idle is a hollow ring, active a solid disc, streaming a pulsing disc, and error
+ * a solid square — so the state is legible without relying on hue alone.
+ */
 const STATUS_DOT: Record<WorkspaceStatus, string> = {
-  idle: 'bg-muted-foreground/40',
-  active: 'bg-emerald-500',
-  streaming: 'bg-sky-500 animate-pulse',
-  error: 'bg-destructive',
+  idle: 'rounded-full border border-muted-foreground/50',
+  active: 'rounded-full bg-emerald-500',
+  streaming: 'rounded-full bg-sky-500 animate-pulse ring-2 ring-sky-500/30',
+  error: 'rounded-[2px] bg-destructive',
 }
 
 const CONN_DOT: Record<string, string> = {
@@ -152,9 +156,10 @@ export function Sidebar() {
                           tooltip={`${ws.title} · ${ws.status}`}
                         >
                           <span className="flex size-4 items-center justify-center">
-                            <span className={cn('size-2 rounded-full', STATUS_DOT[ws.status])} />
+                            <span className={cn('size-2', STATUS_DOT[ws.status])} />
                           </span>
                           <span className="truncate">{ws.title}</span>
+                          <span className="sr-only">— {ws.status}</span>
                         </SidebarMenuButton>
 
                         <DropdownMenu>
