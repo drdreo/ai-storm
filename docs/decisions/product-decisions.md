@@ -185,6 +185,37 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-015 — Convergence is a generated artifact, not a second surface
+
+`(2026-06-07, accepted)`
+
+- **Decision:** The brainstorm-ux epic built **divergence and structure** deeply (verbs #15, the
+  idea graph #42, source-linking #40, lifecycle/supersede #20/#22, kinds #21, Arrange #16); the
+  thin half is **convergence** — turning a full board into a decision or an output. We invest there
+  next, and we build it as **generated artifacts produced on demand from the board**, *not* as a
+  second authoring surface. A synthesis, a ranking, a theme rollup, a spec hand-off — each is a
+  *reading* of the canvas: route `serializeToText(...)` through the agent and place the result
+  somewhere (a markdown export, a read-only panel, or new cards/edges), then leave it for the user
+  to curate on the one canvas. This keeps **PD-011** intact: the edgeless canvas stays the sole
+  place you *author*; convergence never reintroduces a page/document *mode* you edit in.
+- **Why:** You can already generate, link, type, and lay out ideas, but the product's promised
+  three-stage workflow (PRD §2: brainstorm → structure → hand-off) dead-ends at structure — there
+  is no step that collapses the wall of cards into "here's the decision / here's the spec." That is
+  the highest-leverage missing value, and it is *cheap* because the seams already exist: the
+  whole-board context path (`serializeToText` → context injection, PRD §3.2), the verb round-trip
+  (`prompt-framing.ts`), union-find clustering and the placement engine (`idea-layout.ts`), and the
+  typed edge/ref graph (#42). Building convergence as generated *output* (not a new editable
+  surface) reuses all of that and avoids the "two places to author the same thing" trap PD-011
+  closed.
+- **Affects:** Reframes **#28** (synthesis is a *generate + export* action, not the dead
+  page/edgeless mode-switch). Splits **#29**: the lightweight keep-mark star shipped in #59, and the
+  "ranking drives visual weight + AI triage" half is refiled as **#60**. Spawns the convergence
+  toolkit — synthesis (#28), AI triage / rank & weight (#60), cluster summarize → theme card (#63),
+  and a spec/PRD hand-off (extends **PD-007**'s dispatch). All consume existing seams; none
+  reinvents identity, edges, or layout. Preserves **PD-001** (single-user) and **PD-011** (one
+  authoring surface). Sibling generative adds filed alongside: facilitation primings (#61),
+  Merge verb (#62).
+
 ### PD-014 — Semantic layout is a manual "Arrange" action, not an automatic mode
 
 `(2026-06-06, accepted, implements #16)`
