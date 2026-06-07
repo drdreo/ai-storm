@@ -26,6 +26,29 @@ jobs:
       - run: pnpm --filter ai-storm-frontend build
       - run: pnpm --filter ai-storm-frontend test
 
+  e2e:
+    name: e2e (ui)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter ai-storm-frontend exec playwright install --with-deps chromium
+      # Backend-free UI suite only — ConPTY isn't available on ubuntu runners.
+      - run: pnpm --filter ai-storm-frontend e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
   backend:
     name: backend
     runs-on: ubuntu-latest

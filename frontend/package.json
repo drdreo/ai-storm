@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "playwright test --project=ui",
+    "e2e:all": "playwright test",
+    "e2e:ui": "playwright test --project=ui --ui"
   },
   "private": true,
   "dependencies": {
@@ -34,9 +37,9 @@
     "@types/node": "^24.12.3",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
+    "@playwright/test": "^1.60.0",
     "@vitejs/plugin-react": "^6.0.1",
     "fake-indexeddb": "^6.2.5",
-    "playwright": "^1.60.0",
     "tailwindcss": "^4.3.0",
     "typescript": "~6.0.0",
     "vite": "^8.0.12",

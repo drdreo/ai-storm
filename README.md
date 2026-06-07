@@ -124,9 +124,15 @@ cd frontend && corepack pnpm test
 # Integration — against a running backend (corepack pnpm start first)
 cd backend && node smoke_test.ts
 
-# Browser E2E — against the dev server (or the built app served by the backend)
-#   (boot, tldraw mount, create/rename, ConPTY round-trip, hot-switch, persistence)
-cd frontend && node e2e/smoke.mjs              # defaults to http://localhost:4200
+# Browser E2E — Playwright runner (auto-starts vite dev on :4200)
+#   UI suite (backend-free): boot, three panes, tldraw mount, create/rename,
+#   IndexedDB naming, theming, dialogs, empty state, tooltips
+cd frontend && corepack pnpm e2e
+cd frontend && corepack pnpm e2e:ui            # headed/watch UI mode
+
+#   Full suite incl. the ConPTY PTY round-trip + hot-switch scrollback
+#   (needs the Node backend on :8787 — start `corepack pnpm dev:backend` first)
+cd frontend && corepack pnpm e2e:all
 ```
 
 ### Verification status
