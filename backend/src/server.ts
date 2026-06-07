@@ -240,13 +240,20 @@ async function dispatch(
         await backend.attach(
           workspaceId,
           // Raw PTY bytes → the browser's xterm.js terminal. base64 so the
-          // control bytes of a cursor-addressed TUI survive JSON intact.
+          // control bytes of a cursor-addressed TUI survive JSON intact. This is
+          // the AI's response stream; byte volume is debug-level (would flood).
           (raw) => {
+            log.debug("ai.data", { workspace: workspaceId, bytes: raw.length });
             send({ type: "data", workspaceId, data: Buffer.from(raw, "utf8").toString("base64") });
           },
-          // Each newly-extracted idea → the canvas.
+          // Each newly-extracted idea → the canvas (the meaningful "got a result").
           (idea) => {
-            log.info("idea", { workspace: workspaceId, kind: idea.kind ?? "", title: idea.title });
+            log.info("ai.idea.sent", {
+              workspace: workspaceId,
+              kind: idea.kind ?? "",
+              title: idea.title,
+              body: idea.body.slice(0, 80),
+            });
             send({ type: "idea", workspaceId, idea });
           },
           (message) => {
@@ -263,14 +270,27 @@ async function dispatch(
       }
       break;
     }
-    case "input":
-      log.debug("input", { workspace: msg.workspaceId, bytes: msg.data.length });
+    case "input": {
+      // Raw xterm passthrough delivers one keystroke per message; a single
+      // keystroke is debug noise, but a multi-char or newline-terminated payload
+      // is a real prompt/paste headed to the AI — surface that at info.
+      const keystroke = msg.data.length <= 2 && !/[\r\n]/.test(msg.data);
+      if (keystroke) {
+        log.debug("ai.keystroke", { workspace: msg.workspaceId, bytes: msg.data.length });
+      } else {
+        log.info("ai.input.sent", {
+          workspace: msg.workspaceId,
+          bytes: msg.data.length,
+          preview: msg.data.replace(/\s+/g, " ").trim().slice(0, 80),
+        });
+      }
       try {
         await backend.sendInput(msg.workspaceId, msg.data);
       } catch (err) {
         send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
       }
       break;
+    }
     case "resize":
       log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
       await backend.resize(msg.workspaceId, msg.cols, msg.rows);
@@ -289,7 +309,7 @@ async function dispatch(
     case "context":
       // Inject the serialized canvas as contextual memory (PRD §3.2): submitted
       // to the harness as a full prompt (not raw keystrokes — it is multi-line).
-      log.debug("context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
+      log.info("ai.context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
       try {
         await backend.submitPrompt(msg.workspaceId, msg.document);
       } catch (err) {
