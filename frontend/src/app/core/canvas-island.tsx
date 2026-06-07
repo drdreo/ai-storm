@@ -22,6 +22,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useThemeStore } from '../stores/theme.store';
 import { IdeaCardShapeUtil } from './canvas/idea-card';
 import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
+import { CanvasEmptyState } from './canvas/CanvasEmptyState';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
 import { copyTextOptions } from './canvas/copy-text';
@@ -75,6 +76,7 @@ export function CanvasIsland({
       Toolbar: IdeaToolbar,
       InFrontOfTheCanvas: () => (
         <>
+          <CanvasEmptyState />
           <CardVerbBar onVerb={bridge.onCardVerb} />
           <FilterApplier $filter={$filter} />
         </>

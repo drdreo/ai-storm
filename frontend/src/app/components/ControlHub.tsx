@@ -143,17 +143,23 @@ export function ControlHub() {
               launched with. Baked at launch, so it's locked while attached —
               Stop & Start to switch how the agent ideates. */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild disabled={attached}>
-              <Button
-                size="sm"
-                variant="outline"
-                className="ml-auto h-7 gap-1 font-mono text-xs"
-                title="Facilitation mode — how the agent ideates (#61). Applied on session start."
-              >
-                {mode.label}
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild disabled={attached}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-7 gap-1 font-mono text-xs"
+                  >
+                    {mode.label}
+                    <ChevronDown className="size-3 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                Facilitation mode — how the agent ideates (#61). Applied on session start.
+              </TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup
                 value={mode.id}
