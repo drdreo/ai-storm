@@ -102,6 +102,18 @@ export const CARD_W = 250;
 export const CARD_H = 132;
 
 /**
+ * Card ink (#77 audit M4). Deliberately card-LOCAL near-black / near-white, NOT
+ * the app `--foreground`: the text sits on the card's colored `semi` tint (a
+ * sticky-note), so it tracks tldraw's light/dark card surface, not the app
+ * chrome behind the canvas. Named here rather than inlined so the intent is
+ * explicit and the values live in one place.
+ */
+const CARD_INK_LIGHT = '#1c1c1c';
+const CARD_INK_DARK = '#e8e8e8';
+/** The gold of the "kept for later" star mark (#29). */
+const STAR_GOLD = '#f5b301';
+
+/**
  * Shared style for the in-edit title/body fields (#72): a borderless, transparent
  * textarea that sits exactly where the read-only text was, so entering edit mode
  * doesn't shift the card's layout. Font/size/color are applied per-field.
@@ -193,7 +205,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const swatch = superseded ? 'grey' : color;
   const tint = getColorValue(colors, swatch, 'semi');
   const accent = getColorValue(colors, swatch, 'solid');
-  const text = superseded ? accent : colorMode === 'dark' ? '#e8e8e8' : '#1c1c1c';
+  const text = superseded ? accent : colorMode === 'dark' ? CARD_INK_DARK : CARD_INK_LIGHT;
 
   const normalized = normalizeKind(kind);
   // Mirrors `decorateProvenance(decorateTitle(...))`: a 🤖 for AI cards, then the
@@ -267,7 +279,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           padding: 0,
           lineHeight: 1,
           fontSize: 15,
-          color: starred ? '#f5b301' : accent,
+          color: starred ? STAR_GOLD : accent,
           opacity: starred ? 1 : 0.35,
         }}
       >
