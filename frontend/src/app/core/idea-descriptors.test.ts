@@ -10,6 +10,7 @@ import {
   KNOWN_KINDS,
   decorateProvenance,
   ideaToDescriptors,
+  isTriageableKind,
   kindColor,
   kindLabel,
   normalizeKind,
@@ -134,5 +135,19 @@ describe("KIND_REGISTRY (idea-graph §3.2 — single source of truth)", () => {
       expect(spec.label.length).toBeGreaterThan(0);
       expect(TLDRAW_COLORS.has(spec.color)).toBe(true);
     }
+  });
+});
+
+describe("isTriageableKind (#60)", () => {
+  it("rates actionable ideas (feature/decision/todo/heuristic/kindless)", () => {
+    for (const k of ["feature", "decision", "todo", "heuristic", "", undefined]) {
+      expect(isTriageableKind(k)).toBe(true);
+    }
+  });
+
+  it("skips commentary kinds (risk/question), case/space-insensitively", () => {
+    expect(isTriageableKind("risk")).toBe(false);
+    expect(isTriageableKind("question")).toBe(false);
+    expect(isTriageableKind("  RISK ")).toBe(false);
   });
 });

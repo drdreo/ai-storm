@@ -42,6 +42,7 @@ import {
   kindLabel,
   kindColor,
   normalizeKind,
+  isTriageableKind,
   AI_PROVENANCE_BADGE,
 } from './idea-descriptors';
 import { cardToText, serializeCards, type CardContent } from './canvas-text';
@@ -203,6 +204,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   // User mark (#29): "keep this one for later". Stored in meta (no schema
   // migration), persists with the card, toggled by the ★ in the corner.
   const starred = !!(shape.meta as IdeaCardMeta).starred;
+  const score = (shape.meta as IdeaCardMeta).score;
   const toggleStar = (e: React.SyntheticEvent) => {
     stopEventPropagation(e);
     editor.updateShape({
@@ -263,6 +265,29 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
       ) : null}
       <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{title}</div>
       {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
+      {score ? (
+        // AI triage score (#60): impact / effort / confidence, pinned to the
+        // bottom so it reads as a stat strip below the idea.
+        <div
+          title={`Impact ${score.impact} · Effort ${score.effort}${
+            score.confidence != null ? ` · Confidence ${score.confidence}` : ''
+          } (AI triage)`}
+          style={{
+            marginTop: 'auto',
+            display: 'flex',
+            gap: 10,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.02em',
+            color: accent,
+            opacity: 0.9,
+          }}
+        >
+          <span>▲ {score.impact}</span>
+          <span>⚒ {score.effort}</span>
+          {score.confidence != null ? <span>◎ {score.confidence}</span> : null}
+        </div>
+      ) : null}
     </HTMLContainer>
   );
 }
@@ -548,6 +573,8 @@ export function arrangeMindMap(editor: Editor): void {
  */
 export function serializeForTriage(editor: Editor): string {
   return cardsInOrder(editor)
+    // Only rate actionable ideas (#60) — skip risks/questions (commentary).
+    .filter((card) => isTriageableKind(card.props.kind))
     .map((card) => {
       const ref = cardRef(editor, card.id);
       const kind = normalizeKind(card.props.kind);
