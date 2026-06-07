@@ -119,13 +119,20 @@ export function Sidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent">
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Sparkles className="size-4" />
-              </div>
-              <div className="grid flex-1 text-left leading-tight">
-                <span className="truncate font-semibold">ai-storm</span>
-                <span className="truncate text-xs text-muted-foreground">brainstorm workspace</span>
+            {/* Presentational brand mark — not interactive, so render as a div
+                (audit H4): a real <button> with no action is a confusing focus
+                stop and a false button role for screen readers. */}
+            <SidebarMenuButton asChild size="lg" className="cursor-default hover:bg-transparent">
+              <div>
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Sparkles className="size-4" />
+                </div>
+                <div className="grid flex-1 text-left leading-tight">
+                  <span className="truncate font-semibold">ai-storm</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    brainstorm workspace
+                  </span>
+                </div>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -203,22 +210,24 @@ export function Sidebar() {
             </CollapsibleContent>
           </SidebarGroup>
         </Collapsible>
-
-       
       </SidebarContent>
 
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
+            {/* Connection readout, not a control — render as a div (audit H4). */}
             <SidebarMenuButton
+              asChild
               size="sm"
               className="cursor-default hover:bg-transparent"
               tooltip={`backend ${connState}`}
             >
-              <span className="flex size-4 items-center justify-center">
-                <span className={cn('size-2 rounded-full', CONN_DOT[connState])} />
-              </span>
-              <span className="truncate text-xs text-muted-foreground">backend {connState}</span>
+              <div>
+                <span className="flex size-4 items-center justify-center">
+                  <span className={cn('size-2 rounded-full', CONN_DOT[connState])} />
+                </span>
+                <span className="truncate text-xs text-muted-foreground">backend {connState}</span>
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

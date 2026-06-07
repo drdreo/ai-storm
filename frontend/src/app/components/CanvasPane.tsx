@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as Toolbar from '@radix-ui/react-toolbar'
+import { Scale, ScrollText, FileInput, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
@@ -88,16 +89,16 @@ export function CanvasPane() {
         <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
           <ToolbarVerb onClick={triage} variant="ghost" tip="Ask the agent to rate every card — impact, effort, confidence (#60)">
-            ⚖ Triage
+            <Scale /> Triage
           </ToolbarVerb>
           <ToolbarVerb onClick={synthesize} variant="ghost" tip="Read the board into a convergent summary (#28)">
-            ✦ Synthesize
+            <ScrollText /> Synthesize
           </ToolbarVerb>
           <ToolbarVerb onClick={injectContext} variant="ghost" tip="Serialize the canvas into the terminal loop (PRD §3.2)">
-            Inject context
+            <FileInput /> Inject context
           </ToolbarVerb>
           <ToolbarVerb onClick={dispatchSelection} tip="Send the current selection to the local agent (PRD §3.6)">
-            Send to agent ▸
+            <Send /> Send to agent
           </ToolbarVerb>
         </Toolbar.Root>
       </div>
