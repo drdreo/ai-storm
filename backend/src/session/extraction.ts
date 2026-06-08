@@ -84,9 +84,25 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   defaultModel: "haiku",
 };
 
+/**
+ * The pi harness profile. Pi intentionally supports the same system-prompt and
+ * model flags we rely on for Claude Code, so it can be primed at launch through
+ * the same profile seam and then driven as a real interactive TUI.
+ */
+export const PI_PROFILE: HarnessProfile = {
+  name: "pi",
+  supportsIdeaContract: true,
+  systemPromptFlag: "--append-system-prompt",
+  modelFlag: "--model",
+  // No defaultModel: pi is multi-provider and already has user/project default
+  // model settings. Forcing haiku here would break users authenticated through
+  // OpenAI, Copilot, Gemini, etc.; explicit `--model` args still pass through.
+};
+
 const PROFILES: Record<string, HarnessProfile> = {
   default: DEFAULT_PROFILE,
   claude: CLAUDE_PROFILE,
+  pi: PI_PROFILE,
   bash: { ...DEFAULT_PROFILE, name: "bash" },
   python: { ...DEFAULT_PROFILE, name: "python" },
 };
@@ -107,13 +123,17 @@ export function getProfile(name: string | undefined, onWarn?: (msg: string) => v
 
 /**
  * Map a harness command to a profile name (extraction-contract §7.2). Uses the
- * command basename so `/usr/local/bin/claude` resolves like `claude`. Unknown
- * commands return undefined → `getProfile` falls back to the default profile.
+ * command basename so `/usr/local/bin/claude` resolves like `claude` and Windows
+ * npm shims such as `pi.cmd` resolve like `pi`. Unknown commands return
+ * undefined → `getProfile` falls back to the default profile.
  */
 export function commandProfileName(command: string): string | undefined {
   if (!command) return undefined;
   const base = command.trim().split(/[\\/]/).pop() ?? "";
-  return base === "claude" ? "claude" : undefined;
+  const normalized = base.replace(/\.(?:cmd|ps1|exe)$/i, "").toLowerCase();
+  if (normalized === "claude") return "claude";
+  if (normalized === "pi") return "pi";
+  return undefined;
 }
 
 // ── Contract grammar (extraction-contract Appendix B — single source of truth) ──

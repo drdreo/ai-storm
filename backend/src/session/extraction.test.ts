@@ -19,6 +19,7 @@ import {
   commandProfileName,
   DEFAULT_PROFILE,
   CLAUDE_PROFILE,
+  PI_PROFILE,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -40,10 +41,16 @@ describe("profiles", () => {
     expect(warnings.length).toBe(0);
   });
 
-  it("resolves the claude profile by name (it alone supports the idea contract)", () => {
+  it("resolves the claude profile by name as contract-aware", () => {
     expect(getProfile("claude")).toBe(CLAUDE_PROFILE);
     expect(CLAUDE_PROFILE.supportsIdeaContract).toBe(true);
     expect(DEFAULT_PROFILE.supportsIdeaContract).toBe(false);
+  });
+
+  it("resolves the pi profile by name and primes it like Claude Code", () => {
+    expect(getProfile("pi")).toBe(PI_PROFILE);
+    expect(PI_PROFILE.supportsIdeaContract).toBe(true);
+    expect(PI_PROFILE.systemPromptFlag).toBe("--append-system-prompt");
   });
 
   it("defaults the claude profile to a fast model (haiku via --model)", () => {
@@ -54,15 +61,24 @@ describe("profiles", () => {
     expect(DEFAULT_PROFILE.defaultModel).toBeUndefined();
   });
 
+  it("lets pi use its own configured default model unless args specify one", () => {
+    expect(PI_PROFILE.modelFlag).toBe("--model");
+    expect(PI_PROFILE.defaultModel).toBeUndefined();
+  });
+
   it("warns and falls back to default for an unknown profile", () => {
     const warnings: string[] = [];
     expect(getProfile("nope", (m) => warnings.push(m))).toBe(DEFAULT_PROFILE);
     expect(warnings.length).toBe(1);
   });
 
-  it("maps the claude command basename to the claude profile", () => {
+  it("maps supported command basenames to their profiles", () => {
     expect(commandProfileName("claude")).toBe("claude");
     expect(commandProfileName("/usr/local/bin/claude")).toBe("claude");
+    expect(commandProfileName("pi")).toBe("pi");
+    expect(commandProfileName("/opt/homebrew/bin/pi")).toBe("pi");
+    expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd")).toBe("pi");
+    expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\claude.ps1")).toBe("claude");
     expect(commandProfileName("bash")).toBeUndefined();
   });
 });
@@ -439,10 +455,33 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.create({ workspaceId: "ws1", command: "claude", prime: PRIME });
 
     const launch = fake.sessions.get("ai-storm-ws1")?.launch ?? "";
+    expect(launch).toContain("--model");
+    expect(launch).toContain("haiku");
     expect(launch).toContain("--append-system-prompt");
     expect(launch).toContain("Emit «IDEA» lines");
     // No typed-priming side effects any more.
     expect(fake.count("load-buffer")).toBe(0);
+  });
+
+  it("appends the system-prompt flag to a fresh pi launch without forcing a model", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ workspaceId: "ws2", command: "pi", prime: PRIME });
+
+    const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
+    expect(launch).not.toContain("--model");
+    expect(launch).toContain("--append-system-prompt");
+    expect(launch).toContain("Emit «IDEA» lines");
+  });
+
+  it("does not override an explicit pi model selection", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ workspaceId: "ws2", command: "pi", args: ["--model", "openai/gpt-4o"], prime: PRIME });
+
+    const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
+    expect(launch).toContain("--model");
+    expect(launch).toContain("openai/gpt-4o");
   });
 
   it("reuses an existing session as-is (no second new-session, already primed at launch)", async () => {
