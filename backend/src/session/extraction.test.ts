@@ -27,9 +27,12 @@ import { ideaIdentityKey } from "@ai-storm/shared";
 /** Build a capture string from screen lines (as `capture-pane -p` would emit). */
 const cap = (...lines: string[]): string => lines.join("\n");
 
-/** Read a recorded claude `capture-pane` fixture (extraction-contract §9). */
-const fixture = (name: string): string =>
-  readFileSync(fileURLToPath(new URL(`./fixtures/claude/${name}`, import.meta.url)), "utf-8");
+/** Read a recorded/synthetic `capture-pane` fixture (extraction-contract §9). */
+const fixture = (profile: "claude" | "pi", name: string): string =>
+  readFileSync(fileURLToPath(new URL(`./fixtures/${profile}/${name}`, import.meta.url)), "utf-8");
+
+const claudeFixture = (name: string): string => fixture("claude", name);
+const piFixture = (name: string): string => fixture("pi", name);
 
 /** Scan a whole capture in one shot (final), discarding the held-back tail. */
 const ideasOf = (capture: string) => scanIdeas(capture.replace(/\r\n/g, "\n").split("\n"), true);
@@ -85,7 +88,7 @@ describe("profiles", () => {
 
 describe("scanIdeas — single-line markers", () => {
   it("extracts «IDEA» / «IDEA:kind» / bare-title ideas anywhere in the pane", () => {
-    expect(ideasOf(fixture("marked-ideas.txt"))).toEqual([
+    expect(ideasOf(claudeFixture("marked-ideas.txt"))).toEqual([
       {
         title: "Contextual Edge Ad Selection",
         body: "Pick ads at the CDN edge based on page content + request signals, cutting round-trips and latency to sub-50ms.",
@@ -128,7 +131,7 @@ describe("scanIdeas — single-line markers", () => {
 
 describe("scanIdeas — fenced ideas", () => {
   it("parses an indented ```idea block into one Idea with the full multi-line body", () => {
-    expect(ideasOf(fixture("fenced-idea.txt"))).toEqual([
+    expect(ideasOf(claudeFixture("fenced-idea.txt"))).toEqual([
       {
         title: "Adopt event-sourced canvas history",
         body:
@@ -278,11 +281,28 @@ describe("scanIdeas — idea-graph links (#42)", () => {
 
 describe("scanIdeas — no markers", () => {
   it("returns nothing for a chrome/chat-only capture", () => {
-    expect(ideasOf(fixture("chrome-and-chat.txt"))).toEqual([]);
+    expect(ideasOf(claudeFixture("chrome-and-chat.txt"))).toEqual([]);
   });
 
   it("does not promote a markerless bullet list (no heuristic floor any more)", () => {
-    expect(ideasOf(cap("● Here are a few:", "  - Offline canvas", "  - Token rotation", "❯"))).toEqual([]);
+    expect(ideasOf(claudeFixture("heuristic-bullets.txt"))).toEqual([]);
+    expect(ideasOf(piFixture("heuristic-bullets.txt"))).toEqual([]);
+  });
+});
+
+describe("scanIdeas — pi fixtures", () => {
+  it("extracts contract markers from pi terminal captures", () => {
+    expect(ideasOf(piFixture("marked-ideas.txt"))).toEqual([
+      {
+        title: "Local model handoff",
+        body: "Let pi route cheap brainstorm turns locally and escalate synthesis to the configured cloud model.",
+      },
+      {
+        title: "Provider drift",
+        body: "multi-provider defaults can make test sessions non-deterministic unless args pin the model",
+        kind: "risk",
+      },
+    ]);
   });
 });
 

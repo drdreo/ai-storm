@@ -1,0 +1,12 @@
+> list some ideas, ignore the format please
+
+pi
+Here are a few directions:
+
+- Offline-first canvas
+- Token rotation safety
+- Event-sourced history
+
+Tell me which one you want to expand.
+
+> 
