@@ -21,7 +21,14 @@ import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError } from "../pty/resolve.ts";
 import { TerminalScreen } from "./screen.ts";
-import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import {
+  IdeaScanner,
+  ScoreScanner,
+  getProfile,
+  commandProfileName,
+  launchArgsForProfile,
+  type HarnessProfile,
+} from "./extraction.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
@@ -86,18 +93,9 @@ export class NodePtySessionBackend implements SessionBackend {
       log.warn("extract.profile", { workspace: workspaceId, message: m }),
     );
 
-    // Prime via the harness's system-prompt flag — the «IDEA» contract becomes
-    // part of the system prompt at launch, so it is followed from the first turn
-    // with nothing typed into the terminal (no readiness/ack/echo dance).
-    const primeArgs = profile.systemPromptFlag && spec.prime ? [profile.systemPromptFlag, spec.prime] : [];
-
-    // Default to the profile's preferred model (e.g. claude → haiku) unless the
-    // caller already passed the model flag explicitly in the harness args.
-    const modelArgs =
-      profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
-        ? [profile.modelFlag, profile.defaultModel]
-        : [];
-    const requestedArgs = [...baseArgs, ...modelArgs, ...primeArgs];
+    // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
+    // model default (if any), and the system/developer prompt injection seam.
+    const requestedArgs = launchArgsForProfile(profile, baseArgs, spec.prime);
 
     let launch;
     try {

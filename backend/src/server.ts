@@ -27,7 +27,7 @@ let connectionSeq = 0;
 
 /**
  * The §4.1 session-priming instruction. Delivered to a contract-aware harness
- * (Claude Code, pi) as an APPENDED SYSTEM PROMPT at launch (see
+ * (Claude Code, pi, Codex) at launch (see
  * `HarnessProfile.systemPromptFlag`), so the `«IDEA»` contract is followed from
  * the first turn with nothing typed into the terminal. It defines the
  * single-line `«IDEA»` marker (and fenced form) the backend extracts into
@@ -93,12 +93,12 @@ function formatBackground(background?: string): string {
 /**
  * Derive the harness profile name + priming text from the harness command, the
  * selected facilitation mode (#61), and the user's background context (#76). A
- * contract-aware harness (Claude Code, pi) is primed via its system-prompt flag
- * with the base `«IDEA»` instruction, then the mode's preset (when not the
- * free-form default), then the background block (when non-empty) — three
- * segments on the same launch seam (PD-020). Anything else gets no prime
- * (extraction-contract §4.6). Empty mode + empty background ⇒ the prime is
- * exactly PRIME_INSTRUCTION.
+ * contract-aware harness (Claude Code, pi, Codex) is primed via its launch-time
+ * prompt/config seam with the base `«IDEA»` instruction, then the mode's preset
+ * (when not the free-form default), then the background block (when non-empty)
+ * — three segments on the same launch seam (PD-020). Anything else gets no
+ * prime (extraction-contract §4.6). Empty mode + empty background ⇒ the prime
+ * is exactly PRIME_INSTRUCTION.
  */
 function harnessSetup(
   command: string,

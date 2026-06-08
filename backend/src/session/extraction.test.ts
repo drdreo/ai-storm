@@ -20,6 +20,7 @@ import {
   DEFAULT_PROFILE,
   CLAUDE_PROFILE,
   PI_PROFILE,
+  CODEX_PROFILE,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -28,11 +29,12 @@ import { ideaIdentityKey } from "@ai-storm/shared";
 const cap = (...lines: string[]): string => lines.join("\n");
 
 /** Read a recorded/synthetic `capture-pane` fixture (extraction-contract §9). */
-const fixture = (profile: "claude" | "pi", name: string): string =>
+const fixture = (profile: "claude" | "pi" | "codex", name: string): string =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${profile}/${name}`, import.meta.url)), "utf-8");
 
 const claudeFixture = (name: string): string => fixture("claude", name);
 const piFixture = (name: string): string => fixture("pi", name);
+const codexFixture = (name: string): string => fixture("codex", name);
 
 /** Scan a whole capture in one shot (final), discarding the held-back tail. */
 const ideasOf = (capture: string) => scanIdeas(capture.replace(/\r\n/g, "\n").split("\n"), true);
@@ -56,6 +58,16 @@ describe("profiles", () => {
     expect(PI_PROFILE.systemPromptFlag).toBe("--append-system-prompt");
   });
 
+  it("resolves the codex profile with developer-instructions priming", () => {
+    expect(getProfile("codex")).toBe(CODEX_PROFILE);
+    expect(CODEX_PROFILE.supportsIdeaContract).toBe(true);
+    expect(CODEX_PROFILE.systemPromptFlag).toBe("-c");
+    expect(CODEX_PROFILE.systemPromptValue?.("Emit «IDEA» lines")).toBe(
+      'developer_instructions="Emit «IDEA» lines"',
+    );
+    expect(CODEX_PROFILE.defaultArgs).toContain("--no-alt-screen");
+  });
+
   it("defaults the claude profile to a fast model (haiku via --model)", () => {
     expect(CLAUDE_PROFILE.modelFlag).toBe("--model");
     expect(CLAUDE_PROFILE.defaultModel).toBe("haiku");
@@ -69,6 +81,12 @@ describe("profiles", () => {
     expect(PI_PROFILE.defaultModel).toBeUndefined();
   });
 
+  it("defaults Codex to the fast/cheap spark model at medium reasoning", () => {
+    expect(CODEX_PROFILE.modelFlag).toBe("--model");
+    expect(CODEX_PROFILE.defaultModel).toBe("gpt-5.3-codex-spark");
+    expect(CODEX_PROFILE.defaultConfig).toEqual({ model_reasoning_effort: '"medium"' });
+  });
+
   it("warns and falls back to default for an unknown profile", () => {
     const warnings: string[] = [];
     expect(getProfile("nope", (m) => warnings.push(m))).toBe(DEFAULT_PROFILE);
@@ -80,8 +98,11 @@ describe("profiles", () => {
     expect(commandProfileName("/usr/local/bin/claude")).toBe("claude");
     expect(commandProfileName("pi")).toBe("pi");
     expect(commandProfileName("/opt/homebrew/bin/pi")).toBe("pi");
+    expect(commandProfileName("codex")).toBe("codex");
+    expect(commandProfileName("/opt/homebrew/bin/codex")).toBe("codex");
     expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd")).toBe("pi");
     expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\claude.ps1")).toBe("claude");
+    expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd")).toBe("codex");
     expect(commandProfileName("bash")).toBeUndefined();
   });
 });
@@ -218,9 +239,10 @@ describe("scanIdeas — idea-graph links (#42)", () => {
     ]);
   });
 
-  it("detects a marker the agent leads its turn with (claude '● ' bullet)", () => {
-    // The first row of a claude turn carries a "● " bullet; later rows only a
-    // 2-space margin. An idea emitted as the very first line must still parse.
+  it("detects a marker the agent leads its turn with (Claude/Codex turn bullet)", () => {
+    // The first row of a harness turn may carry a bullet (Claude: "● ", Codex:
+    // "• "); later rows only carry a margin. An idea emitted as the very first
+    // line must still parse.
     expect(
       ideasOf(cap("● «IDEA:feature@a5!» Carb + protein pairing :: Toast with any spread", "  90s, no cooking")),
     ).toEqual([
@@ -230,6 +252,9 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         kind: "feature",
         links: [{ to: "a5", relation: "supersedes" }],
       },
+    ]);
+    expect(ideasOf(cap("• «IDEA:feature» Browser Codex Harness :: captures browser state"))).toEqual([
+      { title: "Browser Codex Harness", body: "captures browser state", kind: "feature" },
     ]);
   });
 
@@ -303,6 +328,27 @@ describe("scanIdeas — pi fixtures", () => {
         kind: "risk",
       },
     ]);
+  });
+});
+
+describe("scanIdeas — codex fixtures", () => {
+  it("extracts contract markers from Codex terminal captures", () => {
+    expect(ideasOf(codexFixture("marked-ideas.txt"))).toEqual([
+      {
+        title: "Spec-first harness adapter",
+        body: "Describe each CLI's launch-time priming seam and keep extraction contract tests shared.",
+        kind: "feature",
+      },
+      {
+        title: "Alt-screen capture gap",
+        body: "Codex must run with --no-alt-screen so tmux capture-pane sees normal scrollback markers.",
+        kind: "risk",
+      },
+    ]);
+  });
+
+  it("does not promote markerless Codex bullets", () => {
+    expect(ideasOf(codexFixture("heuristic-bullets.txt"))).toEqual([]);
   });
 });
 
@@ -451,8 +497,13 @@ function fakeTmux() {
         if (!sessions.has(name!)) throw new Error("no such session");
         return "";
       case "new-session":
-        // The launch command is the trailing positional arg.
-        sessions.set(argAfter(args, "-s")!, { launch: args[args.length - 1] });
+        // The launch command is the trailing positional arg. Long launches are
+        // written to a temp script, so store the script body for assertions.
+        {
+          const launch = args[args.length - 1];
+          const script = launch.match(/^bash '(.+)'$/)?.[1];
+          sessions.set(argAfter(args, "-s")!, { launch: script ? readFileSync(script, "utf8") : launch });
+        }
         return "";
       case "kill-session":
         sessions.delete(name!);
@@ -504,6 +555,42 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     expect(launch).toContain("openai/gpt-4o");
   });
 
+  it("injects Codex developer instructions, disables alternate screen, and selects spark medium", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ workspaceId: "ws4", command: "codex", prime: PRIME });
+
+    const launch = fake.sessions.get("ai-storm-ws4")?.launch ?? "";
+    expect(launch).toContain("--no-alt-screen");
+    expect(launch).toContain("--model");
+    expect(launch).toContain("gpt-5.3-codex-spark");
+    expect(launch).toContain("model_reasoning_effort=");
+    expect(launch).toContain("medium");
+    expect(launch).toContain("-c");
+    expect(launch).toContain("developer_instructions=");
+    expect(launch).toContain("Emit «IDEA» lines");
+    expect(launch).not.toContain("--append-system-prompt");
+  });
+
+  it("does not duplicate Codex --no-alt-screen or override explicit Codex model/effort", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({
+      workspaceId: "ws5",
+      command: "codex",
+      args: ["--no-alt-screen", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="high"'],
+      prime: PRIME,
+    });
+
+    const launch = fake.sessions.get("ai-storm-ws5")?.launch ?? "";
+    expect((launch.match(/--no-alt-screen/g) ?? []).length).toBe(1);
+    expect(launch).toContain("--model");
+    expect(launch).toContain("gpt-5.5");
+    expect(launch).not.toContain("gpt-5.3-codex-spark");
+    expect(launch).toContain("high");
+    expect((launch.match(/model_reasoning_effort=/g) ?? []).length).toBe(1);
+  });
+
   it("reuses an existing session as-is (no second new-session, already primed at launch)", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
@@ -542,8 +629,11 @@ describe("scanScores (#60 triage)", () => {
     ]);
   });
 
-  it("strips a leading claude turn bullet", () => {
+  it("strips a leading harness turn bullet", () => {
     expect(scoresOf("● «SCORE@a1» 2/2/2")).toEqual([
+      { ref: "a1", impact: 2, effort: 2, confidence: 2 },
+    ]);
+    expect(scoresOf("• «SCORE@a1» 2/2/2")).toEqual([
       { ref: "a1", impact: 2, effort: 2, confidence: 2 },
     ]);
   });

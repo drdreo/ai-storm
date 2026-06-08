@@ -131,7 +131,7 @@ export function ControlHub() {
             defaultValue={harness}
             key={`${ws.id}:${harness}`}
             disabled={attached}
-            placeholder="claude or pi"
+            placeholder="claude, pi, or codex"
             spellCheck={false}
             onChange={(e) =>
               workspace.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || 'claude' })

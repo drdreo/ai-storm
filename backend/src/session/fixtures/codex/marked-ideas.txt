@@ -1,0 +1,11 @@
+> brainstorm harness support for codex in ai-storm
+
+codex
+
+I'll keep the launch behavior explicit and test it against fixture captures.
+
+• «IDEA:feature» Spec-first harness adapter :: Describe each CLI's launch-time priming seam and keep extraction contract tests shared.
+
+«IDEA:risk» Alt-screen capture gap :: Codex must run with --no-alt-screen so tmux capture-pane sees normal scrollback markers.
+
+Ready for the next harness case.

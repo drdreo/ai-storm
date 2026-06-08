@@ -32,7 +32,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
-import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import {
+  IdeaScanner,
+  ScoreScanner,
+  getProfile,
+  commandProfileName,
+  launchArgsForProfile,
+  type HarnessProfile,
+} from "./extraction.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -222,19 +229,10 @@ export class TmuxSessionBackend implements SessionBackend {
       return { workspaceId, sessionId: sessionName };
     }
 
-    // Prime via the harness's system-prompt flag — the «IDEA» contract becomes
-    // part of the system prompt at launch, followed from the first turn with
-    // nothing typed into the pane (no readiness/ack/echo dance).
-    const primeArgs = profile.systemPromptFlag && spec.prime ? [profile.systemPromptFlag, spec.prime] : [];
-
-    // Default to the profile's preferred model (e.g. claude → haiku) unless the
-    // caller already passed the model flag explicitly in the harness args.
     const specArgs = spec.args ?? [];
-    const modelArgs =
-      profile.modelFlag && profile.defaultModel && !specArgs.includes(profile.modelFlag)
-        ? [profile.modelFlag, profile.defaultModel]
-        : [];
-    const args = [...specArgs, ...modelArgs, ...primeArgs];
+    // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
+    // model default (if any), and the system/developer prompt injection seam.
+    const args = launchArgsForProfile(profile, specArgs, spec.prime);
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
