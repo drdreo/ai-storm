@@ -19,6 +19,7 @@ import {
   commandProfileName,
   DEFAULT_PROFILE,
   CLAUDE_PROFILE,
+  PI_PROFILE,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -26,9 +27,12 @@ import { ideaIdentityKey } from "@ai-storm/shared";
 /** Build a capture string from screen lines (as `capture-pane -p` would emit). */
 const cap = (...lines: string[]): string => lines.join("\n");
 
-/** Read a recorded claude `capture-pane` fixture (extraction-contract §9). */
-const fixture = (name: string): string =>
-  readFileSync(fileURLToPath(new URL(`./fixtures/claude/${name}`, import.meta.url)), "utf-8");
+/** Read a recorded/synthetic `capture-pane` fixture (extraction-contract §9). */
+const fixture = (profile: "claude" | "pi", name: string): string =>
+  readFileSync(fileURLToPath(new URL(`./fixtures/${profile}/${name}`, import.meta.url)), "utf-8");
+
+const claudeFixture = (name: string): string => fixture("claude", name);
+const piFixture = (name: string): string => fixture("pi", name);
 
 /** Scan a whole capture in one shot (final), discarding the held-back tail. */
 const ideasOf = (capture: string) => scanIdeas(capture.replace(/\r\n/g, "\n").split("\n"), true);
@@ -40,10 +44,16 @@ describe("profiles", () => {
     expect(warnings.length).toBe(0);
   });
 
-  it("resolves the claude profile by name (it alone supports the idea contract)", () => {
+  it("resolves the claude profile by name as contract-aware", () => {
     expect(getProfile("claude")).toBe(CLAUDE_PROFILE);
     expect(CLAUDE_PROFILE.supportsIdeaContract).toBe(true);
     expect(DEFAULT_PROFILE.supportsIdeaContract).toBe(false);
+  });
+
+  it("resolves the pi profile by name and primes it like Claude Code", () => {
+    expect(getProfile("pi")).toBe(PI_PROFILE);
+    expect(PI_PROFILE.supportsIdeaContract).toBe(true);
+    expect(PI_PROFILE.systemPromptFlag).toBe("--append-system-prompt");
   });
 
   it("defaults the claude profile to a fast model (haiku via --model)", () => {
@@ -54,22 +64,31 @@ describe("profiles", () => {
     expect(DEFAULT_PROFILE.defaultModel).toBeUndefined();
   });
 
+  it("lets pi use its own configured default model unless args specify one", () => {
+    expect(PI_PROFILE.modelFlag).toBe("--model");
+    expect(PI_PROFILE.defaultModel).toBeUndefined();
+  });
+
   it("warns and falls back to default for an unknown profile", () => {
     const warnings: string[] = [];
     expect(getProfile("nope", (m) => warnings.push(m))).toBe(DEFAULT_PROFILE);
     expect(warnings.length).toBe(1);
   });
 
-  it("maps the claude command basename to the claude profile", () => {
+  it("maps supported command basenames to their profiles", () => {
     expect(commandProfileName("claude")).toBe("claude");
     expect(commandProfileName("/usr/local/bin/claude")).toBe("claude");
+    expect(commandProfileName("pi")).toBe("pi");
+    expect(commandProfileName("/opt/homebrew/bin/pi")).toBe("pi");
+    expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd")).toBe("pi");
+    expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\claude.ps1")).toBe("claude");
     expect(commandProfileName("bash")).toBeUndefined();
   });
 });
 
 describe("scanIdeas — single-line markers", () => {
   it("extracts «IDEA» / «IDEA:kind» / bare-title ideas anywhere in the pane", () => {
-    expect(ideasOf(fixture("marked-ideas.txt"))).toEqual([
+    expect(ideasOf(claudeFixture("marked-ideas.txt"))).toEqual([
       {
         title: "Contextual Edge Ad Selection",
         body: "Pick ads at the CDN edge based on page content + request signals, cutting round-trips and latency to sub-50ms.",
@@ -112,7 +131,7 @@ describe("scanIdeas — single-line markers", () => {
 
 describe("scanIdeas — fenced ideas", () => {
   it("parses an indented ```idea block into one Idea with the full multi-line body", () => {
-    expect(ideasOf(fixture("fenced-idea.txt"))).toEqual([
+    expect(ideasOf(claudeFixture("fenced-idea.txt"))).toEqual([
       {
         title: "Adopt event-sourced canvas history",
         body:
@@ -262,11 +281,28 @@ describe("scanIdeas — idea-graph links (#42)", () => {
 
 describe("scanIdeas — no markers", () => {
   it("returns nothing for a chrome/chat-only capture", () => {
-    expect(ideasOf(fixture("chrome-and-chat.txt"))).toEqual([]);
+    expect(ideasOf(claudeFixture("chrome-and-chat.txt"))).toEqual([]);
   });
 
   it("does not promote a markerless bullet list (no heuristic floor any more)", () => {
-    expect(ideasOf(cap("● Here are a few:", "  - Offline canvas", "  - Token rotation", "❯"))).toEqual([]);
+    expect(ideasOf(claudeFixture("heuristic-bullets.txt"))).toEqual([]);
+    expect(ideasOf(piFixture("heuristic-bullets.txt"))).toEqual([]);
+  });
+});
+
+describe("scanIdeas — pi fixtures", () => {
+  it("extracts contract markers from pi terminal captures", () => {
+    expect(ideasOf(piFixture("marked-ideas.txt"))).toEqual([
+      {
+        title: "Local model handoff",
+        body: "Let pi route cheap brainstorm turns locally and escalate synthesis to the configured cloud model.",
+      },
+      {
+        title: "Provider drift",
+        body: "multi-provider defaults can make test sessions non-deterministic unless args pin the model",
+        kind: "risk",
+      },
+    ]);
   });
 });
 
@@ -439,10 +475,33 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.create({ workspaceId: "ws1", command: "claude", prime: PRIME });
 
     const launch = fake.sessions.get("ai-storm-ws1")?.launch ?? "";
+    expect(launch).toContain("--model");
+    expect(launch).toContain("haiku");
     expect(launch).toContain("--append-system-prompt");
     expect(launch).toContain("Emit «IDEA» lines");
     // No typed-priming side effects any more.
     expect(fake.count("load-buffer")).toBe(0);
+  });
+
+  it("appends the system-prompt flag to a fresh pi launch without forcing a model", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ workspaceId: "ws2", command: "pi", prime: PRIME });
+
+    const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
+    expect(launch).not.toContain("--model");
+    expect(launch).toContain("--append-system-prompt");
+    expect(launch).toContain("Emit «IDEA» lines");
+  });
+
+  it("does not override an explicit pi model selection", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ workspaceId: "ws2", command: "pi", args: ["--model", "openai/gpt-4o"], prime: PRIME });
+
+    const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
+    expect(launch).toContain("--model");
+    expect(launch).toContain("openai/gpt-4o");
   });
 
   it("reuses an existing session as-is (no second new-session, already primed at launch)", async () => {

@@ -1,0 +1,11 @@
+> give me two ideas about multi-provider coding agents
+
+pi
+Here are two directions worth capturing.
+
+«IDEA» Local model handoff :: Let pi route cheap brainstorm turns locally and escalate synthesis to the configured
+cloud model.
+
+«IDEA:risk» Provider drift :: multi-provider defaults can make test sessions non-deterministic unless args pin the model
+
+> 
