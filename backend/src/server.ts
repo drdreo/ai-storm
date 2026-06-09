@@ -19,6 +19,8 @@ import { extname, join, normalize, sep } from "node:path";
 import { getRuntime } from "./session/runtime.ts";
 import type { SessionBackend } from "./session/types.ts";
 import { commandProfileName, getProfile } from "./session/extraction.ts";
+import { mcpRegistry } from "./mcp/registry.ts";
+import { mcpRoutes } from "./mcp/endpoint.ts";
 import { runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, getFacilitationMode, type ServerMessage } from "@ai-storm/shared";
@@ -74,6 +76,27 @@ Rules:
 - Everything that is NOT an «IDEA» or «SCORE» line is treated as ordinary chat.`;
 
 /**
+ * The MCP base prime (mcp-idea-capture §5) — used instead of
+ * {@link PRIME_INSTRUCTION} when the harness profile is MCP-wired (`mcpArgs`
+ * present): teach the tools, not the marker grammar. One mechanism per session
+ * keeps the model's behaviour unimodal (the strongest determinism lever the
+ * CLIs offer); the marker scanner still runs underneath as the silent floor
+ * (§7), so a tool-call lapse is caught — and logged — not lost.
+ */
+const MCP_PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply normally in conversation.
+
+Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, call the capture_idea tool: a short title, a description in body (multi-line is fine), and optionally a kind (risk, feature, question, decision).
+
+When you are responding about a specific existing card whose ref you were given (it looks like @a1), link your idea to it by passing links:[{to:"a1"}]. If your idea is a stronger version that REPLACES (supersedes) that card, pass links:[{to:"a1",relation:"supersedes"}] — the original then recedes on the canvas while yours takes its place. When you are asked to COMBINE or merge several cards into one stronger idea, make a SINGLE capture_idea call with one supersedes link per source card.
+
+When you are asked to TRIAGE or rate the existing cards, call capture_score once per card — impact/effort and optional confidence, each an integer 1-5 (higher impact = more valuable, higher effort = more costly, higher confidence = more sure) — and do NOT create new cards while triaging.
+
+Rules:
+- One idea per capture_idea call. Use it ONLY for real ideas, never for chitchat, status, or questions.
+- Do NOT also write the idea as a special marker line — the tool call is the capture.
+- Mention the returned @ref in your reply so the user can follow along.`;
+
+/**
  * Wrap the user's pre-brainstorm background context (#76) in a labelled block so
  * it reads to the agent as standing *guidance* ("here is the scene"), not as
  * instructions to follow literally. Returns "" for empty/whitespace-only input,
@@ -98,7 +121,12 @@ function formatBackground(background?: string): string {
  * (when not the free-form default), then the background block (when non-empty)
  * — three segments on the same launch seam (PD-020). Anything else gets no
  * prime (extraction-contract §4.6). Empty mode + empty background ⇒ the prime
- * is exactly PRIME_INSTRUCTION.
+ * is exactly the base instruction.
+ *
+ * The BASE segment is capability-conditional (mcp-idea-capture §5): an
+ * MCP-wired profile (`mcpArgs` present) is taught the capture tools; everything
+ * else keeps the byte-identical «IDEA» marker prime. Mode/background segments
+ * are capability-neutral and shared by both.
  */
 function harnessSetup(
   command: string,
@@ -106,9 +134,10 @@ function harnessSetup(
   background?: string,
 ): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
-  const supportsContract = getProfile(harnessProfile).supportsIdeaContract;
-  if (!supportsContract) return { harnessProfile, prime: undefined };
-  const prime = [PRIME_INSTRUCTION, getFacilitationMode(mode).prime, formatBackground(background)]
+  const profile = getProfile(harnessProfile);
+  if (!profile.supportsIdeaContract) return { harnessProfile, prime: undefined };
+  const base = profile.mcpArgs ? MCP_PRIME_INSTRUCTION : PRIME_INSTRUCTION;
+  const prime = [base, getFacilitationMode(mode).prime, formatBackground(background)]
     .filter(Boolean)
     .join("\n\n");
   return { harnessProfile, prime };
@@ -158,6 +187,15 @@ export function buildApp(config: ServerConfig) {
   const backend = getRuntime();
 
   app.get("/health", (c) => c.json({ status: "ok", os: process.platform, runtime: backend.runtime }));
+
+  // MCP capture endpoint (mcp-idea-capture §4.1). The registry learns the
+  // server's reachable origin here — before any attach can mint a launch URL —
+  // and the session backends feed it tokens/attachments per session. The bind
+  // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
+  mcpRegistry.configure(
+    `http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`,
+  );
+  app.route("/mcp", mcpRoutes(mcpRegistry));
 
   app.get(
     "/pty",

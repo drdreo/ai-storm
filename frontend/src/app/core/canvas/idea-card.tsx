@@ -28,6 +28,7 @@ import {
 } from 'tldraw';
 import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from '../idea-descriptors';
 import { cardToText, type CardContent } from '../canvas-text';
+import { canvasRefIndex } from './refs';
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
 export type Origin = 'ai' | 'user';
@@ -363,13 +364,16 @@ export function ideaCards(editor: Editor): IdeaCardShape[] {
     .filter((s): s is IdeaCardShape => s.type === 'idea-card');
 }
 
-/** Highest `a<n>` ref index currently minted on the canvas (0 if none). */
+/**
+ * Highest `a<n>` ref index currently minted on the canvas (0 if none). Counts
+ * ONLY canvas-minted `a<n>` refs: a backend-minted `i<n>` ref (the MCP tool
+ * path, mcp-idea-capture §3.3) lives in a disjoint namespace and deliberately
+ * contributes nothing — see {@link canvasRefIndex}.
+ */
 export function maxRefIndex(editor: Editor): number {
   let max = 0;
   for (const card of ideaCards(editor)) {
-    const ref = (card.meta as IdeaCardMeta).ref;
-    const m = ref ? /^a(\d+)$/.exec(ref) : null;
-    if (m) max = Math.max(max, Number(m[1]));
+    max = Math.max(max, canvasRefIndex((card.meta as IdeaCardMeta).ref));
   }
   return max;
 }

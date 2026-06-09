@@ -5,11 +5,15 @@
  * A mode is just a named priming template (`prime`) appended to the base
  * contract instruction the backend already sends on session create
  * (`docs/design/ai-response-extraction-contract.md` §4). It introduces no new
- * extraction, no new wire types, and no new card kinds — the `«IDEA»`/`«SCORE»`
- * grammar is invariant across modes; only the preamble that steers the agent's
- * style changes. This catalog is the single source of truth shared by the
- * backend (which appends `prime` to the launch system-prompt) and the frontend
- * (which renders the picker from `label`/`hint`).
+ * extraction, no new wire types, and no new card kinds — the capture contract
+ * is invariant across modes; only the preamble that steers the agent's style
+ * changes. Mode primes are deliberately CAPABILITY-NEUTRAL ("capture each
+ * idea", never "emit `«IDEA»` lines"): the base segment — marker grammar or
+ * MCP tools, chosen per harness (mcp-idea-capture §5) — defines what "capture"
+ * means, so one catalog serves both primes. This catalog is the single source
+ * of truth shared by the backend (which appends `prime` to the launch
+ * system-prompt) and the frontend (which renders the picker from
+ * `label`/`hint`).
  *
  * Because priming is baked into the harness launch (system-prompt flag), the
  * selected mode takes effect when a session is (re)started — switching mode
@@ -25,7 +29,7 @@ export interface FacilitationMode {
   /** One-line hint shown beside the picker describing the mode. */
   hint: string;
   /**
-   * Priming preset appended to the base `«IDEA»`-contract instruction. Empty for
+   * Priming preset appended to the base capture-contract instruction. Empty for
    * the default free-form mode (base contract only, today's behaviour).
    */
   prime: string;
@@ -36,7 +40,8 @@ export const DEFAULT_MODE_ID = "free";
 
 /**
  * The catalog, in picker order. The first entry is the default. Each `prime`
- * keeps the `«IDEA»` contract intact and only steers *how* ideas are generated.
+ * keeps the base capture contract intact and only steers *how* ideas are
+ * generated.
  */
 export const FACILITATION_MODES: readonly FacilitationMode[] = [
   {
@@ -52,8 +57,8 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
     prime:
       "FACILITATION MODE — SCAMPER. Drive ideation with the SCAMPER lenses: " +
       "Substitute, Combine, Adapt, Modify (magnify/minify), Put to another use, " +
-      "Eliminate, Reverse. Work the topic through each lens in turn and emit the " +
-      "ideas each lens provokes as «IDEA» lines — you may name the lens in the " +
+      "Eliminate, Reverse. Work the topic through each lens in turn and capture " +
+      "the ideas each lens provokes — you may name the lens in the " +
       'title (e.g. "Substitute: …").',
   },
   {
@@ -65,8 +70,8 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
       "Bono's six hats: White (facts/data), Red (feelings/intuition), Black " +
       "(risks/caution), Yellow (benefits/optimism), Green (creativity/alternatives), " +
       "Blue (process/overview). Move hat by hat and capture what each surfaces as " +
-      "«IDEA» lines, tagging the kind where it fits (Black → «IDEA:risk», a Blue " +
-      "summary → «IDEA:decision»).",
+      "ideas, tagging the kind where it fits (Black → risk, a Blue " +
+      "summary → decision).",
   },
   {
     id: "crazy-8s",
@@ -75,8 +80,8 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
     prime:
       "FACILITATION MODE — Crazy-8s. Generate ideas fast and in volume: aim for " +
       "eight distinct, divergent ideas in quick succession before refining any of " +
-      "them. Favour quantity and range over polish, and emit each as its own " +
-      "«IDEA» line. Don't self-censor — wild ideas are welcome.",
+      "them. Favour quantity and range over polish, and capture each as its own " +
+      "idea. Don't self-censor — wild ideas are welcome.",
   },
   {
     id: "yes-and",
