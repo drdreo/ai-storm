@@ -44,11 +44,20 @@ import {
 } from "./extraction.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
+import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const TMUX_TIMEOUT_MS = 5_000;
 const SESSION_PREFIX = "ai-storm-";
+/**
+ * tmux user option persisting the per-session MCP routing token
+ * (mcp-idea-capture §4.2) — the session outlives the backend process, but the
+ * MCP URL baked into its launch args must keep routing after a restart, so
+ * `reconcile()` reads this back and re-registers it. Same pattern the
+ * extraction contract used for its `@ai_storm_primed` flag.
+ */
+const MCP_TOKEN_OPTION = "@ai_storm_mcp_token";
 
 /** Scrollback window captured each poll — generous so fast output isn't lost. */
 const CAPTURE_LINES = 2000;
@@ -152,6 +161,9 @@ interface SessionConfig {
 export interface TmuxBackendOptions {
   tmux?: (...args: string[]) => Promise<string>;
   sleep?: (ms: number) => Promise<void>;
+  /** MCP routing/auth registry (mcp-idea-capture §4.1); tests inject a private
+   *  instance, production uses the process-wide singleton. */
+  registry?: McpSessionRegistry;
 }
 
 export class TmuxSessionBackend implements SessionBackend {
@@ -162,10 +174,12 @@ export class TmuxSessionBackend implements SessionBackend {
   #configs = new Map<string, SessionConfig>();
   readonly #tmux: (...args: string[]) => Promise<string>;
   readonly #sleep: (ms: number) => Promise<void>;
+  readonly #mcp: McpSessionRegistry;
 
   constructor(opts: TmuxBackendOptions = {}) {
     this.#tmux = opts.tmux ?? defaultTmux;
     this.#sleep = opts.sleep ?? ((ms) => sleep(ms));
+    this.#mcp = opts.registry ?? mcpRegistry;
   }
 
   #sessionName(workspaceId: string): string {
@@ -209,6 +223,19 @@ export class TmuxSessionBackend implements SessionBackend {
       .map((name) => name.slice(SESSION_PREFIX.length));
     if (workspaces.length > 0) {
       log.info("session.reconcile", { count: workspaces.length, workspaces: workspaces.join(",") });
+    }
+    // Restore MCP routing for survivors (mcp-idea-capture §4.2): the token was
+    // stamped tmux-natively at create(), so the launch URL the harness is still
+    // holding keeps working with the fresh in-memory registry.
+    for (const workspaceId of workspaces) {
+      try {
+        const token = (
+          await this.#tmux("show-options", "-t", this.#target(workspaceId), "-v", MCP_TOKEN_OPTION)
+        ).trim();
+        if (token) this.#mcp.restoreSession(workspaceId, token);
+      } catch {
+        // Option unset — a markers-only session (no mcpArgs at launch). Fine.
+      }
     }
     return workspaces;
   }
@@ -254,9 +281,19 @@ export class TmuxSessionBackend implements SessionBackend {
 
     // Inline args from the command string precede caller-supplied spec.args.
     const specArgs = [...inlineArgs, ...(spec.args ?? [])];
+    // MCP wiring (mcp-idea-capture §4): for a profile that takes MCP launch
+    // args, mint the per-session token + URL now so they are baked into the
+    // launch line. An unconfigured registry (no server base URL, e.g. unit
+    // tests) returns undefined → the session launches markers-only.
+    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(workspaceId) : undefined;
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
-    // model default (if any), and the system/developer prompt injection seam.
-    const args = launchArgsForProfile(profile, specArgs, spec.prime);
+    // model default (if any), MCP wiring, and the system-prompt injection seam.
+    const args = launchArgsForProfile(
+      profile,
+      specArgs,
+      spec.prime,
+      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined,
+    );
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
@@ -272,31 +309,43 @@ export class TmuxSessionBackend implements SessionBackend {
 
     const rows = spec.rows ?? 32;
 
-    await this.#tmux(
-      "new-session",
-      "-d",
-      "-s",
-      sessionName,
-      "-c",
-      spec.cwd ?? process.cwd(),
-      "-x",
-      String(cols),
-      "-y",
-      String(rows),
-      ...envArgs,
-      shellCommand,
-    );
+    try {
+      await this.#tmux(
+        "new-session",
+        "-d",
+        "-s",
+        sessionName,
+        "-c",
+        spec.cwd ?? process.cwd(),
+        "-x",
+        String(cols),
+        "-y",
+        String(rows),
+        ...envArgs,
+        shellCommand,
+      );
+    } catch (err) {
+      // The minted token must not outlive a launch that never happened.
+      this.#mcp.removeSession(workspaceId);
+      throw err;
+    }
 
     // Hide the status bar so the green footer isn't mistaken for content.
     // Kill the session on failure so we never orphan a half-configured one.
     try {
       await this.#tmux("set-option", "-t", this.#target(workspaceId), "status", "off");
+      // Persist the MCP routing token tmux-natively (mcp-idea-capture §4.2) so
+      // reconcile() restores routing after a backend restart.
+      if (mcpTarget) {
+        await this.#tmux("set-option", "-t", this.#target(workspaceId), MCP_TOKEN_OPTION, mcpTarget.token);
+      }
     } catch (err) {
       try {
         await this.#tmux("kill-session", "-t", this.#target(workspaceId));
       } catch {
         // best-effort cleanup
       }
+      this.#mcp.removeSession(workspaceId);
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to configure session "${sessionName}": ${msg}`, { cause: err });
     }
@@ -355,6 +404,11 @@ export class TmuxSessionBackend implements SessionBackend {
       rawReading: false,
     };
     this.#pollers.set(workspaceId, poller);
+
+    // Route the MCP tool path into THIS attachment (mcp-idea-capture §6):
+    // tool-captured ideas dedupe against the same sinks the scanner feeds and
+    // emit through the same WS callbacks. No-op for markers-only sessions.
+    this.#mcp.attachSession(workspaceId, { ideaSink, scoreSink, onIdea, onScore });
 
     // SEED the scanner with the current pane and DISCARD the result so ideas
     // already on screen are never re-emitted: this suppresses the echoed priming
@@ -416,8 +470,12 @@ export class TmuxSessionBackend implements SessionBackend {
       return;
     }
 
+    // On an MCP-wired session a scanner hit means the primed agent lapsed back
+    // to marker lines — the tool-lapse analog of near-miss telemetry, surfaced
+    // as a warning so the lapse rate is measurable (mcp-idea-capture §6).
+    const mcpWired = this.#mcp.isRegistered(workspaceId);
     for (const idea of poller.scanner.scan(capture)) {
-      log.info("idea.extracted", {
+      log[mcpWired ? "warn" : "info"](mcpWired ? "idea.fallback_scan" : "idea.extracted", {
         workspace: workspaceId,
         kind: idea.kind ?? "",
         title: idea.title,
@@ -628,6 +686,9 @@ export class TmuxSessionBackend implements SessionBackend {
     poller.gate.dispose(); // poller is discarded; a reattach builds a fresh gate
     this.#stopRawStream(workspaceId, poller);
     this.#pollers.delete(workspaceId);
+    // Tool calls now get "session not attached" until reattach; the token (and
+    // the durable session) live on (mcp-idea-capture §4.1).
+    this.#mcp.detachSession(workspaceId);
     log.info("session.detached", { workspace: workspaceId });
     // The tmux session is intentionally left alive (PRD §3.5).
   }
@@ -636,6 +697,8 @@ export class TmuxSessionBackend implements SessionBackend {
     assertValidWorkspaceId(workspaceId);
     this.detach(workspaceId);
     this.#configs.delete(workspaceId);
+    // Forget the MCP routing entirely — the session's URL 404s from here on.
+    this.#mcp.removeSession(workspaceId);
     try {
       await this.#tmux("kill-session", "-t", this.#target(workspaceId));
       log.info("session.killed", { workspace: workspaceId });

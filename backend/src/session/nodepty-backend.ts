@@ -32,6 +32,7 @@ import {
   launchArgsForProfile,
   type HarnessProfile,
 } from "./extraction.ts";
+import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
@@ -80,6 +81,14 @@ export class NodePtySessionBackend implements SessionBackend {
   readonly runtime = "process" as const;
 
   #sessions = new Map<string, Session>();
+  /** MCP routing/auth registry (mcp-idea-capture §4.1). Tokens are in-memory
+   *  only on Windows: the PTY dies with this process (§10.4), so there is no
+   *  durable session a restored token could route to (design §4.2). */
+  readonly #mcp: McpSessionRegistry;
+
+  constructor(opts: { registry?: McpSessionRegistry } = {}) {
+    this.#mcp = opts.registry ?? mcpRegistry;
+  }
 
   async preflight(): Promise<void> {
     // node-pty is a hard dependency that is already loaded above; nothing to probe.
@@ -116,14 +125,24 @@ export class NodePtySessionBackend implements SessionBackend {
       log.warn("extract.profile", { workspace: workspaceId, message: m }),
     );
 
+    // MCP wiring (mcp-idea-capture §4): mint the per-session token + URL so the
+    // launch args can carry them. Unconfigured registry → undefined → markers.
+    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(workspaceId) : undefined;
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
-    // model default (if any), and the system/developer prompt injection seam.
-    const requestedArgs = launchArgsForProfile(profile, baseArgs, spec.prime);
+    // model default (if any), MCP wiring, and the system-prompt injection seam.
+    const requestedArgs = launchArgsForProfile(
+      profile,
+      baseArgs,
+      spec.prime,
+      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined,
+    );
 
     let launch;
     try {
       launch = resolveLaunch(requested, requestedArgs);
     } catch (err) {
+      // The minted token must not outlive a launch that never happened.
+      this.#mcp.removeSession(workspaceId);
       const message =
         err instanceof LaunchNotFoundError
           ? err.message
@@ -236,6 +255,14 @@ export class NodePtySessionBackend implements SessionBackend {
     session.onIdea = onIdea;
     session.onScore = onScore;
     session.onError = onError;
+    // Route the MCP tool path into this attachment (mcp-idea-capture §6) —
+    // shared sinks, same WS callbacks. No-op for markers-only sessions.
+    this.#mcp.attachSession(workspaceId, {
+      ideaSink: session.ideaSink,
+      scoreSink: session.scoreSink,
+      onIdea,
+      onScore,
+    });
     log.info("session.attached", { workspace: workspaceId });
   }
 
@@ -282,8 +309,11 @@ export class NodePtySessionBackend implements SessionBackend {
     if (!session.profile.supportsIdeaContract) return;
 
     const snapshot = session.screen.snapshotAll();
+    // Scanner hit on an MCP-wired session = the primed agent lapsed back to
+    // marker lines — warn so the lapse is measurable (mcp-idea-capture §6).
+    const mcpWired = this.#mcp.isRegistered(workspaceId);
     for (const idea of session.scanner.scan(snapshot)) {
-      log.info("idea.extracted", {
+      log[mcpWired ? "warn" : "info"](mcpWired ? "idea.fallback_scan" : "idea.extracted", {
         workspace: workspaceId,
         kind: idea.kind ?? "",
         title: idea.title,
@@ -353,6 +383,8 @@ export class NodePtySessionBackend implements SessionBackend {
     // Drop any pending scan timer (no consumer); the gate stays usable — the
     // next chunk after a reattach re-arms it.
     session.gate.cancel();
+    // Tool calls get "session not attached" until reattach; the token lives on.
+    this.#mcp.detachSession(workspaceId);
     log.info("session.detached", { workspace: workspaceId });
   }
 
@@ -374,6 +406,8 @@ export class NodePtySessionBackend implements SessionBackend {
       }
     }
     this.#sessions.delete(workspaceId);
+    // Forget the MCP routing entirely — the session's URL 404s from here on.
+    this.#mcp.removeSession(workspaceId);
     log.info("session.killed", { workspace: workspaceId });
   }
 }

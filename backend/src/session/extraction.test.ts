@@ -19,11 +19,13 @@ import {
   scanScores,
   getProfile,
   commandProfileName,
+  launchArgsForProfile,
   DEFAULT_PROFILE,
   CLAUDE_PROFILE,
   PI_PROFILE,
   CODEX_PROFILE,
   type Idea,
+  type McpLaunchContext,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -796,6 +798,53 @@ describe("TmuxSessionBackend — resize settle window", () => {
       backend.detach("wsR");
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+// ── mcp-idea-capture §9.7 — MCP launch-arg injection through the profile seam ──
+
+describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)", () => {
+  const ctx: McpLaunchContext = {
+    url: "http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef",
+    serverName: "ai-storm",
+  };
+
+  it("wires the claude profile with --mcp-config + --allowedTools exactly once", () => {
+    const args = launchArgsForProfile(CLAUDE_PROFILE, [], PRIME, ctx);
+    const mcpIdx = args.indexOf("--mcp-config");
+    expect(mcpIdx).toBeGreaterThanOrEqual(0);
+    expect(JSON.parse(args[mcpIdx + 1])).toEqual({
+      mcpServers: { "ai-storm": { type: "http", url: ctx.url } },
+    });
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe(
+      "mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score",
+    );
+    expect(args.filter((a) => a === "--mcp-config")).toHaveLength(1);
+    expect(args.filter((a) => a === "--allowedTools")).toHaveLength(1);
+    // The prime stays last on the seam (PD-020 segment ordering unchanged).
+    expect(args.indexOf("--append-system-prompt")).toBeGreaterThan(mcpIdx);
+  });
+
+  it("is idempotent against a caller-supplied --mcp-config", () => {
+    const args = launchArgsForProfile(CLAUDE_PROFILE, ["--mcp-config", "{}"], PRIME, ctx);
+    expect(args.filter((a) => a === "--mcp-config")).toHaveLength(1);
+    // The whole MCP block is the caller's responsibility then — no stray allow-list.
+    expect(args).not.toContain("--allowedTools");
+  });
+
+  it("without an MCP context the argv is byte-identical to before", () => {
+    expect(launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME)).toEqual(
+      launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME, undefined),
+    );
+    expect(launchArgsForProfile(CLAUDE_PROFILE, [], PRIME)).not.toContain("--mcp-config");
+  });
+
+  it("profiles without mcpArgs (codex, pi, default) ignore the context entirely", () => {
+    for (const profile of [CODEX_PROFILE, PI_PROFILE, DEFAULT_PROFILE]) {
+      expect(launchArgsForProfile(profile, ["--flag"], PRIME, ctx)).toEqual(
+        launchArgsForProfile(profile, ["--flag"], PRIME),
+      );
     }
   });
 });

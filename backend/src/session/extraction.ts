@@ -32,6 +32,20 @@ import {
 export type { Idea, Score };
 
 /**
+ * Everything a harness profile needs to wire itself to the backend MCP server
+ * at launch (mcp-idea-capture §4.3). Built backend-side at `create()` — the
+ * URL embeds the per-session routing token, so it is never derived from
+ * anything the model says.
+ */
+export interface McpLaunchContext {
+  /** Per-session MCP endpoint: `http://127.0.0.1:<port>/mcp/<workspaceId>/<token>`. */
+  url: string;
+  /** Logical MCP server name ("ai-storm"); harness tool ids derive from it
+   *  (`mcp__<serverName>__capture_idea`). Fixed so `--allowedTools` stays stable. */
+  serverName: string;
+}
+
+/**
  * Per-harness rules. Reduced to what the idea scan still needs: whether the
  * harness understands the §4 idea contract (→ prime it) and the pane signature
  * meaning "ready for input" (the priming readiness probe). The chat-extraction
@@ -69,6 +83,15 @@ export interface HarnessProfile {
   defaultModel?: string;
   /** One-off Codex/pi-style config overrides appended unless the caller supplies the key. */
   defaultConfig?: Record<string, string>;
+  /**
+   * Build the CLI args that wire this harness to the backend MCP server
+   * (mcp-idea-capture §4.3). Absent → the harness gets no MCP and stays on the
+   * marker-scan path — graceful degradation by construction (§11.6): codex/pi
+   * stay markers-only until their MCP config surfaces are verified against
+   * pinned versions (§11.2). Presence also selects the MCP base prime over the
+   * marker prime (§5) — one mechanism per session.
+   */
+  mcpArgs?: (ctx: McpLaunchContext) => string[];
 }
 
 /** A generic harness understands no contract until proven otherwise. */
@@ -89,6 +112,14 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   // Default to a fast, cheap model for the idea-scanning session; the user can
   // still override with an explicit `--model` in the harness args.
   defaultModel: "haiku",
+  // MCP wiring (mcp-idea-capture §4.3): inline `--mcp-config` plus pre-allowed
+  // tool ids so no permission prompt interrupts the brainstorm (§12.3).
+  mcpArgs: ({ url, serverName }) => [
+    "--mcp-config",
+    JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
+    "--allowedTools",
+    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`,
+  ],
 };
 
 /**
@@ -137,9 +168,18 @@ const PROFILES: Record<string, HarnessProfile> = {
 
 /**
  * Build the final argv for a contract-aware harness profile. Kept here so tmux
- * and node-pty launch paths stay byte-for-byte aligned.
+ * and node-pty launch paths stay byte-for-byte aligned. `mcp` is the optional
+ * MCP launch context (mcp-idea-capture §4.3): only a profile that declares
+ * `mcpArgs` consumes it, and — like the model/config args — the injection is
+ * idempotent against a caller who already supplied `--mcp-config` themselves.
+ * Absent `mcp` (or absent `mcpArgs`) leaves the argv byte-identical to before.
  */
-export function launchArgsForProfile(profile: HarnessProfile, baseArgs: string[], prime?: string): string[] {
+export function launchArgsForProfile(
+  profile: HarnessProfile,
+  baseArgs: string[],
+  prime?: string,
+  mcp?: McpLaunchContext,
+): string[] {
   const defaultArgs = (profile.defaultArgs ?? []).filter((arg) => !baseArgs.includes(arg));
   const modelArgs =
     profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
@@ -148,9 +188,11 @@ export function launchArgsForProfile(profile: HarnessProfile, baseArgs: string[]
   const configArgs = Object.entries(profile.defaultConfig ?? {}).flatMap(([key, value]) =>
     hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`],
   );
+  const mcpArgs =
+    profile.mcpArgs && mcp && !baseArgs.includes("--mcp-config") ? profile.mcpArgs(mcp) : [];
   const primeArgs =
     profile.systemPromptFlag && prime ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime] : [];
-  return [...baseArgs, ...defaultArgs, ...modelArgs, ...configArgs, ...primeArgs];
+  return [...baseArgs, ...defaultArgs, ...modelArgs, ...configArgs, ...mcpArgs, ...primeArgs];
 }
 
 function hasConfigOverride(args: readonly string[], key: string): boolean {
