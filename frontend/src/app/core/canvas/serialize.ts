@@ -5,7 +5,7 @@
  * No mutation here (except `cardRef`'s lazy ref mint); these just read the editor.
  */
 import type { Editor } from 'tldraw';
-import { serializeCards } from '../canvas-text';
+import { serializeCards, handoffCardsToText } from '../canvas-text';
 import { isTriageableKind, normalizeKind } from '../idea-descriptors';
 import type { BoardCard, BoardEdge, BoardSnapshot } from '../synthesis';
 import {
@@ -60,6 +60,29 @@ export function selectedText(editor: Editor): string {
     .filter((s): s is IdeaCardShape => s.type === 'idea-card');
   if (selected.length === 0) return serializeEditor(editor);
   return serializeCards(selected.map(content));
+}
+
+/**
+ * Serialize the board for the spec/PRD hand-off (#89, PD-015): the selected idea
+ * cards, or the whole board when nothing is selected (mirrors {@link selectedText}
+ * — "hand off this multi-select, or the whole board"). Lifecycle-aware via
+ * {@link handoffCardsToText}: superseded ghosts are excluded by default and
+ * keep-marked cards (#59) are flagged with ★. Empty / all-ghost board → `''`.
+ */
+export function serializeForHandoff(editor: Editor): string {
+  const selected = editor
+    .getSelectedShapes()
+    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const source = selected.length > 0 ? selected : cardsInOrder(editor);
+  return handoffCardsToText(
+    source.map((c) => ({
+      kind: c.props.kind,
+      title: c.props.title,
+      body: c.props.body,
+      starred: !!(c.meta as IdeaCardMeta).starred,
+      superseded: c.props.superseded,
+    })),
+  );
 }
 
 /**

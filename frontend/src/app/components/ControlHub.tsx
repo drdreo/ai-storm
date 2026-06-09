@@ -6,7 +6,6 @@ import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +17,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
 import { useIngestionStore, ingestion } from '../stores/ingestion.store'
-import { useAgentStore } from '../stores/agent.store'
 import { useBackendStore } from '../stores/backend.store'
 import { Terminal } from './Terminal'
 
@@ -38,15 +36,14 @@ const BACKGROUND_SOFT_CAP = 1500
 /**
  * Conversational Control Hub (PRD §3.1). The conversation surface is a real
  * terminal (xterm.js, fed the raw PTY stream — see Terminal), so this shell
- * provides the session controls, the harness selector, the downstream agent run
- * output, and diagnostic readouts of the background connection.
+ * provides the session controls, the harness selector, and diagnostic readouts
+ * of the background connection.
  */
 export function ControlHub() {
   const ws = useWorkspaceStore(selectActive)
   const connState = useBackendStore((s) => s.state)
   const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false))
   const sessionError = useIngestionStore((s) => (ws ? s.errors[ws.id] ?? null : null))
-  const agentRun = useAgentStore((s) => (ws ? s.runs[ws.id] ?? null : null))
 
   // Resume a durable session after a reload / hot-switch (PRD §3.5). `attach` is
   // idempotent: it reconnects to the surviving backend session rather than
@@ -245,32 +242,6 @@ export function ControlHub() {
           <Terminal />
         </div>
       </section>
-
-      {agentRun && (
-        <section className="max-h-[35%] overflow-y-auto border-t">
-          <div className="sticky top-0 flex items-center justify-between border-b bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
-            <span>agent: {harness}</span>
-            <Badge
-              variant={
-                agentRun.status === 'error'
-                  ? 'destructive'
-                  : agentRun.status === 'exit'
-                    ? 'secondary'
-                    : 'default'
-              }
-              className="uppercase"
-            >
-              {agentRun.status}
-              {agentRun.code !== undefined ? ` (${agentRun.code})` : ''}
-            </Badge>
-          </div>
-          {agentRun.output && (
-            <pre className="m-0 whitespace-pre-wrap break-words p-3 font-mono text-xs">
-              {agentRun.output}
-            </pre>
-          )}
-        </section>
-      )}
     </div>
   )
 }
