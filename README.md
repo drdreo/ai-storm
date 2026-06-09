@@ -60,9 +60,12 @@ Windows, forkpty on POSIX) via `node-pty`. Because it's a genuine TTY, the CLI
 runs fully interactively — its TUI renders, raw-mode keys work — exactly as in a
 normal terminal; keystrokes typed in the control-hub terminal go to the PTY and
 its output renders verbatim in xterm. The harness is editable per workspace (e.g.
-`pi`, `aider`, or a plain shell like `powershell`). Contract-aware harnesses
-(`claude`, `pi`) are primed at launch via `--append-system-prompt` so emitted
-`«IDEA»` / `«SCORE»` markers flow to the canvas from the first turn. On Windows
+`pi`, `codex`, `aider`, or a plain shell like `powershell`). Contract-aware
+harnesses (`claude`, `pi`, `codex`) are primed at launch through their
+prompt/config seam so emitted `«IDEA»` / `«SCORE»` markers flow to the canvas
+from the first turn. Codex defaults to `gpt-5.3-codex-spark` with medium
+reasoning for cheaper/faster brainstorming runs unless you pass explicit model
+args. On Windows
 the backend resolves npm `.cmd`/`.ps1` shims via `where.exe`, input that races
 ahead of the spawning PTY is buffered until ready, and a missing harness streams
 a clear message instead of failing silently.

@@ -1,0 +1,7 @@
+> give me ideas but do not use markers
+
+codex
+
+- Add Codex as a third harness option.
+- Pass developer instructions through config.
+- Keep the extraction contract reusable.

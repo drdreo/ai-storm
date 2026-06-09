@@ -46,13 +46,18 @@ export interface HarnessProfile {
    */
   supportsIdeaContract: boolean;
   /**
-   * CLI flag this harness uses to APPEND a system prompt at launch. When set and
-   * a prime text is given, the backend launches the harness with
-   * `[systemPromptFlag, primeText]` so the idea contract is part of the system
-   * prompt — followed from the first turn, with nothing typed into the terminal
-   * (far more reliable than injecting a priming message). Absent → no priming.
+   * CLI/config flag this harness uses to inject launch-time instructions. When
+   * set and a prime text is given, the backend launches the harness with
+   * `[systemPromptFlag, systemPromptValue(primeText)]` so the idea contract is
+   * part of the system/developer prompt — followed from the first turn, with
+   * nothing typed into the terminal (far more reliable than injecting a priming
+   * message). Absent → no priming.
    */
   systemPromptFlag?: string;
+  /** Transform the prime text into the value paired with `systemPromptFlag`. */
+  systemPromptValue?: (prime: string) => string;
+  /** Default CLI flags for this harness unless the caller already supplied them. */
+  defaultArgs?: string[];
   /**
    * CLI flag this harness uses to select a model, paired with `defaultModel`.
    * When both are set the backend launches the harness with `[modelFlag,
@@ -62,6 +67,8 @@ export interface HarnessProfile {
   modelFlag?: string;
   /** Model passed via `modelFlag` at launch when the caller supplies none. */
   defaultModel?: string;
+  /** One-off Codex/pi-style config overrides appended unless the caller supplies the key. */
+  defaultConfig?: Record<string, string>;
 }
 
 /** A generic harness understands no contract until proven otherwise. */
@@ -99,13 +106,67 @@ export const PI_PROFILE: HarnessProfile = {
   // OpenAI, Copilot, Gemini, etc.; explicit `--model` args still pass through.
 };
 
+/**
+ * The Codex CLI profile. Codex has no `--append-system-prompt` flag; the
+ * supported launch seam is a one-off config override, so we inject the same
+ * idea contract as `developer_instructions` via `-c`. `--no-alt-screen` keeps
+ * the conversation in tmux's normal scrollback so `capture-pane` can see the
+ * emitted `«IDEA»` / `«SCORE»` markers instead of an alternate-screen TUI.
+ */
+export const CODEX_PROFILE: HarnessProfile = {
+  name: "codex",
+  supportsIdeaContract: true,
+  systemPromptFlag: "-c",
+  systemPromptValue: (prime) => `developer_instructions=${JSON.stringify(prime)}`,
+  defaultArgs: ["--no-alt-screen"],
+  modelFlag: "--model",
+  // Keep the live brainstorming harness fast/cheap by default. Users can still
+  // override with explicit `--model` / `-c model_reasoning_effort=...` args.
+  defaultModel: "gpt-5.3-codex-spark",
+  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
+};
+
 const PROFILES: Record<string, HarnessProfile> = {
   default: DEFAULT_PROFILE,
   claude: CLAUDE_PROFILE,
   pi: PI_PROFILE,
+  codex: CODEX_PROFILE,
   bash: { ...DEFAULT_PROFILE, name: "bash" },
   python: { ...DEFAULT_PROFILE, name: "python" },
 };
+
+/**
+ * Build the final argv for a contract-aware harness profile. Kept here so tmux
+ * and node-pty launch paths stay byte-for-byte aligned.
+ */
+export function launchArgsForProfile(profile: HarnessProfile, baseArgs: string[], prime?: string): string[] {
+  const defaultArgs = (profile.defaultArgs ?? []).filter((arg) => !baseArgs.includes(arg));
+  const modelArgs =
+    profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
+      ? [profile.modelFlag, profile.defaultModel]
+      : [];
+  const configArgs = Object.entries(profile.defaultConfig ?? {}).flatMap(([key, value]) =>
+    hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`],
+  );
+  const primeArgs =
+    profile.systemPromptFlag && prime ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime] : [];
+  return [...baseArgs, ...defaultArgs, ...modelArgs, ...configArgs, ...primeArgs];
+}
+
+function hasConfigOverride(args: readonly string[], key: string): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-c" || arg === "--config") {
+      const value = args[i + 1];
+      if (value?.startsWith(`${key}=`)) return true;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-c") && arg.slice(2).trimStart().startsWith(`${key}=`)) return true;
+    if (arg.startsWith("--config=") && arg.slice("--config=".length).startsWith(`${key}=`)) return true;
+  }
+  return false;
+}
 
 /**
  * Resolve a harness profile by name, falling back to the default. When an
@@ -133,6 +194,7 @@ export function commandProfileName(command: string): string | undefined {
   const normalized = base.replace(/\.(?:cmd|ps1|exe)$/i, "").toLowerCase();
   if (normalized === "claude") return "claude";
   if (normalized === "pi") return "pi";
+  if (normalized === "codex") return "codex";
   return undefined;
 }
 
@@ -187,13 +249,14 @@ const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;
 const MARKER_NEAR_MISS = /^\s*[^\w\s]{0,4}\s*idea\b/iu;
 
 /**
- * Leading turn bullet that claude renders on the FIRST row of an assistant turn
- * (`● <text>`); subsequent rows carry only a 2-space margin (already absorbed by
- * the markers' `^\s*`). Stripped before scanning so an idea the agent leads its
- * reply with — `● «IDEA…»` — is still anchored as a marker. Without this, only
- * ideas that fall on a later (margin-only) row are detected.
+ * Leading turn bullet that harnesses render on the FIRST row of an assistant
+ * turn (`● <text>` in Claude Code, `• <text>` in Codex); subsequent rows carry
+ * only a margin (already absorbed by the markers' `^\s*`). Stripped before
+ * scanning so an idea the agent leads its reply with — `• «IDEA…»` — is still
+ * anchored as a marker. Without this, only ideas that fall on a later
+ * (margin-only) row are detected.
  */
-const TURN_BULLET = /^\s*●\s+/u;
+const TURN_BULLET = /^\s*[●•]\s+/u;
 
 /**
  * Minimal, version-stable terminal furniture that BOUNDS an idea body when

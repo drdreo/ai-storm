@@ -47,7 +47,7 @@ export interface AttachMessage {
   type: "attach";
   workspaceId: string;
   /**
-   * The interactive harness command to host, e.g. "claude". Optional; defaults
+   * The interactive harness command to host, e.g. "claude" or "codex". Optional; defaults
    * to the configured harness. Never a headless/print flag — the real
    * interactive CLI is always driven (design §1, hard constraints).
    */
