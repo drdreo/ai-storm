@@ -20,6 +20,7 @@ import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
+import { ScanGate } from "./scan-gate.ts";
 import { TerminalScreen } from "./screen.ts";
 import {
   IdeaScanner,
@@ -50,6 +51,16 @@ interface Session {
   scanner: IdeaScanner;
   /** Triage scanner (#60): pulls `«SCORE@ref»` markers off the same rendered buffer. */
   scoreScanner: ScoreScanner;
+  /** WHEN-to-scan policy (scan-gate.ts): quiescence debounce + resize settle.
+   *  Scanning per PTY chunk read half-painted repaint frames (mcp-idea-capture
+   *  §1.1); the gate coalesces a burst into one scan of the settled screen. */
+  gate: ScanGate;
+  /** Screen writes currently in flight. `#onData` is async (`await
+   *  screen.write`), so the gate's debounced scan callback may fire while a
+   *  chunk is still being applied; it must never snapshot a half-written
+   *  screen. Non-zero → the scan defers (the write's `finally` re-arms the
+   *  gate, so the scan re-runs against the fully-written screen). */
+  writesInFlight: number;
   profile: HarnessProfile;
   onData: ((raw: string) => void) | null;
   onIdea: ((idea: Idea) => void) | null;
@@ -147,6 +158,11 @@ export class NodePtySessionBackend implements SessionBackend {
       scoreSink,
       scanner: new IdeaScanner({
         sink: ideaSink,
+        // Two-frame confirmation: ConPTY repaints (especially after a resize)
+        // can be captured mid-paint; requiring an identical identity key in two
+        // consecutive scans kills the half-painted mis-parse generically
+        // (mcp-idea-capture §1.1).
+        confirm: true,
         // A near-miss (the agent attempted but mangled the «IDEA» marker) is
         // worth a warning; an ordinary scan is debug-level noise.
         onDebug: (event, data) => {
@@ -155,6 +171,12 @@ export class NodePtySessionBackend implements SessionBackend {
         },
       }),
       scoreScanner: new ScoreScanner(scoreSink),
+      // Push-mode gate: the scan runs once output has been quiet (~175 ms),
+      // with a ~500 ms cap during continuous streams and a settle window after
+      // a resize. The raw byte stream to the browser is NEVER delayed — only
+      // the scan is debounced.
+      gate: new ScanGate({ onScan: () => this.#scanNow(workspaceId) }),
+      writesInFlight: 0,
       profile,
       onData: null,
       onIdea: null,
@@ -219,43 +241,74 @@ export class NodePtySessionBackend implements SessionBackend {
 
   /**
    * Per PTY chunk: forward the raw bytes to the client (xterm.js renders them),
-   * apply them to the headless screen, then scan the rendered buffer for ideas.
+   * apply them to the headless screen, then NOTE activity on the scan gate. The
+   * scan itself is debounced (ScanGate): scanning after every chunk read
+   * half-painted repaint frames — a chunk boundary mid-marker-line with rows
+   * below already painted defeats the growing-tail hold-back (mcp-idea-capture
+   * §1.1). Rendering (screen.write) stays per-chunk so the screen never lags;
+   * only the SCAN waits for quiescence.
    */
   async #onData(workspaceId: string, chunk: string): Promise<void> {
     const session = this.#sessions.get(workspaceId);
     if (!session) return;
 
-    // 1) Raw bytes → the browser terminal, verbatim.
+    // 1) Raw bytes → the browser terminal, verbatim and immediately.
     if (session.onData) session.onData(chunk);
 
-    // 2) Render the bytes so the idea scan sees flattened text.
-    await session.screen.write(chunk);
-
-    // 3) Scan the FULL buffer (scrollback + viewport) so an «IDEA» line that
-    //    scrolled off between chunks is still caught; session-scoped dedupe
-    //    makes the re-scan of still-visible lines idempotent.
-    if (session.profile.supportsIdeaContract) {
-      const snapshot = session.screen.snapshotAll();
-      for (const idea of session.scanner.scan(snapshot)) {
-        log.info("idea.extracted", {
-          workspace: workspaceId,
-          kind: idea.kind ?? "",
-          title: idea.title,
-          body: idea.body.slice(0, 120),
-        });
-        session.onIdea?.(idea);
-      }
-      // Triage scores (#60) come off the same rendered buffer.
-      for (const score of session.scoreScanner.scan(snapshot)) {
-        log.info("score.extracted", {
-          workspace: workspaceId,
-          ref: score.ref,
-          impact: score.impact,
-          effort: score.effort,
-        });
-        session.onScore?.(score);
-      }
+    // 2) Render the bytes so the (later) scan sees flattened text. The
+    //    in-flight counter lets the gate's scan callback detect a write it
+    //    would otherwise race; the finally re-arms the gate either way.
+    session.writesInFlight++;
+    try {
+      await session.screen.write(chunk);
+    } finally {
+      session.writesInFlight--;
+      if (session.profile.supportsIdeaContract) session.gate.activity();
     }
+  }
+
+  /**
+   * Gate-fired scan of the FULL buffer (scrollback + viewport) so an «IDEA»
+   * line that scrolled off between scans is still caught; session-scoped
+   * dedupe makes the re-scan of still-visible lines idempotent. If a screen
+   * write is in flight (the cap fired mid-burst), defer: that write's
+   * `finally` re-arms the gate, so the scan re-runs against a settled screen
+   * instead of snapshotting half-applied bytes.
+   */
+  #scanNow(workspaceId: string): void {
+    const session = this.#sessions.get(workspaceId);
+    if (!session || session.closed) return;
+    if (session.writesInFlight > 0) return; // re-armed by the pending write's finally
+    if (!session.profile.supportsIdeaContract) return;
+
+    const snapshot = session.screen.snapshotAll();
+    for (const idea of session.scanner.scan(snapshot)) {
+      log.info("idea.extracted", {
+        workspace: workspaceId,
+        kind: idea.kind ?? "",
+        title: idea.title,
+        body: idea.body.slice(0, 120),
+      });
+      session.onIdea?.(idea);
+    }
+    // Triage scores (#60) come off the same rendered buffer.
+    for (const score of session.scoreScanner.scan(snapshot)) {
+      log.info("score.extracted", {
+        workspace: workspaceId,
+        ref: score.ref,
+        impact: score.impact,
+        effort: score.effort,
+      });
+      session.onScore?.(score);
+    }
+
+    // Two-frame confirmation needs a SECOND look: if this scan parsed
+    // candidates that are not yet confirmed and the stream then stays quiet
+    // (turn over → no more chunks → no more gate activity), they would stall
+    // until the next output burst. Re-arm the gate once; the follow-up scan
+    // re-parses the (still settled) screen and confirms them. Terminates: a
+    // confirmed candidate enters the sink and stops counting as pending.
+    if (session.scanner.pendingConfirmation > 0) session.gate.activity();
   }
 
   async sendInput(workspaceId: string, data: string): Promise<void> {
@@ -281,6 +334,11 @@ export class NodePtySessionBackend implements SessionBackend {
     } catch {
       // ignore resize on a dead terminal
     }
+    // A resize triggers a full clear-and-repaint at the new width — the most
+    // hostile window for the scan (mcp-idea-capture §1.1/§1.2). Open the
+    // gate's settle window: no scan until the repaint output has been quiet
+    // for the settle period. The raw byte stream is unaffected.
+    session.gate.resized();
   }
 
   detach(workspaceId: string): void {
@@ -292,6 +350,9 @@ export class NodePtySessionBackend implements SessionBackend {
     session.onIdea = null;
     session.onScore = null;
     session.onError = null;
+    // Drop any pending scan timer (no consumer); the gate stays usable — the
+    // next chunk after a reattach re-arms it.
+    session.gate.cancel();
     log.info("session.detached", { workspace: workspaceId });
   }
 
@@ -304,6 +365,7 @@ export class NodePtySessionBackend implements SessionBackend {
     // process-level handler is the real safety net; this just avoids tripping it.
     const alreadyExited = session.closed;
     session.closed = true;
+    session.gate.dispose(); // never let a debounced scan fire on a dead session
     if (!alreadyExited) {
       try {
         session.term?.kill();

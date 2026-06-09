@@ -23,6 +23,7 @@ import {
   CLAUDE_PROFILE,
   PI_PROFILE,
   CODEX_PROFILE,
+  type Idea,
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -456,6 +457,97 @@ describe("IdeaSink / ScoreSink — shared dedupe across producers", () => {
   });
 });
 
+// ── Scanner hardening: two-frame confirmation (mcp-idea-capture §1.1, §7) ──
+
+describe("IdeaScanner — two-frame confirmation (opt-in resize hardening)", () => {
+  it("never emits a half-painted marker line; the completed line emits once", () => {
+    // Mid-repaint capture: a chunk/poll boundary left the marker row holding
+    // HALF the title while a row BELOW it (terminal furniture) is already
+    // painted — so the growing-tail hold-back does NOT protect it.
+    const truncated = cap("  «IDEA» Resil", "  ────────────", "❯");
+    const full = cap("  «IDEA» Resilient cache :: survive restarts", "❯");
+
+    // Without confirmation (the default) the truncated title parses
+    // "successfully" and a bogus card lands — the §1.1 failure mode.
+    expect(new IdeaScanner().scan(truncated)).toEqual([{ title: "Resil", body: "" }]);
+
+    // With confirmation, the half-painted parse exists in exactly one frame
+    // and is never offered to the sink; only the stable complete line emits.
+    const scanner = new IdeaScanner({ confirm: true });
+    expect(scanner.scan(truncated)).toEqual([]); // candidate, one frame only
+    expect(scanner.scan(full)).toEqual([]); // new identity → fresh candidate
+    expect(scanner.scan(full)).toEqual([{ title: "Resilient cache", body: "survive restarts" }]);
+    expect(scanner.scan(full)).toEqual([]); // sink dedupe: exactly once, ever
+  });
+
+  it("emits a stable idea on its second scan (one scan cycle of latency)", () => {
+    const scanner = new IdeaScanner({ confirm: true });
+    const frame = cap("  «IDEA:risk» Token leak :: refresh races the reattach", "❯");
+    expect(scanner.scan(frame)).toEqual([]);
+    expect(scanner.scan(frame)).toEqual([
+      { title: "Token leak", body: "refresh races the reattach", kind: "risk" },
+    ]);
+  });
+
+  it("drops a candidate not re-seen in the very next scan (no stale confirmation)", () => {
+    const scanner = new IdeaScanner({ confirm: true });
+    const frame = cap("  «IDEA» Flash :: gone next frame", "❯");
+    expect(scanner.scan(frame)).toEqual([]); // candidate
+    expect(scanner.scan(cap("just chat", "❯"))).toEqual([]); // not re-seen → dropped
+    // A much-later coincidental reappearance must RE-EARN confirmation rather
+    // than confirming against the stale candidate from frames ago.
+    expect(scanner.scan(frame)).toEqual([]);
+    expect(scanner.scan(frame)).toEqual([{ title: "Flash", body: "gone next frame" }]);
+  });
+
+  it("final scans bypass confirmation: the seeding scan suppresses immediately", () => {
+    const scanner = new IdeaScanner({ confirm: true });
+    // Attach-time seed (final, discarded): everything on screen — e.g. the
+    // echoed priming example — must enter the sink NOW, not a frame later.
+    scanner.scan("  «IDEA» <short title> :: <one-line description>", true);
+    const frame = cap("  «IDEA» <short title> :: <one-line description>", "❯");
+    expect(scanner.scan(frame)).toEqual([]);
+    expect(scanner.scan(frame)).toEqual([]);
+    // A genuinely new idea afterwards still flows (confirmed on its 2nd frame).
+    const real = cap("  «IDEA» Real one :: with substance", "❯");
+    expect(scanner.scan(real)).toEqual([]);
+    expect(scanner.scan(real)).toEqual([{ title: "Real one", body: "with substance" }]);
+  });
+
+  it("feeds the shared sink only on confirmation, exactly once", () => {
+    const sink = new IdeaSink();
+    const scanner = new IdeaScanner({ sink, confirm: true });
+    const frame = cap("  «IDEA» Edge cache :: serve from CDN", "❯");
+    expect(scanner.scan(frame)).toEqual([]); // candidate — the sink is NOT fed yet
+    expect(scanner.scan(frame)).toHaveLength(1); // confirmed → offered + emitted
+    // The identity now sits in the shared sink exactly once: a co-producer
+    // (the MCP capture_idea path) offering the same idea is rejected.
+    expect(sink.offer({ title: "Edge cache", body: "different wording" })).toBe(false);
+  });
+
+  it("an unconfirmed candidate loses to a co-producer that claims the sink first", () => {
+    const sink = new IdeaSink();
+    const scanner = new IdeaScanner({ sink, confirm: true });
+    const frame = cap("  «IDEA» Edge cache :: serve from CDN", "❯");
+    expect(scanner.scan(frame)).toEqual([]); // candidate only — sink untouched
+    expect(sink.offer({ title: "Edge cache", body: "" })).toBe(true); // MCP wins
+    expect(scanner.scan(frame)).toEqual([]); // confirmed, but already delivered
+  });
+
+  it("reports pending candidates so an event-driven scheduler grants a follow-up scan", () => {
+    const scanner = new IdeaScanner({ confirm: true });
+    const frame = cap("  «IDEA» Edge cache :: serve from CDN", "❯");
+    scanner.scan(frame);
+    expect(scanner.pendingConfirmation).toBe(1); // needs one more look
+    scanner.scan(frame);
+    expect(scanner.pendingConfirmation).toBe(0); // delivered — no follow-up loop
+    // The non-confirming default never asks for follow-ups.
+    const plain = new IdeaScanner();
+    plain.scan(frame);
+    expect(plain.pendingConfirmation).toBe(0);
+  });
+});
+
 describe("ideaIdentityKey — title-anchored identity (#38)", () => {
   it("ignores the body: same title+kind is one idea regardless of the description", () => {
     // The body is volatile (terminal reflow / re-streaming); anchoring on the
@@ -647,6 +739,64 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.create({ workspaceId: "ws3", command: "bash", prime: PRIME });
     const launch = fake.sessions.get("ai-storm-ws3")?.launch ?? "";
     expect(launch).not.toContain("--append-system-prompt");
+  });
+});
+
+// ── Scanner hardening: resize settle window on the tmux poll (mcp-idea-capture §1.2) ──
+
+describe("TmuxSessionBackend — resize settle window", () => {
+  it("skips scanning during the settle window, then resumes (two-frame confirmed)", async () => {
+    vi.useFakeTimers();
+    try {
+      // fakeTmux handles session lifecycle; capture-pane reads a mutable pane.
+      const fake = fakeTmux();
+      let pane = "";
+      const tmux = async (...args: string[]): Promise<string> =>
+        args[0] === "capture-pane" ? pane : fake.tmux(...args);
+      const backend = new TmuxSessionBackend({ tmux, sleep: async () => {} });
+      await backend.create({ workspaceId: "wsR", command: "claude", prime: PRIME });
+
+      const ideas: Idea[] = [];
+      await backend.attach(
+        "wsR",
+        () => {},
+        (idea) => ideas.push(idea),
+        () => {},
+        () => {},
+      );
+
+      // Steady state: an idea appears; with two-frame confirmation it emits on
+      // the SECOND 400ms poll tick.
+      pane = cap("  «IDEA» First :: steady state", "❯");
+      await vi.advanceTimersByTimeAsync(400); // tick 1 — candidate
+      expect(ideas).toEqual([]);
+      await vi.advanceTimersByTimeAsync(400); // tick 2 — confirmed
+      expect(ideas).toEqual([{ title: "First", body: "steady state" }]);
+
+      // Resize → the pane repaints at the new width. The next tick lands inside
+      // the settle window and must NOT scan the (half-painted) capture.
+      await backend.resize("wsR", 80, 24);
+      pane = cap("  «IDEA» First :: steady state", "  «IDEA» Second half-pa", "  ─────", "❯");
+      await vi.advanceTimersByTimeAsync(400); // tick inside settle — skipped
+      expect(ideas).toHaveLength(1);
+
+      // Repaint finished; output quiet past the settle deadline → scanning
+      // resumes and the now-complete line confirms over two ticks.
+      pane = cap("  «IDEA» First :: steady state", "  «IDEA» Second half :: painted in full", "❯");
+      await vi.advanceTimersByTimeAsync(400); // first post-settle tick — candidate
+      expect(ideas).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(400); // confirmed
+      expect(ideas).toEqual([
+        { title: "First", body: "steady state" },
+        { title: "Second half", body: "painted in full" },
+      ]);
+      // The half-painted "Second half-pa" never became a card.
+      expect(ideas.some((i) => i.title.includes("half-pa"))).toBe(false);
+
+      backend.detach("wsR");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

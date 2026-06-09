@@ -42,6 +42,7 @@ import {
   launchArgsForProfile,
   type HarnessProfile,
 } from "./extraction.ts";
+import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
@@ -102,6 +103,12 @@ interface Poller {
   scanner: IdeaScanner;
   /** Triage scanner (#60): `«SCORE@ref»` markers off the same capture. */
   scoreScanner: ScoreScanner;
+  /** Query-mode scan gate (scan-gate.ts): after a resize the harness clears and
+   *  repaints the pane at the new width, and a 400 ms poll can capture it
+   *  mid-repaint (mcp-idea-capture §1.1/§1.2). While `gate.settling`, #tick
+   *  keeps polling (and the raw stream keeps flowing) but skips the SCAN until
+   *  the repaint output has been quiet for the settle period. */
+  gate: ScanGate;
   onIdea: (idea: Idea) => void;
   onScore: (score: Score) => void;
   onError: (message: string) => void;
@@ -317,6 +324,12 @@ export class TmuxSessionBackend implements SessionBackend {
       scoreSink,
       scanner: new IdeaScanner({
         sink: ideaSink,
+        // Two-frame confirmation: a 400 ms poll can capture the pane mid-
+        // repaint (mcp-idea-capture §1.1); requiring an identical identity key
+        // in two consecutive ticks kills the half-painted mis-parse at the
+        // cost of one poll cycle of latency. The attach-time seeding scan
+        // below is `final` and bypasses confirmation by design.
+        confirm: true,
         // A near-miss (the agent attempted but mangled the «IDEA» marker) is
         // worth a warning; an ordinary scan is debug-level noise.
         onDebug: (event, data) => {
@@ -325,6 +338,9 @@ export class TmuxSessionBackend implements SessionBackend {
         },
       }),
       scoreScanner: new ScoreScanner(scoreSink),
+      // Query mode (no onScan): the poll keeps its own cadence and consults
+      // `gate.settling`; the gate never arms timers here.
+      gate: new ScanGate(),
       onIdea,
       onScore,
       onError,
@@ -391,6 +407,15 @@ export class TmuxSessionBackend implements SessionBackend {
     if (poller.stopped) return;
     poller.lastCapture = capture;
 
+    // Resize settle window: the pane is (or may still be) mid-repaint at the
+    // new width, so this capture is untrustworthy. Keep the poll cadence (the
+    // capture above doubles as the liveness probe) and the raw stream (never
+    // delayed), but skip the SCAN until the gate reports quiet.
+    if (poller.gate.settling) {
+      this.#scheduleTick(workspaceId, IDEA_POLL_MS);
+      return;
+    }
+
     for (const idea of poller.scanner.scan(capture)) {
       log.info("idea.extracted", {
         workspace: workspaceId,
@@ -453,7 +478,14 @@ export class TmuxSessionBackend implements SessionBackend {
           if (bytesRead <= 0) break;
           poller.rawOffset += bytesRead;
           const text = poller.rawDecoder.write(buf.subarray(0, bytesRead));
-          if (text && !poller.stopped) poller.onData(text);
+          if (text && !poller.stopped) {
+            poller.onData(text);
+            // Post-resize repaint output extends the settle window: "quiet for
+            // the settle period after the LAST chunk following the resize".
+            // Outside a settle window this is a no-op-cheap guard, so the gate
+            // never arms timers on the ordinary streaming path.
+            if (poller.gate.settling) poller.gate.activity();
+          }
         }
       } finally {
         await handle.close();
@@ -581,6 +613,11 @@ export class TmuxSessionBackend implements SessionBackend {
     }
     const config = this.#configs.get(workspaceId);
     if (config) config.cols = cols;
+    // Open the scan-settle window (mcp-idea-capture §1.2): the harness will
+    // clear and repaint at the new width, and a poll capturing it mid-repaint
+    // mis-parses half-painted marker lines. Only scanning is suppressed; the
+    // raw byte stream and the poll loop itself are untouched.
+    this.#pollers.get(workspaceId)?.gate.resized();
   }
 
   detach(workspaceId: string): void {
@@ -588,6 +625,7 @@ export class TmuxSessionBackend implements SessionBackend {
     if (!poller) return;
     poller.stopped = true;
     if (poller.timer) clearTimeout(poller.timer);
+    poller.gate.dispose(); // poller is discarded; a reattach builds a fresh gate
     this.#stopRawStream(workspaceId, poller);
     this.#pollers.delete(workspaceId);
     log.info("session.detached", { workspace: workspaceId });
