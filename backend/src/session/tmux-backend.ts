@@ -40,6 +40,7 @@ import {
   launchArgsForProfile,
   type HarnessProfile,
 } from "./extraction.ts";
+import { tokenizeCommand } from "../pty/resolve.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -211,7 +212,13 @@ export class TmuxSessionBackend implements SessionBackend {
     assertValidWorkspaceId(workspaceId);
     const sessionName = this.#sessionName(workspaceId);
 
-    const command = (spec.command ?? "").trim();
+    // The harness field may carry inline args ("claude --model=opus"); split
+    // off the executable so the profile is keyed on the binary alone and the
+    // rest become leading args (quote-aware: a quoted path stays one token).
+    const rawCommand = (spec.command ?? "").trim();
+    const tokens = tokenizeCommand(rawCommand);
+    const command = tokens[0] ?? "";
+    const inlineArgs = tokens.slice(1);
     // Select the harness profile from the command basename (e.g. "claude" →
     // CLAUDE_PROFILE), stored so `attach()` builds the extractor with it (§7.2).
     const profileName = spec.harnessProfile ?? commandProfileName(command);
@@ -229,7 +236,8 @@ export class TmuxSessionBackend implements SessionBackend {
       return { workspaceId, sessionId: sessionName };
     }
 
-    const specArgs = spec.args ?? [];
+    // Inline args from the command string precede caller-supplied spec.args.
+    const specArgs = [...inlineArgs, ...(spec.args ?? [])];
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
     // model default (if any), and the system/developer prompt injection seam.
     const args = launchArgsForProfile(profile, specArgs, spec.prime);

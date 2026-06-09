@@ -45,6 +45,7 @@ export function ControlHub() {
   const ws = useWorkspaceStore(selectActive)
   const connState = useBackendStore((s) => s.state)
   const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false))
+  const sessionError = useIngestionStore((s) => (ws ? s.errors[ws.id] ?? null : null))
   const agentRun = useAgentStore((s) => (ws ? s.runs[ws.id] ?? null : null))
 
   // Resume a durable session after a reload / hot-switch (PRD §3.5). `attach` is
@@ -97,6 +98,28 @@ export function ControlHub() {
         </Toolbar.Root>
       </header>
 
+      {/* Last backend error (e.g. a harness that couldn't be launched). Shown
+          here, not just as a status dot, so the user can read *why* and act on
+          it — and dismiss it once handled. */}
+      {sessionError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-medium">
+            {sessionError}
+          </span>
+          <button
+            type="button"
+            onClick={() => ingestion.clearError(ws.id)}
+            className="shrink-0 font-medium uppercase tracking-wide underline-offset-2 hover:underline"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Session setup (#76): harness + facilitation mode + background context.
           All three are baked into the launch system-prompt, so they share one
           rule — editable before start, locked once the session is live. The
@@ -129,7 +152,7 @@ export function ControlHub() {
           <Input
             className="h-7 w-44 font-mono text-xs"
             defaultValue={harness}
-            key={`${ws.id}:${harness}`}
+            key={`${ws.id}:${attached}`}
             disabled={attached}
             placeholder="claude, pi, or codex"
             spellCheck={false}
