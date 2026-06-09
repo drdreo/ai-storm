@@ -563,7 +563,12 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop);
     // The primed agent lapses back to a marker line after the attach-time seed.
     fake.setPane("  «IDEA» Lapsed marker :: the agent ignored the tool\n❯");
-    await vi.advanceTimersByTimeAsync(450); // one poll tick
+    // Two poll ticks: the scanner's two-frame confirmation (scanner-hardening)
+    // holds a fresh marker as a candidate on the first tick and emits it on the
+    // second, once it has re-rendered identically.
+    await vi.advanceTimersByTimeAsync(450); // tick 1 — candidate
+    expect(ideas).toEqual([]);
+    await vi.advanceTimersByTimeAsync(400); // tick 2 — confirmed
 
     expect(ideas.map((i) => i.title)).toEqual(["Lapsed marker"]);
     expect(warn.mock.calls.some(([event]) => event === "idea.fallback_scan")).toBe(true);
