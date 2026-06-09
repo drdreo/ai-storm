@@ -32,6 +32,31 @@ function hasPathSeparator(s: string): boolean {
   return s.includes("/") || s.includes("\\");
 }
 
+/**
+ * Split a launch line into `[executable, ...args]`, honoring single/double
+ * quotes so a quoted path with spaces stays one token. This lets a user type a
+ * whole command line — `claude --model=opus` or `"C:\Program Files\x\pi.exe"
+ * --model gpt-4o` — into the single harness field, instead of the field being
+ * mistaken for an executable literally named "claude --model=opus".
+ */
+export function tokenizeCommand(command: string): string[] {
+  const tokens: string[] = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(command)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3] ?? "");
+  }
+  return tokens;
+}
+
+/**
+ * Has the model flag already been supplied, in either separate (`--model x`)
+ * or combined (`--model=x`) form? Used to avoid appending a duplicate default.
+ */
+export function hasFlag(args: readonly string[], flag: string): boolean {
+  return args.some((a) => a === flag || a.startsWith(`${flag}=`));
+}
+
 export function resolveLaunch(command: string, args: string[]): ResolvedLaunch {
   if (process.platform !== "win32") {
     return { cmd: command, args };

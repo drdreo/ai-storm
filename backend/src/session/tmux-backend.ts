@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
 import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
+import { tokenizeCommand, hasFlag } from "../pty/resolve.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
@@ -204,7 +205,13 @@ export class TmuxSessionBackend implements SessionBackend {
     assertValidWorkspaceId(workspaceId);
     const sessionName = this.#sessionName(workspaceId);
 
-    const command = (spec.command ?? "").trim();
+    // The harness field may carry inline args ("claude --model=opus"); split
+    // off the executable so the profile is keyed on the binary alone and the
+    // rest become leading args (quote-aware: a quoted path stays one token).
+    const rawCommand = (spec.command ?? "").trim();
+    const tokens = tokenizeCommand(rawCommand);
+    const command = tokens[0] ?? "";
+    const inlineArgs = tokens.slice(1);
     // Select the harness profile from the command basename (e.g. "claude" →
     // CLAUDE_PROFILE), stored so `attach()` builds the extractor with it (§7.2).
     const profileName = spec.harnessProfile ?? commandProfileName(command);
@@ -229,9 +236,9 @@ export class TmuxSessionBackend implements SessionBackend {
 
     // Default to the profile's preferred model (e.g. claude → haiku) unless the
     // caller already passed the model flag explicitly in the harness args.
-    const specArgs = spec.args ?? [];
+    const specArgs = [...inlineArgs, ...(spec.args ?? [])];
     const modelArgs =
-      profile.modelFlag && profile.defaultModel && !specArgs.includes(profile.modelFlag)
+      profile.modelFlag && profile.defaultModel && !hasFlag(specArgs, profile.modelFlag)
         ? [profile.modelFlag, profile.defaultModel]
         : [];
     const args = [...specArgs, ...modelArgs, ...primeArgs];

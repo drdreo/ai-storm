@@ -19,7 +19,7 @@
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import { log } from "../log.ts";
-import { resolveLaunch, LaunchNotFoundError } from "../pty/resolve.ts";
+import { resolveLaunch, LaunchNotFoundError, tokenizeCommand, hasFlag } from "../pty/resolve.ts";
 import { TerminalScreen } from "./screen.ts";
 import { IdeaScanner, ScoreScanner, getProfile, commandProfileName, type HarnessProfile } from "./extraction.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
@@ -77,8 +77,13 @@ export class NodePtySessionBackend implements SessionBackend {
       return { workspaceId, sessionId: `pty-${workspaceId}` };
     }
 
-    const requested = (spec.command ?? "").trim() || defaultShell().shell;
-    const baseArgs = (spec.command ?? "").trim() ? spec.args ?? [] : defaultShell().args;
+    // The harness field may carry inline args ("claude --model=opus"); split
+    // them off so only the executable is resolved on PATH and the rest become
+    // leading args (quote-aware, so a quoted path with spaces stays one token).
+    const rawCommand = (spec.command ?? "").trim();
+    const tokens = tokenizeCommand(rawCommand);
+    const requested = tokens[0] || defaultShell().shell;
+    const baseArgs = rawCommand ? [...tokens.slice(1), ...(spec.args ?? [])] : defaultShell().args;
 
     // Select the harness profile (extraction-contract §7.2): explicit spec wins,
     // else derive from the command basename ("claude" → CLAUDE_PROFILE).
@@ -94,7 +99,7 @@ export class NodePtySessionBackend implements SessionBackend {
     // Default to the profile's preferred model (e.g. claude → haiku) unless the
     // caller already passed the model flag explicitly in the harness args.
     const modelArgs =
-      profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
+      profile.modelFlag && profile.defaultModel && !hasFlag(baseArgs, profile.modelFlag)
         ? [profile.modelFlag, profile.defaultModel]
         : [];
     const requestedArgs = [...baseArgs, ...modelArgs, ...primeArgs];

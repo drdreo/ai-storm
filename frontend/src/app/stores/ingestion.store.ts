@@ -60,9 +60,26 @@ interface TerminalState {
 
 interface IngestionState {
   attached: Record<string, true>
+  /**
+   * Last backend error per workspace (e.g. a harness that couldn't be launched).
+   * Transient — not persisted with the workspace registry, since it describes a
+   * momentary launch/runtime condition the user should be able to read and act
+   * on, then dismiss. Cleared when the workspace next attaches or is stopped.
+   */
+  errors: Record<string, string>
 }
 
-export const useIngestionStore = create<IngestionState>(() => ({ attached: {} }))
+export const useIngestionStore = create<IngestionState>(() => ({ attached: {}, errors: {} }))
+
+function setError(workspaceId: string, message: string | null): void {
+  useIngestionStore.setState((s) => {
+    if (message === (s.errors[workspaceId] ?? null)) return s
+    const next = { ...s.errors }
+    if (message) next[workspaceId] = message
+    else delete next[workspaceId]
+    return { errors: next }
+  })
+}
 
 // ---- Imperative module state -----------------------------------------------
 
@@ -145,6 +162,8 @@ export const ingestion = {
    */
   attach(workspaceId: string, config: TerminalConfig, cols = 120, rows = 32): void {
     if (active.has(workspaceId)) return
+    // A fresh attempt clears any error from the previous launch.
+    setError(workspaceId, null)
     // Pre-create the terminal binding so a sink can register immediately.
     terminal(workspaceId)
 
@@ -176,6 +195,9 @@ export const ingestion = {
           break
         case 'error':
           workspace.setStatus(workspaceId, 'error')
+          // Surface *why* so the user can fix it (e.g. a bad harness command),
+          // rather than seeing only an opaque "error" status.
+          setError(workspaceId, msg.message)
           break
       }
     })
@@ -234,6 +256,11 @@ export const ingestion = {
 
   resize(workspaceId: string, cols: number, rows: number): void {
     backend.send({ type: 'resize', workspaceId, cols, rows })
+  },
+
+  /** Dismiss the last backend error shown for a workspace. */
+  clearError(workspaceId: string): void {
+    setError(workspaceId, null)
   },
 
   /** Clear the workspace's terminal display (does not touch the session). */
