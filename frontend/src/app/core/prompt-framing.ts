@@ -93,6 +93,28 @@ export function frameTriage(board: string): string {
 }
 
 /**
+ * Frame a spec/PRD hand-off request (#89, PD-015) — the convergence step that
+ * closes the brainstorm → structure → hand-off loop (PRD §2). `board` is the
+ * lifecycle-aware hand-off serialization (`handoffCardsToText`): superseded ghosts
+ * already dropped, keep-marks already flagged with ★. The framed payload is piped
+ * to the downstream orchestrator subprocess on stdin (PD-007 / `agent.generateSpec`),
+ * NOT the live PTY — so, unlike the verb prompts and {@link frameTriage}, it is a
+ * complete request with no editable trailing seam and no marker-echo concern.
+ * Returns `''` for an empty board (nothing to hand off).
+ */
+export function frameSpec(board: string): string {
+  const trimmed = board.trim();
+  if (!trimmed) return '';
+  return (
+    `Turn the brainstorm board below into a concise, executable spec / PRD ready to hand to a coding ` +
+    `agent. Write GitHub-flavored markdown with these sections: Overview, Goals, Non-goals, ` +
+    `Requirements, Implementation plan, and Open questions. Ground every requirement in the cards — do ` +
+    `not invent scope. Cards marked with a leading ★ are the user's keep-marks: treat them as priorities. ` +
+    `Output only the spec markdown, nothing else.\n\n${trimmed}\n`
+  );
+}
+
+/**
  * A directive (idea-graph design §5) telling the agent how to link the ideas
  * this turn produces back to the source card, so the backend parses the link
  * and the canvas draws a connector. Prepended (never appended) so the verb's

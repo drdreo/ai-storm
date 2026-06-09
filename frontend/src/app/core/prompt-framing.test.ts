@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { framePrompt, frameTriage, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
+import { framePrompt, frameTriage, frameSpec, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
 
 describe('framePrompt', () => {
   it('returns "" for an empty selection', () => {
@@ -230,5 +230,24 @@ describe('frameTriage (#60)', () => {
     const prompt = frameTriage('@a1 thing');
     expect(prompt).not.toContain('«SCORE');
     expect(prompt).not.toContain('«IDEA');
+  });
+});
+
+describe('frameSpec (#89)', () => {
+  it('returns "" for an empty board', () => {
+    expect(frameSpec('')).toBe('');
+    expect(frameSpec('   \n  ')).toBe('');
+  });
+
+  it('embeds the board (trimmed) and asks for a spec/PRD with the expected sections', () => {
+    const prompt = frameSpec('### ✨ Feature: Offline canvas\n\ncache CRDT ops');
+    expect(prompt).toContain('### ✨ Feature: Offline canvas');
+    expect(prompt).toMatch(/spec\s*\/\s*PRD/i);
+    expect(prompt).toContain('Requirements');
+    expect(prompt).toContain('Open questions');
+  });
+
+  it('tells the agent to treat ★ keep-marks as priorities (#59)', () => {
+    expect(frameSpec('### ★ ✨ Feature: Pinned')).toContain('★');
   });
 });

@@ -7,6 +7,7 @@ import {
   applyIdeas as islandApplyIdeas,
   serializeEditor,
   serializeForTriage,
+  serializeForHandoff,
   applyScore as islandApplyScore,
   selectedText,
   collectBoard,
@@ -135,6 +136,17 @@ export const canvas = {
   serializeForTriage(workspaceId: string): string {
     if (!editor || workspaceId !== activeId) return ''
     return serializeForTriage(editor)
+  },
+
+  /**
+   * Lifecycle-aware serialization of the selection — or the whole board — for the
+   * spec/PRD hand-off (#89, PD-015), or `''` if this workspace isn't the mounted
+   * one. Superseded ghosts are excluded and keep-marks (#59) flagged with ★; the
+   * agent turns this into a generated spec artifact via {@link agent.generateSpec}.
+   */
+  serializeForHandoff(workspaceId: string): string {
+    if (!editor || workspaceId !== activeId) return ''
+    return serializeForHandoff(editor)
   },
 
   /** Apply an extracted triage score to its target card's meta (#60). */

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { cardToText, serializeCards } from "./canvas-text";
+import { cardToText, serializeCards, handoffCardsToText } from "./canvas-text";
 
 describe("cardToText", () => {
   it("emits a decorated heading + body for a kinded card", () => {
@@ -43,5 +43,44 @@ describe("serializeCards", () => {
 
   it("returns an empty string for no cards", () => {
     expect(serializeCards([])).toBe("");
+  });
+});
+
+describe("handoffCardsToText", () => {
+  const card = (over: Partial<Parameters<typeof handoffCardsToText>[0][number]>) => ({
+    kind: "feature",
+    title: "Offline canvas",
+    body: "",
+    starred: false,
+    superseded: false,
+    ...over,
+  });
+
+  it("serializes live cards exactly like serializeCards", () => {
+    expect(
+      handoffCardsToText([
+        card({ kind: "feature", title: "Offline-first canvas", body: "cache CRDT ops" }),
+        card({ kind: "risk", title: "Token leak", body: "" }),
+      ]),
+    ).toBe("### ✨ Feature: Offline-first canvas\n\ncache CRDT ops\n\n### ⚠ Risk: Token leak");
+  });
+
+  it("excludes superseded ghosts by default (#89)", () => {
+    expect(
+      handoffCardsToText([
+        card({ title: "Survivor" }),
+        card({ title: "Ghost", superseded: true }),
+      ]),
+    ).toBe("### ✨ Feature: Survivor");
+  });
+
+  it("flags keep-marked cards with a leading ★ (#59)", () => {
+    expect(handoffCardsToText([card({ title: "Pinned", starred: true })])).toBe(
+      "### ★ ✨ Feature: Pinned",
+    );
+  });
+
+  it("returns an empty string when every card is a ghost", () => {
+    expect(handoffCardsToText([card({ superseded: true })])).toBe("");
   });
 });

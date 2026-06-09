@@ -39,3 +39,27 @@ export function cardToText(card: CardContent): string {
 export function serializeCards(cards: readonly CardContent[]): string {
   return cards.map(cardToText).join('\n\n').trim();
 }
+
+/** An idea-card with the lifecycle flags the hand-off serializer reads (#89). */
+export interface HandoffCard extends CardContent {
+  /** Keep-mark (#59): the user flagged this one as worth keeping. */
+  starred: boolean;
+  /** Lifecycle (#20/PD-012): replaced by a refined card via a `supersedes` edge. */
+  superseded: boolean;
+}
+
+/**
+ * Serialize a board into the spec/PRD hand-off input (#89, PD-015) — the text fed
+ * to the downstream agent so it can generate a spec. Like {@link serializeCards}
+ * but lifecycle-aware: superseded ghosts are dropped (they lost an argument and
+ * should not shape the spec — issue #89), and keep-marked cards (#59) are flagged
+ * with a leading ★ so the agent foregrounds the user's priorities. Empty input —
+ * or input that is all ghosts — yields `''`.
+ */
+export function handoffCardsToText(cards: readonly HandoffCard[]): string {
+  return cards
+    .filter((card) => !card.superseded)
+    .map((card) => (card.starred ? cardToText(card).replace(/^### /, '### ★ ') : cardToText(card)))
+    .join('\n\n')
+    .trim();
+}

@@ -29,7 +29,13 @@ import { copyTextOptions } from './canvas/copy-text';
 
 // Re-export the editor-driven ports the stores drive against the mounted workspace.
 export { applyIdeas } from './canvas/ingest';
-export { serializeEditor, serializeForTriage, collectBoard, selectedText } from './canvas/serialize';
+export {
+  serializeEditor,
+  serializeForTriage,
+  serializeForHandoff,
+  collectBoard,
+  selectedText,
+} from './canvas/serialize';
 export { applyScore } from './canvas/layout';
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { backend } from './backend.store'
 import { canvas } from './canvas.store'
 import { ingestion } from './ingestion.store'
-import { framePrompt, frameTriage, type PromptIntent } from '../core/prompt-framing'
+import { framePrompt, frameTriage, frameSpec, type PromptIntent } from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
 
 export interface AgentRun {
@@ -10,21 +10,26 @@ export interface AgentRun {
   pid?: number
   output: string
   code?: number
+  /**
+   * What kicked the run off (#89). Currently only the spec/PRD hand-off spawns a
+   * run, shown in its own SpecPanel; the field stays so any future run type can be
+   * routed to a different surface without conflating it with the spec artifact.
+   */
+  kind?: 'spec'
 }
 
 /**
- * Input-layer context injection (PRD §3.2) and downstream agent hook (PRD §3.6).
+ * The canvas → agent seams.
  *
- * - `injectContext` serializes the active canvas to normalized text and pushes
- *   it into the workspace's terminal loop as structural memory.
- * - `dispatch` extracts plain block text and asks the backend to spawn the
- *   local orchestrator subprocess with the payload as a functional argument,
- *   streaming the run's lifecycle back into the store for the control hub.
  * - `discussText` is the bidirectional-canvas seam (#13): it types a framed,
  *   EDITABLE prompt into the live interactive session for the user to submit.
+ * - `triage` (#60) submits a complete ref-annotated scoring request into the
+ *   live session.
+ * - `generateSpec` (#89) is the downstream agent hand-off (PRD §3.6): it spawns
+ *   the local orchestrator subprocess with a spec/PRD-shaped payload and streams
+ *   the generated artifact back into the store for the SpecPanel.
  *
- * 1:1 port of the Angular `AgentService`: the per-workspace run signals become
- * a `runs` record in this Zustand store.
+ * Per-workspace run lifecycle is held in the `runs` record of this Zustand store.
  */
 
 interface AgentState {
@@ -51,7 +56,7 @@ function ensureSubscription(workspaceId: string): void {
     const cur = getRun(workspaceId) ?? { status: 'spawned', output: '' }
     switch (msg.status) {
       case 'spawned':
-        setRun(workspaceId, { status: 'running', pid: msg.pid, output: '' })
+        setRun(workspaceId, { status: 'running', pid: msg.pid, output: '', kind: cur.kind })
         break
       case 'stdout':
       case 'stderr':
@@ -68,33 +73,26 @@ function ensureSubscription(workspaceId: string): void {
 }
 
 export const agent = {
-  /** PRD §3.2 — inject serialized whiteboard state into the terminal loop. */
-  injectContext(workspaceId: string): string {
-    const document = canvas.serializeToText(workspaceId)
-    backend.send({ type: 'context', workspaceId, document: document + '\n' })
-    return document
-  },
-
   /**
-   * PRD §3.6 — dispatch the selected block text to the local agent orchestrator.
-   * `payloadOverride` lets callers pass explicit text (e.g. a block-level macro);
-   * otherwise the current editor selection is used.
+   * Spec/PRD hand-off (#89, PD-015) — close the brainstorm → structure → hand-off
+   * loop (PRD §2). Serializes the selection (or the whole board) lifecycle-aware
+   * (superseded ghosts dropped, keep-marks flagged), frames it into a spec/PRD
+   * request, and dispatches it through the local-orchestrator subprocess seam
+   * (PD-007 / PRD §3.6). Unlike {@link dispatch}, the payload is the framed spec
+   * prompt itself — not the selection wrapped in board context — since the agent's
+   * whole job here is to converge the board into a generated spec artifact. The
+   * run streams back into the store and surfaces in the control hub (with markdown
+   * export) exactly like a `dispatch` run.
+   *
+   * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
-  dispatch(workspaceId: string, config: TerminalConfig, payloadOverride?: string): void {
-    const selection = (payloadOverride ?? canvas.getSelectedText()).trim()
-    if (!selection) return
+  generateSpec(workspaceId: string, config: TerminalConfig): boolean {
+    const payload = frameSpec(canvas.serializeForHandoff(workspaceId))
+    if (!payload) return false
     const command = config.agentCommand?.trim() || 'claude'
 
-    // PRD §3.2 — automatically inject the serialized canvas as structural memory
-    // so the agent receives the full whiteboard context, not just the selected
-    // blocks. The selection is called out as the active focus.
-    const context = canvas.serializeToText(workspaceId)
-    const payload = context
-      ? `# Workspace context\n\n${context}\n\n# Selected focus\n\n${selection}`
-      : selection
-
     ensureSubscription(workspaceId)
-    setRun(workspaceId, { status: 'spawned', output: '' })
+    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec' })
 
     backend.connect()
     backend.send({
@@ -105,6 +103,7 @@ export const agent = {
       payload,
       cwd: config.cwd,
     })
+    return true
   },
 
   /**
