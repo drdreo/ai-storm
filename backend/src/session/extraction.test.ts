@@ -12,7 +12,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   IdeaScanner,
+  IdeaSink,
   ScoreScanner,
+  ScoreSink,
   scanIdeas,
   scanScores,
   getProfile,
@@ -413,6 +415,44 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     expect(scanner.scan(cap("  «IDEA» Real one :: with substance", "❯"))).toEqual([
       { title: "Real one", body: "with substance" },
     ]);
+  });
+});
+
+describe("IdeaSink / ScoreSink — shared dedupe across producers", () => {
+  it("an idea offered to the shared sink directly is never re-emitted by the scanner", () => {
+    // The MCP `capture_idea` path (mcp-idea-capture §6): the tool emits via the
+    // sink; the fallback scanner then sees the agent ALSO echo a marker line for
+    // the same idea — the shared seen-set delivers it exactly once.
+    const sink = new IdeaSink();
+    const scanner = new IdeaScanner({ sink });
+    expect(sink.offer({ title: "Edge cache", body: "serve from CDN" })).toBe(true);
+    expect(scanner.scan(cap("  «IDEA» Edge cache :: re-worded body", "❯"))).toEqual([]);
+  });
+
+  it("an idea the scanner emitted is rejected when offered to the sink again", () => {
+    const sink = new IdeaSink();
+    const scanner = new IdeaScanner({ sink });
+    expect(scanner.scan(cap("  «IDEA» Edge cache :: serve from CDN", "❯"))).toHaveLength(1);
+    expect(sink.offer({ title: "Edge cache", body: "", kind: undefined })).toBe(false);
+    // A genuinely new identity still passes.
+    expect(sink.offer({ title: "Cold start", body: "" })).toBe(true);
+  });
+
+  it("dedupes within a single offer sequence and keeps distinct links apart", () => {
+    const sink = new IdeaSink();
+    const linked = { title: "Leak", body: "", links: [{ to: "a1", relation: "about" as const }] };
+    expect(sink.offer(linked)).toBe(true);
+    expect(sink.offer(linked)).toBe(false);
+    expect(sink.offer({ ...linked, links: [{ to: "b2", relation: "about" as const }] })).toBe(true);
+  });
+
+  it("ScoreSink shared between a scanner and a direct producer delivers once", () => {
+    const sink = new ScoreSink();
+    const scanner = new ScoreScanner(sink);
+    expect(sink.offer({ ref: "a1", impact: 4, effort: 2, confidence: 3 })).toBe(true);
+    expect(scanner.scan("«SCORE@a1» 4/2/3")).toEqual([]);
+    // A re-triage (new tuple) still flows through the scanner.
+    expect(scanner.scan("«SCORE@a1» 5/1/4")).toEqual([{ ref: "a1", impact: 5, effort: 1, confidence: 4 }]);
   });
 });
 
