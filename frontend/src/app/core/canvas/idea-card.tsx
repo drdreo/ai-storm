@@ -9,6 +9,8 @@
 import {
   ShapeUtil,
   Rectangle2d,
+  Polygon2d,
+  Vec,
   resizeBox,
   HTMLContainer,
   T,
@@ -26,7 +28,7 @@ import {
   type TLResizeInfo,
   type TLShapeId,
 } from 'tldraw';
-import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from '../idea-descriptors';
+import { kindLabel, kindShape, normalizeKind, AI_PROVENANCE_BADGE } from '../idea-descriptors';
 import { cardToText, type CardContent } from '../canvas-text';
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
@@ -102,6 +104,22 @@ export const CARD_W = 250;
 export const CARD_H = 132;
 
 /**
+ * The four corners of a diamond inscribed in a `w × h` box (#88): top, right,
+ * bottom, left midpoints. Shared by {@link IdeaCardShapeUtil.getGeometry} (hit-
+ * testing + arrow clipping) and the rendered silhouette so the visible outline
+ * and the bound-arrow anchor agree — an `about`/`supersedes` arrow then clips at
+ * the diamond's slanted edge, not a phantom rectangle.
+ */
+function diamondPoints(w: number, h: number): Vec[] {
+  return [new Vec(w / 2, 0), new Vec(w, h / 2), new Vec(w / 2, h), new Vec(0, h / 2)];
+}
+
+/** Whether a kind renders as a diamond rather than the default note (#88). */
+function isDiamond(kind: string): boolean {
+  return kindShape(kind) === 'diamond';
+}
+
+/**
  * Card ink (#77 audit M4). Deliberately card-LOCAL near-black / near-white, NOT
  * the app `--foreground`: the text sits on the card's colored `semi` tint (a
  * sticky-note), so it tracks tldraw's light/dark card surface, not the app
@@ -159,7 +177,13 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   }
 
   override getGeometry(shape: IdeaCardShape): Geometry2d {
-    return new Rectangle2d({ width: shape.props.w, height: shape.props.h, isFilled: true });
+    const { w, h, kind } = shape.props;
+    // A kind's `shape` (#88) drives its silhouette — a diamond for decisions /
+    // questions, the default rounded-rect note otherwise. The geometry (not just
+    // the CSS) switches so hit-testing and bound-arrow clipping follow the visible
+    // outline; unknown/unset kinds fall back to the rectangle.
+    if (isDiamond(kind)) return new Polygon2d({ points: diamondPoints(w, h), isFilled: true });
+    return new Rectangle2d({ width: w, height: h, isFilled: true });
   }
 
   override canResize = () => true;
@@ -181,9 +205,21 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   }
 
   // tldraw 5 takes the selection outline as a Path2D (was a JSX <rect> in v3).
+  // Trace the kind's silhouette (#88) so the selection halo hugs a diamond's
+  // edges, not a bounding rectangle.
   override getIndicatorPath(shape: IdeaCardShape): Path2D {
+    const { w, h } = shape.props;
     const path = new Path2D();
-    path.rect(0, 0, shape.props.w, shape.props.h);
+    if (isDiamond(shape.props.kind)) {
+      const [top, right, bottom, left] = diamondPoints(w, h);
+      path.moveTo(top.x, top.y);
+      path.lineTo(right.x, right.y);
+      path.lineTo(bottom.x, bottom.y);
+      path.lineTo(left.x, left.y);
+      path.closePath();
+    } else {
+      path.rect(0, 0, w, h);
+    }
     return path;
   }
 }
@@ -242,27 +278,14 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
     });
   };
 
-  return (
-    <HTMLContainer
-      style={{
-        width: shape.props.w,
-        height: shape.props.h,
-        boxSizing: 'border-box',
-        padding: '10px 12px',
-        borderRadius: 10,
-        background: tint,
-        border: superseded ? `2px dashed ${accent}` : `1px solid ${accent}`,
-        boxShadow: superseded ? 'none' : '0 1px 4px rgba(0,0,0,0.12)',
-        color: text,
-        fontFamily: 'var(--tl-font-sans, system-ui, sans-serif)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 5,
-        overflow: 'hidden',
-        pointerEvents: 'all',
-        opacity: superseded ? 0.85 : 1,
-      }}
-    >
+  const { w, h } = shape.props;
+  const diamond = isDiamond(kind);
+
+  // The card's inner content — star, kind badge, title/body (read or edit), and
+  // the triage score. Identical across silhouettes (#88): only the wrapper around
+  // it changes, so a diamond and a note carry exactly the same affordances.
+  const cardContent = (
+    <>
       <button
         type="button"
         title={starred ? 'Marked — keep for later (click to unmark)' : 'Mark this idea for later'}
@@ -352,6 +375,92 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           {score.confidence != null ? <span>◎ {score.confidence}</span> : null}
         </div>
       ) : null}
+    </>
+  );
+
+  // Diamond silhouette (#88): an SVG polygon carries the fill/stroke (a CSS border
+  // can't follow a 45° edge), with the content laid into the diamond's inscribed
+  // box — the centered `w/2 × h/2` rectangle that stays within all four slanted
+  // edges. The superseded ghost (#20, PD-012) reuses the grey swatch + a dashed
+  // stroke, mirroring the note's dashed border.
+  if (diamond) {
+    const points = `${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`;
+    return (
+      <HTMLContainer
+        style={{
+          width: w,
+          height: h,
+          position: 'relative',
+          color: text,
+          fontFamily: 'var(--tl-font-sans, system-ui, sans-serif)',
+          pointerEvents: 'all',
+          opacity: superseded ? 0.85 : 1,
+        }}
+      >
+        <svg
+          width={w}
+          height={h}
+          viewBox={`0 0 ${w} ${h}`}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            overflow: 'visible',
+            filter: superseded ? 'none' : 'drop-shadow(0 1px 4px rgba(0,0,0,0.12))',
+          }}
+        >
+          <polygon
+            points={points}
+            fill={tint}
+            stroke={accent}
+            strokeWidth={superseded ? 2 : 1.5}
+            strokeDasharray={superseded ? '6 4' : undefined}
+            strokeLinejoin="round"
+          />
+        </svg>
+        <div
+          style={{
+            position: 'absolute',
+            left: w / 4,
+            top: h / 4,
+            width: w / 2,
+            height: h / 2,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 4,
+            overflow: 'hidden',
+            textAlign: 'center',
+          }}
+        >
+          {cardContent}
+        </div>
+      </HTMLContainer>
+    );
+  }
+
+  return (
+    <HTMLContainer
+      style={{
+        width: w,
+        height: h,
+        boxSizing: 'border-box',
+        padding: '10px 12px',
+        borderRadius: 10,
+        background: tint,
+        border: superseded ? `2px dashed ${accent}` : `1px solid ${accent}`,
+        boxShadow: superseded ? 'none' : '0 1px 4px rgba(0,0,0,0.12)',
+        color: text,
+        fontFamily: 'var(--tl-font-sans, system-ui, sans-serif)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5,
+        overflow: 'hidden',
+        pointerEvents: 'all',
+        opacity: superseded ? 0.85 : 1,
+      }}
+    >
+      {cardContent}
     </HTMLContainer>
   );
 }

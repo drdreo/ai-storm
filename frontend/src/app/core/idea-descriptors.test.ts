@@ -13,6 +13,7 @@ import {
   isTriageableKind,
   kindColor,
   kindLabel,
+  kindShape,
   normalizeKind,
 } from "./idea-descriptors";
 
@@ -135,6 +136,26 @@ describe("KIND_REGISTRY (idea-graph §3.2 — single source of truth)", () => {
       expect(spec.label.length).toBeGreaterThan(0);
       expect(TLDRAW_COLORS.has(spec.color)).toBe(true);
     }
+  });
+
+  it("gives every known kind a valid silhouette (#88)", () => {
+    for (const kind of KNOWN_KINDS) {
+      expect(['note', 'diamond']).toContain(KIND_REGISTRY[kind].shape);
+    }
+  });
+});
+
+describe("kindShape (#88 — per-kind silhouette)", () => {
+  it("returns the registry silhouette for a known kind (case/space-insensitive)", () => {
+    expect(kindShape("decision")).toBe("diamond");
+    expect(kindShape("  Question ")).toBe("diamond");
+    expect(kindShape("risk")).toBe("note");
+  });
+
+  it("falls back to 'note' for an unknown, missing, or blank kind", () => {
+    expect(kindShape("experiment")).toBe("note");
+    expect(kindShape("")).toBe("note");
+    expect(kindShape(undefined)).toBe("note");
   });
 });
 

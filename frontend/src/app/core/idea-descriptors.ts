@@ -47,12 +47,12 @@ export type IdeaKind = (typeof KIND_ORDER)[number];
 
 /** The single source of truth for per-kind behaviour (idea-graph design §3.2). */
 export const KIND_REGISTRY: Record<IdeaKind, KindSpec> = {
-  risk: { label: '⚠ Risk', color: 'red' },
-  feature: { label: '✨ Feature', color: 'green' },
-  question: { label: '❓ Question', color: 'yellow' },
-  decision: { label: '✅ Decision', color: 'blue' },
-  todo: { label: '☑ Todo', color: 'light-blue' },
-  heuristic: { label: '💡 Idea', color: 'violet' },
+  risk: { label: '⚠ Risk', color: 'red', shape: 'note' },
+  feature: { label: '✨ Feature', color: 'green', shape: 'note' },
+  question: { label: '❓ Question', color: 'yellow', shape: 'diamond' },
+  decision: { label: '✅ Decision', color: 'blue', shape: 'diamond' },
+  todo: { label: '☑ Todo', color: 'light-blue', shape: 'note' },
+  heuristic: { label: '💡 Idea', color: 'violet', shape: 'note' },
 };
 
 /** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
@@ -88,6 +88,20 @@ export function kindLabel(kind: string): string {
  */
 export function kindColor(kind?: string): string | undefined {
   return kindSpec(kind)?.color;
+}
+
+/** A card's rendered silhouette — the value of {@link KindSpec.shape}. */
+export type KindShape = NonNullable<KindSpec['shape']>;
+
+/**
+ * Resolve a kind's card silhouette (#88) — its `kind` drives the *shape*, not
+ * just the color/badge (e.g. `decision` → `'diamond'`). Falls back to `'note'`
+ * (the plain rounded rectangle) for an unknown, missing, or shape-less kind, so
+ * a new visual treatment is one {@link KIND_REGISTRY} entry — no renderer branch.
+ * Pure — no tldraw dependency.
+ */
+export function kindShape(kind?: string): KindShape {
+  return kindSpec(kind)?.shape ?? 'note';
 }
 
 /**
