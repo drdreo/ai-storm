@@ -23,7 +23,9 @@ import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/reso
 import { TerminalScreen } from "./screen.ts";
 import {
   IdeaScanner,
+  IdeaSink,
   ScoreScanner,
+  ScoreSink,
   getProfile,
   commandProfileName,
   launchArgsForProfile,
@@ -40,6 +42,11 @@ interface Session {
    *  can read back a rendered capture (the Windows `capture-pane -p` analog),
    *  scanned for ideas. The browser xterm.js renders the same byte stream. */
   screen: TerminalScreen;
+  /** Session dedupe authority for ideas — shared by every producer (the capture
+   *  scanner today; the MCP `capture_idea` tool next, mcp-idea-capture §6). */
+  ideaSink: IdeaSink;
+  /** Session dedupe authority for scores — same sharing contract as {@link ideaSink}. */
+  scoreSink: ScoreSink;
   scanner: IdeaScanner;
   /** Triage scanner (#60): pulls `«SCORE@ref»` markers off the same rendered buffer. */
   scoreScanner: ScoreScanner;
@@ -131,10 +138,15 @@ export class NodePtySessionBackend implements SessionBackend {
       env,
     });
 
+    const ideaSink = new IdeaSink();
+    const scoreSink = new ScoreSink();
     const session: Session = {
       term,
       screen: new TerminalScreen(cols, rows),
+      ideaSink,
+      scoreSink,
       scanner: new IdeaScanner({
+        sink: ideaSink,
         // A near-miss (the agent attempted but mangled the «IDEA» marker) is
         // worth a warning; an ordinary scan is debug-level noise.
         onDebug: (event, data) => {
@@ -142,7 +154,7 @@ export class NodePtySessionBackend implements SessionBackend {
           log[level](event, { workspace: workspaceId, ...data });
         },
       }),
-      scoreScanner: new ScoreScanner(),
+      scoreScanner: new ScoreScanner(scoreSink),
       profile,
       onData: null,
       onIdea: null,

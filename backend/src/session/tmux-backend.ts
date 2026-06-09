@@ -34,7 +34,9 @@ import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
 import {
   IdeaScanner,
+  IdeaSink,
   ScoreScanner,
+  ScoreSink,
   getProfile,
   commandProfileName,
   launchArgsForProfile,
@@ -90,6 +92,13 @@ function writeLaunchScript(command: string): string {
 }
 
 interface Poller {
+  /** Dedupe authority for ideas — shared by every producer feeding this
+   *  attachment (the capture scanner today; the MCP `capture_idea` tool next,
+   *  mcp-idea-capture §6). Lives on the poller, so a reattach starts fresh and
+   *  relies on the attach-time seeding scan to suppress already-visible ideas. */
+  ideaSink: IdeaSink;
+  /** Dedupe authority for scores — same sharing contract as {@link ideaSink}. */
+  scoreSink: ScoreSink;
   scanner: IdeaScanner;
   /** Triage scanner (#60): `«SCORE@ref»` markers off the same capture. */
   scoreScanner: ScoreScanner;
@@ -301,8 +310,13 @@ export class TmuxSessionBackend implements SessionBackend {
     // Idempotent reattach: stop any prior poller for this workspace first.
     this.detach(workspaceId);
 
+    const ideaSink = new IdeaSink();
+    const scoreSink = new ScoreSink();
     const poller: Poller = {
+      ideaSink,
+      scoreSink,
       scanner: new IdeaScanner({
+        sink: ideaSink,
         // A near-miss (the agent attempted but mangled the «IDEA» marker) is
         // worth a warning; an ordinary scan is debug-level noise.
         onDebug: (event, data) => {
@@ -310,7 +324,7 @@ export class TmuxSessionBackend implements SessionBackend {
           log[level](event, { workspace: workspaceId, ...data });
         },
       }),
-      scoreScanner: new ScoreScanner(),
+      scoreScanner: new ScoreScanner(scoreSink),
       onIdea,
       onScore,
       onError,
