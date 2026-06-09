@@ -93,6 +93,11 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
       }
 
       const kind = normalizeKind(idea.kind) ?? '';
+      // Honour a producer-stamped ref (mcp-idea-capture §3.3): the backend MCP
+      // tool path mints `i<n>` and already returned it to the agent, so the
+      // card MUST carry it for follow-up links/scores to resolve. The `i<n>`
+      // namespace is disjoint from our `a<n>` mint (see core/canvas/refs.ts),
+      // so honouring it can never collide with — or advance — `nextRef`.
       const ref = idea.id ?? `a${nextRef++}`;
       const id = createShapeId();
       editor.createShape<IdeaCardShape>({
