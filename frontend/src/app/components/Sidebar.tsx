@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Plus, MoreHorizontal, Sparkles, ChevronDown, Settings } from 'lucide-react'
+import { Plus, MoreHorizontal, ChevronDown, Settings } from 'lucide-react'
 import {
   Sidebar as UISidebar,
   SidebarContent,
@@ -124,9 +124,7 @@ export function Sidebar() {
                 stop and a false button role for screen readers. */}
             <SidebarMenuButton asChild size="lg" className="cursor-default hover:bg-transparent">
               <div>
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Sparkles className="size-4" />
-                </div>
+                <img src="/assets/logo.png" alt="" className="size-8 rounded-lg" />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-semibold">ai-storm</span>
                   <span className="truncate text-xs text-muted-foreground">
