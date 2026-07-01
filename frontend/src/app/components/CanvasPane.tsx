@@ -111,7 +111,12 @@ export function CanvasPane({ onOpenSettings }: { onOpenSettings: () => void }) {
   const stopSession = () => {
     if (active) ingestion.kill(active.id)
   }
-  const boardState = active ? canvas.boardCommandState(active.id) : canvas.boardCommandState('')
+  // Board facts drive the palette's disabled-reason copy, but computing them
+  // walks every idea card — so only do it while the palette is open. When it's
+  // closed we hand back the cheap "unmounted" shape (no card walk), and each
+  // open recomputes fresh (#96 review).
+  const boardState =
+    paletteOpen && active ? canvas.boardCommandState(active.id) : canvas.boardCommandState('')
 
   return (
     <div className="flex h-full flex-col">
