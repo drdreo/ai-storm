@@ -8,6 +8,7 @@ import {
   type WorkspaceMeta,
   type WorkspaceStatus,
 } from '../core/models'
+import { buildExportBundle, type WorkspaceExportBundle } from '../core/workspace-portable'
 
 const REGISTRY_ROOM = 'ai-storm-registry'
 const ACTIVE_KEY = 'ai-storm.activeWorkspace'
@@ -163,5 +164,44 @@ export const workspace = {
 
     map.delete(id)
     canvas.removeWorkspace(id)
+  },
+
+  /**
+   * Export a workspace to a portable bundle (#105). Reading the board requires a
+   * live editor, so a non-active workspace is switched onto first (an export
+   * click opens/activates that workspace, same as clicking its sidebar row).
+   */
+  async exportBundle(id: string): Promise<WorkspaceExportBundle | null> {
+    const meta = map.get(id)
+    if (!meta) return null
+    if (useWorkspaceStore.getState().activeId !== id) {
+      workspace.setActive(id)
+      canvas.switchTo(id)
+    }
+    await canvas.waitForMount(id)
+    const board = canvas.exportBoard(id)
+    if (!board) return null
+    return buildExportBundle(meta, board)
+  },
+
+  /**
+   * Import a bundle as a brand-new workspace (#105) — never overwrites an
+   * existing one. Standing up + activating the workspace mirrors `create` +
+   * `setActive`; the imported board is rendered once its (fresh, empty) editor
+   * mounts.
+   */
+  async importBundle(bundle: WorkspaceExportBundle): Promise<string> {
+    const id = workspace.create(bundle.workspace.title)
+    const meta = map.get(id)!
+    write({
+      ...meta,
+      color: bundle.workspace.color ?? meta.color,
+      terminal: { ...meta.terminal, ...bundle.workspace.terminal },
+    })
+    workspace.setActive(id)
+    canvas.switchTo(id)
+    await canvas.waitForMount(id)
+    canvas.importBoard(id, bundle.board)
+    return id
   },
 }

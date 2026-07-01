@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import { Plus, MoreHorizontal, ChevronDown, Settings } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { Plus, MoreHorizontal, ChevronDown, Settings, Upload } from 'lucide-react'
 import {
   Sidebar as UISidebar,
   SidebarContent,
@@ -49,6 +49,8 @@ import {
   type WorkspaceMeta,
   type WorkspaceStatus,
 } from '../core/models'
+import { downloadFile } from '../core/download-file'
+import { exportFileSlug, parseExportBundle } from '../core/workspace-portable'
 
 /**
  * Status → dot styling. Each state carries a NON-COLOR channel too (WCAG 1.4.1):
@@ -83,6 +85,8 @@ export function Sidebar() {
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceMeta | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   /** Focus (and select) the freshly-rendered inline rename input. */
   const renameInputRef = useCallback((el: HTMLInputElement | null) => {
@@ -124,6 +128,28 @@ export function Sidebar() {
     setDeleteTarget(null)
   }
 
+  // Export switches onto the target workspace first (a live editor is needed to
+  // read the board), then downloads its portable JSON bundle (#105).
+  const exportWorkspace = async (ws: WorkspaceMeta) => {
+    const bundle = await workspace.exportBundle(ws.id)
+    if (!bundle) return
+    downloadFile(`${exportFileSlug(ws.title)}-workspace.json`, JSON.stringify(bundle, null, 2), 'application/json')
+  }
+
+  const importWorkspace = () => importInputRef.current?.click()
+
+  const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const bundle = parseExportBundle(await file.text())
+      await workspace.importBundle(bundle)
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed.')
+    }
+  }
+
   return (
     <UISidebar variant="inset" collapsible="icon">
       <SidebarHeader>
@@ -156,6 +182,21 @@ export function Sidebar() {
                 <ChevronDown className="ml-1 size-3.5 transition-transform group-data-[state=closed]/collapsible:-rotate-90" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
+            <SidebarGroupAction
+              title="Import workspace"
+              aria-label="Import workspace"
+              onClick={importWorkspace}
+              className="right-7"
+            >
+              <Upload /> <span className="sr-only">Import workspace</span>
+            </SidebarGroupAction>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => void onImportFile(e)}
+            />
             <SidebarGroupAction title="New workspace" aria-label="New workspace" onClick={add}>
               <Plus /> <span className="sr-only">New workspace</span>
             </SidebarGroupAction>
@@ -233,6 +274,9 @@ export function Sidebar() {
                                 </DropdownMenuSubContent>
                               </DropdownMenuPortal>
                             </DropdownMenuSub>
+                            <DropdownMenuItem onSelect={() => void exportWorkspace(ws)}>
+                              Export
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
                               onSelect={() => setDeleteTarget(ws)}
@@ -302,6 +346,22 @@ export function Sidebar() {
             <Button variant="destructive" size="sm" onClick={confirmDelete}>
               Delete workspace
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!importError} onOpenChange={(open) => !open && setImportError(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Import failed</DialogTitle>
+            <DialogDescription>{importError}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">
+                Close
+              </Button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
