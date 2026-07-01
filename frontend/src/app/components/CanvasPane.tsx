@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import * as Toolbar from '@radix-ui/react-toolbar'
-import { Scale, ScrollText, FileOutput } from 'lucide-react'
+import { Command, Scale, ScrollText, FileOutput } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useWorkspaceStore, selectActive } from '../stores/workspace.store'
-import { canvas } from '../stores/canvas.store'
+import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
+import { canvas, useCanvasStore } from '../stores/canvas.store'
 import { agent } from '../stores/agent.store'
+import { ingestion, useIngestionStore } from '../stores/ingestion.store'
 import { CanvasIsland } from '../core/canvas-island'
 import { SummaryPanel } from './SummaryPanel'
 import { SpecPanel } from './SpecPanel'
+import { BoardCommandPalette } from './BoardCommandPalette'
 import type { ConvergentSummary } from '../core/synthesis'
 
 /**
@@ -51,8 +53,11 @@ function ToolbarVerb({
  * renders directly (PD-016). The card filter (#21) lives inside the canvas
  * itself (top-right), not in this toolbar.
  */
-export function CanvasPane() {
+export function CanvasPane({ onOpenSettings }: { onOpenSettings: () => void }) {
   const active = useWorkspaceStore(selectActive)
+  const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false))
+  useCanvasStore((s) => s.ideasTick)
   // Convergence panel (#28): the summary is regenerated each time it opens — a
   // fresh on-demand reading of the current board, never cached stale.
   const [summary, setSummary] = useState<ConvergentSummary | null>(null)
@@ -60,6 +65,7 @@ export function CanvasPane() {
   // Spec hand-off (#89): the panel streams the generated artifact; "Hand off"
   // both dispatches the run and opens the panel to read it.
   const [specOpen, setSpecOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Bidirectional canvas (#13, #15): when a card verb fires, frame the card's
   // text and type it into the active workspace's live terminal. Registered once;
@@ -69,6 +75,17 @@ export function CanvasPane() {
       const ws = selectActive(useWorkspaceStore.getState())
       if (ws) agent.discussText(ws.id, text, intent, sourceRefs)
     })
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // React to workspace switches — rebind the tldraw island (PRD §3.4). Done at
@@ -88,6 +105,13 @@ export function CanvasPane() {
     agent.generateSpec(active.id, active.terminal)
     setSpecOpen(true)
   }
+  const startSession = () => {
+    if (active) ingestion.attach(active.id, active.terminal)
+  }
+  const stopSession = () => {
+    if (active) ingestion.kill(active.id)
+  }
+  const boardState = active ? canvas.boardCommandState(active.id) : canvas.boardCommandState('')
 
   return (
     <div className="flex h-full flex-col">
@@ -96,6 +120,13 @@ export function CanvasPane() {
         <Separator orientation="vertical" className="!h-5" />
         <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
+          <ToolbarVerb
+            onClick={() => setPaletteOpen(true)}
+            variant="ghost"
+            tip="Open command palette (Ctrl/⌘ K)"
+          >
+            <Command /> Commands
+          </ToolbarVerb>
           <ToolbarVerb onClick={triage} variant="ghost" tip="Ask the agent to rate every card — impact, effort, confidence (#60)">
             <Scale /> Triage
           </ToolbarVerb>
@@ -124,6 +155,36 @@ export function CanvasPane() {
         onOpenChange={setSpecOpen}
         workspaceId={active?.id}
         workspaceName={active?.title}
+      />
+
+      <BoardCommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        active={active}
+        workspaces={workspaces}
+        attached={attached}
+        board={boardState}
+        onNewIdea={() => active && canvas.createIdea(active.id)}
+        onStartSession={startSession}
+        onStopSession={stopSession}
+        onTriage={triage}
+        onSynthesize={synthesize}
+        onHandoff={handoff}
+        onArrangeMindMap={() => active && canvas.arrangeMindMap(active.id)}
+        onArrangePriorityGrid={() => active && canvas.arrangePriorityGrid(active.id)}
+        onPatchFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
+        onClearFilters={() =>
+          active &&
+          canvas.patchFilter(active.id, {
+            hiddenKinds: new Set(),
+            origin: 'all',
+            markedOnly: false,
+            showSuperseded: true,
+            triagedOnly: false,
+          })
+        }
+        onOpenSettings={onOpenSettings}
+        onSwitchWorkspace={workspace.setActive}
       />
     </div>
   )

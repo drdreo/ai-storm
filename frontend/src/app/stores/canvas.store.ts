@@ -13,6 +13,13 @@ import {
   collectBoard,
 } from '../core/canvas-island'
 import { synthesizeBoard, type ConvergentSummary } from '../core/synthesis'
+import { createUserIdea } from '../core/canvas/idea-tool'
+import {
+  arrangeMindMap as layoutArrangeMindMap,
+  arrangePriorityGrid as layoutArrangePriorityGrid,
+} from '../core/canvas/layout'
+import { boardFacets, EMPTY_FILTER, type BoardFacets, type BoardFilter } from '../core/canvas/filter'
+import { ideaCards } from '../core/canvas/idea-card'
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -60,6 +67,12 @@ const pending = new Map<string, Idea[]>()
 let cardVerbHandler:
   | ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void)
   | null = null
+let filterController:
+  | {
+      get(): BoardFilter
+      set(filter: BoardFilter): void
+    }
+  | null = null
 
 function bumpIdeasTick(): void {
   useCanvasStore.setState((s) => ({ ideasTick: s.ideasTick + 1 }))
@@ -87,6 +100,12 @@ export const canvas = {
   bridge: {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
+    onFilterMount: (controller) => {
+      filterController = controller
+      return () => {
+        if (filterController === controller) filterController = null
+      }
+    },
   } as CanvasBridge,
 
   /** No CRDT collection to stand up — just flip ready (parity with old boot). */
@@ -174,6 +193,65 @@ export const canvas = {
   /** Plain text of the current selection — or the whole canvas (PRD §3.6). */
   getSelectedText(): string {
     return editor ? selectedText(editor) : ''
+  },
+
+  /** Create a user-origin idea card at the visible board center (#31/#96). */
+  createIdea(workspaceId: string): boolean {
+    if (!editor || workspaceId !== activeId) return false
+    createUserIdea(editor, editor.getViewportPageBounds().center)
+    bumpIdeasTick()
+    return true
+  },
+
+  /** Run the existing organic mind-map arrangement from the command palette (#16/#96). */
+  arrangeMindMap(workspaceId: string): boolean {
+    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false
+    layoutArrangeMindMap(editor)
+    return true
+  },
+
+  /** Run the existing impact/effort grid arrangement from the command palette (#60/#96). */
+  arrangePriorityGrid(workspaceId: string): boolean {
+    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false
+    layoutArrangePriorityGrid(editor)
+    return true
+  },
+
+  /** Live board facts used to explain disabled palette actions (#96). */
+  boardCommandState(workspaceId: string): {
+    mounted: boolean
+    cardCount: number
+    facets: BoardFacets
+    filter: BoardFilter
+  } {
+    if (!editor || workspaceId !== activeId) {
+      return {
+        mounted: false,
+        cardCount: 0,
+        facets: {
+          kinds: [],
+          hasAi: false,
+          hasUser: false,
+          hasMarked: false,
+          hasSuperseded: false,
+          hasTriaged: false,
+        },
+        filter: EMPTY_FILTER,
+      }
+    }
+    return {
+      mounted: true,
+      cardCount: ideaCards(editor).length,
+      facets: boardFacets(editor),
+      filter: filterController?.get() ?? EMPTY_FILTER,
+    }
+  },
+
+  /** Update the active board filter through the same atom used by the tldraw menu (#21/#96). */
+  patchFilter(workspaceId: string, patch: Partial<BoardFilter>): boolean {
+    if (!editor || workspaceId !== activeId || !filterController) return false
+    filterController.set({ ...filterController.get(), ...patch })
+    return true
   },
 
   /** Register the card-verb sink (#13/#15/#62) — see {@link CanvasIsland}'s verb bar. */
