@@ -23,7 +23,6 @@ function restoreHubWidth(): number {
 export function App() {
   const booted = useWorkspaceStore((s) => s.booted)
   const [bootError, setBootError] = useState<string | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [hubWidth, setHubWidth] = useState(restoreHubWidth)
   const hubWidthRef = useRef(hubWidth)
@@ -80,11 +79,11 @@ export function App() {
 
   return (
     <SidebarProvider className="h-full">
-      <Sidebar settingsOpen={settingsOpen} onSettingsOpenChange={setSettingsOpen} />
+      <Sidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <div className="flex h-full min-h-0">
           <main className="relative min-w-0 flex-1 overflow-hidden bg-card">
-            <CanvasPane onOpenSettings={() => setSettingsOpen(true)} />
+            <CanvasPane />
           </main>
           <aside
             className="relative flex min-w-0 flex-col border-l bg-background"

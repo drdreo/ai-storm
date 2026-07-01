@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from '../stores/workspace.store'
 import { useBackendStore } from '../stores/backend.store'
 import { ingestion } from '../stores/ingestion.store'
+import { useUiStore, ui } from '../stores/ui.store'
 import { SettingsDialog } from './SettingsDialog'
 import type { WorkspaceMeta, WorkspaceStatus } from '../core/models'
 
@@ -66,16 +67,11 @@ const CONN_DOT: Record<string, string> = {
  * SidebarMenuButtons (default styling + the built-in active indicator). The
  * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  */
-export function Sidebar({
-  settingsOpen,
-  onSettingsOpenChange,
-}: {
-  settingsOpen: boolean
-  onSettingsOpenChange: (open: boolean) => void
-}) {
+export function Sidebar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeId = useWorkspaceStore((s) => s.activeId)
   const connState = useBackendStore((s) => s.state)
+  const settingsOpen = useUiStore((s) => s.settingsOpen)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceMeta | null>(null)
 
@@ -236,7 +232,7 @@ export function Sidebar({
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              onClick={() => onSettingsOpenChange(true)}
+              onClick={() => ui.openSettings()}
               tooltip="Settings"
             >
               <Settings className="size-4" />
@@ -246,7 +242,7 @@ export function Sidebar({
         </SidebarMenu>
       </SidebarFooter>
 
-      <SettingsDialog open={settingsOpen} onOpenChange={onSettingsOpenChange} />
+      <SettingsDialog open={settingsOpen} onOpenChange={ui.setSettingsOpen} />
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">

@@ -9,6 +9,7 @@ import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.
 import { canvas, useCanvasStore } from '../stores/canvas.store'
 import { agent } from '../stores/agent.store'
 import { ingestion, useIngestionStore } from '../stores/ingestion.store'
+import { ui } from '../stores/ui.store'
 import { CanvasIsland } from '../core/canvas-island'
 import { SummaryPanel } from './SummaryPanel'
 import { SpecPanel } from './SpecPanel'
@@ -53,7 +54,7 @@ function ToolbarVerb({
  * renders directly (PD-016). The card filter (#21) lives inside the canvas
  * itself (top-right), not in this toolbar.
  */
-export function CanvasPane({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function CanvasPane() {
   const active = useWorkspaceStore(selectActive)
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false))
@@ -188,7 +189,7 @@ export function CanvasPane({ onOpenSettings }: { onOpenSettings: () => void }) {
             triagedOnly: false,
           })
         }
-        onOpenSettings={onOpenSettings}
+        onOpenSettings={ui.openSettings}
         onSwitchWorkspace={workspace.setActive}
       />
     </div>
