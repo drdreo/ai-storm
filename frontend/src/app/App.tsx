@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, PanelRightOpen } from 'lucide-react'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from './stores/workspace.store'
 import { backend } from './stores/backend.store'
 import { Sidebar } from './components/Sidebar'
@@ -9,10 +11,16 @@ import { ControlHub } from './components/ControlHub'
 
 const HUB_MIN_WIDTH = 320
 const HUB_WIDTH_KEY = 'as:hub-width'
+const HUB_COLLAPSED_KEY = 'as:hub-collapsed'
+const HUB_COLLAPSED_WIDTH = 44
 
 function restoreHubWidth(): number {
   const raw = Number(localStorage.getItem(HUB_WIDTH_KEY))
   return Number.isFinite(raw) && raw >= HUB_MIN_WIDTH ? raw : 424
+}
+
+function restoreHubCollapsed(): boolean {
+  return localStorage.getItem(HUB_COLLAPSED_KEY) === '1'
 }
 
 /**
@@ -27,6 +35,16 @@ export function App() {
   const [hubWidth, setHubWidth] = useState(restoreHubWidth)
   const hubWidthRef = useRef(hubWidth)
   hubWidthRef.current = hubWidth
+
+  const [hubCollapsed, setHubCollapsed] = useState(restoreHubCollapsed)
+
+  function toggleHubCollapsed(): void {
+    setHubCollapsed((prev) => {
+      const next = !prev
+      localStorage.setItem(HUB_COLLAPSED_KEY, next ? '1' : '0')
+      return next
+    })
+  }
 
   // Boot sequence (PRD §3.5), run once on mount.
   useEffect(() => {
@@ -86,17 +104,36 @@ export function App() {
             <CanvasPane />
           </main>
           <aside
-            className="relative flex min-w-0 flex-col border-l bg-background"
-            style={{ width: hubWidth }}
+            className="relative flex min-w-0 flex-col border-l bg-background transition-[width] duration-150 ease-out"
+            style={{ width: hubCollapsed ? HUB_COLLAPSED_WIDTH : hubWidth }}
           >
-            <div
-              className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize terminal pane"
-              onPointerDown={startResize}
-            />
-            <ControlHub />
+            {!hubCollapsed && (
+              <div
+                className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize terminal pane"
+                onPointerDown={startResize}
+              />
+            )}
+            {hubCollapsed && (
+              <div className="flex h-full flex-col items-center gap-2 py-2">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Expand control hub"
+                  title="Expand control hub"
+                  onClick={toggleHubCollapsed}
+                >
+                  <PanelRightOpen className="size-4" />
+                </Button>
+              </div>
+            )}
+            {/* Kept mounted while collapsed (just visually hidden) so the live
+                terminal/PTY session isn't torn down and reattached (#109). */}
+            <div className={cn('min-h-0 flex-1', hubCollapsed && 'invisible absolute inset-0 -z-10')}>
+              <ControlHub onCollapse={toggleHubCollapsed} />
+            </div>
           </aside>
         </div>
       </SidebarInset>
