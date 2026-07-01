@@ -18,20 +18,9 @@ import { cn } from '@/lib/utils'
 import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
 import { useIngestionStore, ingestion } from '../stores/ingestion.store'
 import { useBackendStore } from '../stores/backend.store'
-import { computeReadiness, hasBlockingIssues, type ReadinessSeverity } from '../core/readiness'
+import { sessionIndicator } from '../core/session-status'
+import { TONE_DOT } from './SessionStatusDot'
 import { Terminal } from './Terminal'
-
-const CONN_DOT: Record<string, string> = {
-  open: 'bg-emerald-500',
-  connecting: 'bg-amber-500 animate-pulse',
-  closed: 'bg-destructive',
-}
-
-const READINESS_DOT: Record<ReadinessSeverity, string> = {
-  ok: 'bg-emerald-500',
-  warning: 'bg-amber-500',
-  blocking: 'bg-destructive',
-}
 
 /**
  * Soft cap on the background context (#76). Not enforced — the textarea rides
@@ -71,23 +60,26 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
   const background = ws.terminal.background ?? ''
   const overCap = background.length > BACKGROUND_SOFT_CAP
 
-  const readiness = computeReadiness({
-    connState,
-    agentCommand: harness,
-    cwd: ws.terminal.cwd,
-    modeId: ws.terminal.mode,
-    background,
-  })
-  const blocked = hasBlockingIssues(readiness)
+  // One indication instead of three (#97 follow-up): connection state used to
+  // appear in the header, a readiness checklist, and the sidebar footer. The
+  // checklist is gone — the only check that could ever fail was the backend
+  // connection (harness/mode always resolve, background is visible below) — so
+  // the header carries a single derived session state and the Start tooltip
+  // carries the reason when it's disabled.
+  const indicator = sessionIndicator(connState, attached, ws.status)
+  const offline = connState === 'closed'
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <span className={cn('size-2 rounded-full', CONN_DOT[connState])} />
-          <span>{connState}</span>
-          <span className="opacity-40">·</span>
-          <span>{ws.status}</span>
+        <div
+          className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          title={indicator.detail}
+        >
+          <span className={cn('size-2 rounded-full', TONE_DOT[indicator.tone])} />
+          <span className={cn(indicator.tone === 'error' && 'text-destructive')}>
+            {indicator.label}
+          </span>
         </div>
         <Toolbar.Root className="flex gap-2" aria-label="Session controls">
           {attached ? (
@@ -103,15 +95,15 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
                   <span>
                     <Button
                       size="sm"
-                      disabled={blocked}
+                      disabled={offline}
                       onClick={() => ingestion.attach(ws.id, ws.terminal)}
                     >
                       Start session
                     </Button>
                   </span>
                 </TooltipTrigger>
-                {blocked && (
-                  <TooltipContent>Resolve the blocking readiness checks below to start.</TooltipContent>
+                {offline && (
+                  <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>
                 )}
               </Tooltip>
             </Toolbar.Button>
@@ -161,26 +153,6 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             Dismiss
           </button>
         </div>
-      )}
-
-      {/* Readiness checklist (#97): best-effort setup checks so common
-          start-up failures (no backend connection, blank harness) surface
-          before Start rather than after a failed launch. Only shown while
-          detached — once attached, sessionError above covers failures. */}
-      {!attached && (
-        <ul
-          aria-label="Session readiness"
-          className="flex flex-wrap gap-x-4 gap-y-1 border-b px-3 py-2 text-xs text-muted-foreground"
-        >
-          {readiness.map((check) => (
-            <li key={check.id} className="flex items-center gap-1.5" title={check.detail}>
-              <span className={cn('size-1.5 rounded-full', READINESS_DOT[check.severity])} />
-              <span className={cn(check.severity === 'blocking' && 'font-medium text-destructive')}>
-                {check.label}
-              </span>
-            </li>
-          ))}
-        </ul>
       )}
 
       {/* Session setup (#76): harness + facilitation mode + background context.

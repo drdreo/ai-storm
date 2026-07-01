@@ -8,6 +8,7 @@ import { backend } from './stores/backend.store'
 import { Sidebar } from './components/Sidebar'
 import { CanvasPane } from './components/CanvasPane'
 import { ControlHub } from './components/ControlHub'
+import { SessionStatusDot } from './components/SessionStatusDot'
 
 const HUB_MIN_WIDTH = 320
 const HUB_WIDTH_KEY = 'as:hub-width'
@@ -117,7 +118,7 @@ export function App() {
               />
             )}
             {hubCollapsed && (
-              <div className="flex h-full flex-col items-center gap-2 py-2">
+              <div className="flex h-full flex-col items-center gap-3 py-2">
                 <Button
                   size="icon"
                   variant="ghost"
@@ -127,6 +128,9 @@ export function App() {
                 >
                   <PanelRightOpen className="size-4" />
                 </Button>
+                {/* The hub header's session indicator, dot-only, so backend
+                    loss or a session error stays visible while collapsed. */}
+                <SessionStatusDot />
               </div>
             )}
             {/* Kept mounted while collapsed (just visually hidden) so the live

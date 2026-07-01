@@ -37,9 +37,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useWorkspaceStore, workspace } from '../stores/workspace.store'
-import { useBackendStore } from '../stores/backend.store'
 import { ingestion } from '../stores/ingestion.store'
 import { useUiStore, ui } from '../stores/ui.store'
 import { SettingsDialog } from './SettingsDialog'
@@ -52,36 +52,25 @@ import {
 import { downloadFile } from '../core/download-file'
 import { exportFileSlug, parseExportBundle } from '../core/workspace-portable'
 
-/**
- * Status → dot styling. Each state carries a NON-COLOR channel too (WCAG 1.4.1):
- * idle is a hollow ring, active a solid disc, streaming a pulsing disc, and error
- * a solid square — so the state is legible without relying on hue alone.
- */
-const STATUS_DOT: Record<WorkspaceStatus, string> = {
-  idle: 'rounded-full border border-muted-foreground/50',
-  active: 'rounded-full bg-emerald-500',
-  streaming: 'rounded-full bg-sky-500 animate-pulse ring-2 ring-sky-500/30',
-  error: 'rounded-[2px] bg-destructive',
-}
-
-const CONN_DOT: Record<string, string> = {
-  open: 'bg-emerald-500',
-  connecting: 'bg-amber-500 animate-pulse',
-  closed: 'bg-destructive',
+/** Hover explanation for the workspace status badge (the ringed accent dot). */
+const STATUS_HINT: Record<WorkspaceStatus, string> = {
+  idle: 'No session running',
+  active: 'Session live',
+  streaming: 'Session live — agent responding',
+  error: 'Session error — open the workspace for details',
 }
 
 /**
  * Global navigation sidebar (PRD §3.4), built on shadcn's app-sidebar
  * composition: an inset, icon-collapsible Sidebar with a branded header, a
  * collapsible "Workspaces" group whose action (+) creates a workspace, a rail
- * toggle, and a footer showing the backend connection. Entries are stock
+ * toggle, and a settings footer. Entries are stock
  * SidebarMenuButtons (default styling + the built-in active indicator). The
  * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  */
 export function Sidebar() {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeId = useWorkspaceStore((s) => s.activeId)
-  const connState = useBackendStore((s) => s.state)
   const settingsOpen = useUiStore((s) => s.settingsOpen)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceMeta | null>(null)
@@ -205,6 +194,7 @@ export function Sidebar() {
                 <SidebarMenu>
                   {workspaces.map((ws) => {
                     const isActive = ws.id === activeId
+                    const accent = ws.color ?? defaultWorkspaceColor(ws.id)
                     if (editingId === ws.id) {
                       return (
                         <SidebarMenuItem key={ws.id}>
@@ -226,14 +216,39 @@ export function Sidebar() {
                           onDoubleClick={() => setEditingId(ws.id)}
                           tooltip={`${ws.title} · ${ws.status}`}
                         >
-                          <span
-                            className="size-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: ws.color ?? defaultWorkspaceColor(ws.id) }}
-                            aria-hidden="true"
-                          />
-                          <span className="flex size-4 items-center justify-center">
-                            <span className={cn('size-2', STATUS_DOT[ws.status])} />
-                          </span>
+                          {/* Accent swatch (#111) doubling as the status badge:
+                              idle is the bare dot, a live session rings it in
+                              status green (pulsing blue while streaming), and
+                              error swaps it for a red square. The ring is offset
+                              so it reads as a bullseye even when accent and ring
+                              hues are close; each state keeps a non-color channel
+                              — structure / motion / shape (WCAG 1.4.1) — and the
+                              sr-only status suffix below reads it out. */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="flex size-4 shrink-0 items-center justify-center"
+                                aria-hidden="true"
+                              >
+                                <span
+                                  className={cn(
+                                    'size-2.5',
+                                    ws.status === 'error'
+                                      ? 'rounded-[2px] bg-destructive'
+                                      : 'rounded-full',
+                                    ws.status === 'active' &&
+                                      'ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar',
+                                    ws.status === 'streaming' &&
+                                      'ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse',
+                                  )}
+                                  style={
+                                    ws.status === 'error' ? undefined : { backgroundColor: accent }
+                                  }
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">{STATUS_HINT[ws.status]}</TooltipContent>
+                          </Tooltip>
                           <span className="truncate">{ws.title}</span>
                           <span className="sr-only">— {ws.status}</span>
                         </SidebarMenuButton>
@@ -253,23 +268,20 @@ export function Sidebar() {
                               <DropdownMenuPortal>
                                 <DropdownMenuSubContent className="min-w-0 p-2">
                                   <div className="grid grid-cols-5 gap-1.5" role="group" aria-label="Workspace color">
-                                    {WORKSPACE_COLORS.map((c) => {
-                                      const current = ws.color ?? defaultWorkspaceColor(ws.id)
-                                      return (
-                                        <button
-                                          key={c}
-                                          type="button"
-                                          aria-label={`Set color ${c}`}
-                                          aria-pressed={current === c}
-                                          onClick={() => workspace.setColor(ws.id, c)}
-                                          className={cn(
-                                            'size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow',
-                                            current === c && 'ring-2 ring-foreground',
-                                          )}
-                                          style={{ backgroundColor: c }}
-                                        />
-                                      )
-                                    })}
+                                    {WORKSPACE_COLORS.map((c) => (
+                                      <button
+                                        key={c}
+                                        type="button"
+                                        aria-label={`Set color ${c}`}
+                                        aria-pressed={accent === c}
+                                        onClick={() => workspace.setColor(ws.id, c)}
+                                        className={cn(
+                                          'size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow',
+                                          accent === c && 'ring-2 ring-foreground',
+                                        )}
+                                        style={{ backgroundColor: c }}
+                                      />
+                                    ))}
                                   </div>
                                 </DropdownMenuSubContent>
                               </DropdownMenuPortal>
@@ -297,22 +309,6 @@ export function Sidebar() {
 
       <SidebarFooter>
         <SidebarMenu>
-          <SidebarMenuItem>
-            {/* Connection readout, not a control — render as a div (audit H4). */}
-            <SidebarMenuButton
-              asChild
-              size="sm"
-              className="cursor-default hover:bg-transparent"
-              tooltip={`backend ${connState}`}
-            >
-              <div>
-                <span className="flex size-4 items-center justify-center">
-                  <span className={cn('size-2 rounded-full', CONN_DOT[connState])} />
-                </span>
-                <span className="truncate text-xs text-muted-foreground">backend {connState}</span>
-              </div>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"

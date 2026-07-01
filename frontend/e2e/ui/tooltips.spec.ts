@@ -22,4 +22,15 @@ test.describe('tooltips', () => {
     await shell.goto()
     await expect(page.getByText(/applied on start/i)).toBeVisible()
   })
+
+  test('workspace status badge explains the status on hover', async ({ shell, page }) => {
+    await shell.goto()
+
+    const badge = shell.workspaceRows
+      .first()
+      .locator('[data-slot="tooltip-trigger"]')
+    await badge.hover()
+
+    await expect(page.getByRole('tooltip')).toContainText('No session running')
+  })
 })
