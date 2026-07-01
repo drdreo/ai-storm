@@ -11,6 +11,7 @@
  * - `canvas/filter`     — the multi-facet board filter model (#21)
  * - `canvas/layout`     — arrange/grid re-flows + triage score + mark (#16/#60/#29)
  * - `canvas/edges`      — the typed edge graph shared by reads and layouts
+ * - `canvas/portable`   — board ↔ portable JSON for workspace export/import (#105)
  * - `canvas/CardVerbBar`, `canvas/menus` — the in-canvas UI
  *
  * "As close to native tldraw as possible": native arrows for edges, the native styles
@@ -38,6 +39,7 @@ export {
   selectedText,
 } from './canvas/serialize';
 export { applyScore } from './canvas/layout';
+export { exportBoard, importBoard } from './canvas/portable';
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];
 

@@ -11,7 +11,10 @@ import {
   applyScore as islandApplyScore,
   selectedText,
   collectBoard,
+  exportBoard as islandExportBoard,
+  importBoard as islandImportBoard,
 } from '../core/canvas-island'
+import type { PortableBoard } from '../core/workspace-portable'
 import { synthesizeBoard, type ConvergentSummary } from '../core/synthesis'
 import { createUserIdea } from '../core/canvas/idea-tool'
 import {
@@ -63,6 +66,8 @@ let editor: Editor | null = null
 let activeId: string | null = null
 /** Ideas streamed to a non-mounted workspace, drained on its next mount. */
 const pending = new Map<string, Idea[]>()
+/** Resolvers waiting on a given workspace's editor to mount (export/import #105). */
+const mountWaiters = new Map<string, Array<() => void>>()
 /** Fired when a card verb (#13 Discuss / #15 expand/challenge/find-risks) is picked. */
 let cardVerbHandler:
   | ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void)
@@ -89,6 +94,13 @@ function onEditorMount(ed: Editor): void {
   // Recompute the kind-filter chips against the now-loaded store (covers a
   // reload restoring persisted cards, not just freshly-drained ones).
   bumpIdeasTick()
+
+  // Wake anyone waiting on this workspace's editor (export/import #105).
+  const waiters = activeId ? mountWaiters.get(activeId) : undefined
+  if (waiters?.length) {
+    mountWaiters.delete(activeId!)
+    waiters.forEach((resolve) => resolve())
+  }
 }
 
 export const canvas = {
@@ -245,6 +257,33 @@ export const canvas = {
       facets: boardFacets(editor),
       filter: filterController?.get() ?? EMPTY_FILTER,
     }
+  },
+
+  /**
+   * Resolve once `workspaceId`'s editor is the mounted one (export/import #105) —
+   * used to await a `setActive` + `switchTo` before reading/writing its board.
+   */
+  waitForMount(workspaceId: string): Promise<void> {
+    if (editor && workspaceId === activeId) return Promise.resolve()
+    return new Promise((resolve) => {
+      const waiters = mountWaiters.get(workspaceId) ?? []
+      waiters.push(resolve)
+      mountWaiters.set(workspaceId, waiters)
+    })
+  },
+
+  /** Snapshot the mounted board into its portable JSON form (#105), or `null` if unmounted. */
+  exportBoard(workspaceId: string): PortableBoard | null {
+    if (!editor || workspaceId !== activeId) return null
+    return islandExportBoard(editor)
+  },
+
+  /** Render an imported board onto the mounted (normally empty) canvas (#105). */
+  importBoard(workspaceId: string, board: PortableBoard): boolean {
+    if (!editor || workspaceId !== activeId) return false
+    islandImportBoard(editor, board)
+    bumpIdeasTick()
+    return true
   },
 
   /** Update the active board filter through the same atom used by the tldraw menu (#21/#96). */
