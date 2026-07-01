@@ -30,12 +30,23 @@ export class Shell {
     return this.page.getByRole('button', { name: 'New workspace' })
   }
 
+  /**
+   * The Control Hub's "Start session" button. Scoped to the "Session controls"
+   * toolbar because the canvas empty-state (#106) offers its own same-labelled
+   * "Start session" button, so a bare name match is ambiguous.
+   */
   get startSessionButton(): Locator {
-    return this.page.getByRole('button', { name: 'Start session' })
+    return this.page
+      .getByRole('toolbar', { name: 'Session controls' })
+      .getByRole('button', { name: 'Start session' })
   }
 
+  /**
+   * The sidebar-footer Settings button. `exact` so it doesn't also match the
+   * canvas empty-state's "Open settings" button (#106).
+   */
   get settingsButton(): Locator {
-    return this.page.getByRole('button', { name: 'Settings' })
+    return this.page.getByRole('button', { name: 'Settings', exact: true })
   }
 
   /** Navigate to the app and wait for the shell to boot past crash-recovery. */
