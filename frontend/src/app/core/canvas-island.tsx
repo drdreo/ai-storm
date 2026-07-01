@@ -26,6 +26,7 @@ import { CanvasEmptyState } from './canvas/CanvasEmptyState';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
 import { copyTextOptions } from './canvas/copy-text';
+import type { BoardFilter } from './canvas/filter';
 
 // Re-export the editor-driven ports the stores drive against the mounted workspace.
 export { applyIdeas } from './canvas/ingest';
@@ -46,6 +47,8 @@ export interface CanvasBridge {
   onEditorMount(editor: Editor): void;
   /** Fired when a card verb (#13/#15) is picked on a selected card. */
   onCardVerb: CardVerbHandler;
+  /** Shares the live per-workspace filter atom with app-level commands (#96). */
+  onFilterMount?(controller: { get(): BoardFilter; set(filter: BoardFilter): void }): () => void;
 }
 
 export function CanvasIsland({
@@ -64,6 +67,12 @@ export function CanvasIsland({
   // discards this atom and mints a fresh one — each board gets its own filter,
   // reset on switch, with no shared global state to clear (#21).
   const $filter = useFilterAtom();
+  useEffect(() => {
+    return bridge.onFilterMount?.({
+      get: () => $filter.get(),
+      set: (filter) => $filter.set(filter),
+    });
+  }, [$filter, bridge]);
 
   // Mirror the app theme (#77) into tldraw's own color scheme. The preference
   // accepts the same 'light' | 'dark' | 'system' values as our store, so we feed
