@@ -6,10 +6,15 @@
  * store: the moment the first card lands — whether the user presses `i` or the
  * agent streams ideas in — `ideaCards(editor)` is non-empty and this unmounts.
  *
- * Deliberately `pointer-events: none` end-to-end: it's signage, never a control,
- * so it can't intercept a pan/zoom/draw on the empty canvas beneath it.
+ * The teaching signage is `pointer-events: none` (it must not intercept a
+ * pan/zoom/draw on the empty canvas beneath it), but the primary-action buttons
+ * below re-enable pointer events on themselves so a newcomer can take the first
+ * move — drop a card, start a session, open settings — without hunting for the
+ * chrome (#106).
  */
 import { track, useEditor } from 'tldraw';
+import { Plus, Play, Settings } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { ideaCards } from './idea-card';
 
 /** One taught move: a leading glyph/key and its explanation. */
@@ -19,7 +24,20 @@ const MOVES: ReadonlyArray<{ key: string; label: string }> = [
   { key: '✦', label: 'Select a card to Discuss, Expand, Challenge, or Combine' },
 ];
 
-export const CanvasEmptyState = track(function CanvasEmptyState() {
+/** The empty-state's primary actions, wired to app handlers (#106). */
+export interface EmptyStateActions {
+  onNewIdea(): void;
+  onStartSession(): void;
+  onOpenSettings(): void;
+  /** Session already live ⇒ hide "Start session" (the agent path is open). */
+  attached: boolean;
+}
+
+export const CanvasEmptyState = track(function CanvasEmptyState({
+  actions,
+}: {
+  actions?: EmptyStateActions;
+}) {
   const editor = useEditor();
   if (ideaCards(editor).length > 0) return null;
 
@@ -45,6 +63,21 @@ export const CanvasEmptyState = track(function CanvasEmptyState() {
           </li>
         ))}
       </ul>
+      {actions && (
+        <div className="flex flex-wrap items-center justify-center gap-2" style={{ pointerEvents: 'auto' }}>
+          <Button size="sm" onClick={actions.onNewIdea}>
+            <Plus aria-hidden /> New idea
+          </Button>
+          {!actions.attached && (
+            <Button size="sm" variant="outline" onClick={actions.onStartSession}>
+              <Play aria-hidden /> Start session
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={actions.onOpenSettings}>
+            <Settings aria-hidden /> Open settings
+          </Button>
+        </div>
+      )}
     </div>
   );
 });
