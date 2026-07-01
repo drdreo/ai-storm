@@ -51,10 +51,10 @@ export function computeReadiness(input: ReadinessInput): ReadinessCheck[] {
   const harness = (input.agentCommand ?? '').trim();
   checks.push(
     harness
-      ? { id: 'harness', label: 'Harness set', severity: 'ok', detail: harness }
+      ? { id: 'harness', label: 'Agent CLI set', severity: 'ok', detail: harness }
       : {
           id: 'harness',
-          label: 'Harness set',
+          label: 'Agent CLI set',
           severity: 'blocking',
           detail: 'no harness command set',
         },
