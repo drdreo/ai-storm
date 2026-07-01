@@ -21,6 +21,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -39,7 +43,12 @@ import { useBackendStore } from '../stores/backend.store'
 import { ingestion } from '../stores/ingestion.store'
 import { useUiStore, ui } from '../stores/ui.store'
 import { SettingsDialog } from './SettingsDialog'
-import type { WorkspaceMeta, WorkspaceStatus } from '../core/models'
+import {
+  WORKSPACE_COLORS,
+  defaultWorkspaceColor,
+  type WorkspaceMeta,
+  type WorkspaceStatus,
+} from '../core/models'
 
 /**
  * Status → dot styling. Each state carries a NON-COLOR channel too (WCAG 1.4.1):
@@ -176,6 +185,11 @@ export function Sidebar() {
                           onDoubleClick={() => setEditingId(ws.id)}
                           tooltip={`${ws.title} · ${ws.status}`}
                         >
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: ws.color ?? defaultWorkspaceColor(ws.id) }}
+                            aria-hidden="true"
+                          />
                           <span className="flex size-4 items-center justify-center">
                             <span className={cn('size-2', STATUS_DOT[ws.status])} />
                           </span>
@@ -193,6 +207,32 @@ export function Sidebar() {
                             <DropdownMenuItem onSelect={() => setEditingId(ws.id)}>
                               Rename
                             </DropdownMenuItem>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>Color</DropdownMenuSubTrigger>
+                              <DropdownMenuPortal>
+                                <DropdownMenuSubContent className="min-w-0 p-2">
+                                  <div className="grid grid-cols-5 gap-1.5" role="group" aria-label="Workspace color">
+                                    {WORKSPACE_COLORS.map((c) => {
+                                      const current = ws.color ?? defaultWorkspaceColor(ws.id)
+                                      return (
+                                        <button
+                                          key={c}
+                                          type="button"
+                                          aria-label={`Set color ${c}`}
+                                          aria-pressed={current === c}
+                                          onClick={() => workspace.setColor(ws.id, c)}
+                                          className={cn(
+                                            'size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow',
+                                            current === c && 'ring-2 ring-foreground',
+                                          )}
+                                          style={{ backgroundColor: c }}
+                                        />
+                                      )
+                                    })}
+                                  </div>
+                                </DropdownMenuSubContent>
+                              </DropdownMenuPortal>
+                            </DropdownMenuSub>
                             <DropdownMenuItem
                               variant="destructive"
                               onSelect={() => setDeleteTarget(ws)}

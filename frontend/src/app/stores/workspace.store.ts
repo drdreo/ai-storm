@@ -2,7 +2,12 @@ import { create } from 'zustand'
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import { canvas } from './canvas.store'
-import { defaultTerminalConfig, type WorkspaceMeta, type WorkspaceStatus } from '../core/models'
+import {
+  defaultTerminalConfig,
+  defaultWorkspaceColor,
+  type WorkspaceMeta,
+  type WorkspaceStatus,
+} from '../core/models'
 
 const REGISTRY_ROOM = 'ai-storm-registry'
 const ACTIVE_KEY = 'ai-storm.activeWorkspace'
@@ -104,6 +109,7 @@ export const workspace = {
       createdAt: now,
       lastActiveAt: now,
       terminal: defaultTerminalConfig(),
+      color: defaultWorkspaceColor(id),
     }
     write(meta)
     return id
@@ -118,6 +124,11 @@ export const workspace = {
   setStatus(id: string, status: WorkspaceStatus): void {
     const meta = map.get(id)
     if (meta && meta.status !== status) write({ ...meta, status })
+  },
+
+  setColor(id: string, color: string): void {
+    const meta = map.get(id)
+    if (meta && meta.color !== color) write({ ...meta, color })
   },
 
   patchTerminal(id: string, patch: Partial<WorkspaceMeta['terminal']>): void {

@@ -72,6 +72,19 @@ describe('workspace store — registry lifecycle', () => {
     )
   })
 
+  it('create() assigns a deterministic default color and setColor() overrides it', async () => {
+    const { workspace, useWorkspaceStore } = await bootStore()
+
+    const id = workspace.create('Colorful')
+    const meta = useWorkspaceStore.getState().workspaces.find((w) => w.id === id)
+    expect(meta?.color).toBeTruthy()
+
+    workspace.setColor(id, '#123456')
+    expect(useWorkspaceStore.getState().workspaces.find((w) => w.id === id)?.color).toBe(
+      '#123456',
+    )
+  })
+
   it('setActive() records the active workspace and bumps lastActiveAt', async () => {
     const { workspace, useWorkspaceStore } = await bootStore()
     const first = useWorkspaceStore.getState().activeId
