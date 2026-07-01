@@ -18,12 +18,19 @@ import { cn } from '@/lib/utils'
 import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
 import { useIngestionStore, ingestion } from '../stores/ingestion.store'
 import { useBackendStore } from '../stores/backend.store'
+import { computeReadiness, hasBlockingIssues, type ReadinessSeverity } from '../core/readiness'
 import { Terminal } from './Terminal'
 
 const CONN_DOT: Record<string, string> = {
   open: 'bg-emerald-500',
   connecting: 'bg-amber-500 animate-pulse',
   closed: 'bg-destructive',
+}
+
+const READINESS_DOT: Record<ReadinessSeverity, string> = {
+  ok: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  blocking: 'bg-destructive',
 }
 
 /**
@@ -64,6 +71,15 @@ export function ControlHub() {
   const background = ws.terminal.background ?? ''
   const overCap = background.length > BACKGROUND_SOFT_CAP
 
+  const readiness = computeReadiness({
+    connState,
+    agentCommand: harness,
+    cwd: ws.terminal.cwd,
+    modeId: ws.terminal.mode,
+    background,
+  })
+  const blocked = hasBlockingIssues(readiness)
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b px-3 py-2">
@@ -82,9 +98,22 @@ export function ControlHub() {
             </Toolbar.Button>
           ) : (
             <Toolbar.Button asChild>
-              <Button size="sm" onClick={() => ingestion.attach(ws.id, ws.terminal)}>
-                Start session
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      size="sm"
+                      disabled={blocked}
+                      onClick={() => ingestion.attach(ws.id, ws.terminal)}
+                    >
+                      Start session
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {blocked && (
+                  <TooltipContent>Resolve the blocking readiness checks below to start.</TooltipContent>
+                )}
+              </Tooltip>
             </Toolbar.Button>
           )}
           <Toolbar.Button asChild>
@@ -115,6 +144,26 @@ export function ControlHub() {
             Dismiss
           </button>
         </div>
+      )}
+
+      {/* Readiness checklist (#97): best-effort setup checks so common
+          start-up failures (no backend connection, blank harness) surface
+          before Start rather than after a failed launch. Only shown while
+          detached — once attached, sessionError above covers failures. */}
+      {!attached && (
+        <ul
+          aria-label="Session readiness"
+          className="flex flex-wrap gap-x-4 gap-y-1 border-b px-3 py-2 text-xs text-muted-foreground"
+        >
+          {readiness.map((check) => (
+            <li key={check.id} className="flex items-center gap-1.5" title={check.detail}>
+              <span className={cn('size-1.5 rounded-full', READINESS_DOT[check.severity])} />
+              <span className={cn(check.severity === 'blocking' && 'font-medium text-destructive')}>
+                {check.label}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* Session setup (#76): harness + facilitation mode + background context.
