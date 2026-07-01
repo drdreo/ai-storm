@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+import { Check, Copy, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -37,8 +39,23 @@ export function SpecPanel({
   const markdown = spec?.output ?? ''
   const done = spec?.status === 'exit' || spec?.status === 'error'
 
-  const copy = () => {
-    if (markdown) void navigator.clipboard?.writeText(markdown)
+  // Transient "it worked" confirmation for the two write actions (#106). Copy and
+  // Download both leave the app — one to the OS clipboard, one to a file — with no
+  // in-app change to prove they landed. A short-lived `done` flag flips the button
+  // to a ✓ + past-tense label, then reverts. One timer, cleared on unmount / re-fire.
+  const [flash, setFlash] = useState<'copied' | 'downloaded' | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(flashTimer.current), [])
+  const confirm = (which: 'copied' | 'downloaded') => {
+    setFlash(which)
+    clearTimeout(flashTimer.current)
+    flashTimer.current = setTimeout(() => setFlash(null), 1800)
+  }
+
+  const copy = async () => {
+    if (!markdown) return
+    await navigator.clipboard?.writeText(markdown)
+    confirm('copied')
   }
 
   const download = () => {
@@ -51,6 +68,7 @@ export function SpecPanel({
     a.download = `${slug || 'board'}-spec.md`
     a.click()
     URL.revokeObjectURL(url)
+    confirm('downloaded')
   }
 
   return (
@@ -99,11 +117,32 @@ export function SpecPanel({
 
         <div className="flex gap-2 border-t p-4">
           <Button size="sm" variant="outline" onClick={copy} disabled={!markdown}>
-            Copy markdown
+            {flash === 'copied' ? (
+              <>
+                <Check className="text-emerald-600 dark:text-emerald-500" aria-hidden /> Copied
+              </>
+            ) : (
+              <>
+                <Copy aria-hidden /> Copy markdown
+              </>
+            )}
           </Button>
           <Button size="sm" onClick={download} disabled={!markdown}>
-            Download .md
+            {flash === 'downloaded' ? (
+              <>
+                <Check aria-hidden /> Downloaded
+              </>
+            ) : (
+              <>
+                <Download aria-hidden /> Download .md
+              </>
+            )}
           </Button>
+          {/* Screen-reader announcement mirroring the visual flash (the icon swap
+              alone is silent to AT). */}
+          <span role="status" aria-live="polite" className="sr-only">
+            {flash === 'copied' ? 'Spec copied to clipboard' : flash === 'downloaded' ? 'Spec downloaded' : ''}
+          </span>
         </div>
       </SheetContent>
     </Sheet>

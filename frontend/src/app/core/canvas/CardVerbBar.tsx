@@ -46,13 +46,22 @@ export type CardVerbHandler = (
  * only (PD-019): a merge is convergent, so the single-card moves (discuss/expand/
  * challenge) don't apply to a multi-card selection.
  */
-export const CardVerbBar = track(function CardVerbBar({ onVerb }: { onVerb: CardVerbHandler }) {
+export const CardVerbBar = track(function CardVerbBar({
+  onVerb,
+  disabled = false,
+}: {
+  onVerb: CardVerbHandler;
+  /** No live session (#106): the verbs type into a terminal that isn't there, so
+   *  they render disabled with a "start a session" hint rather than silently no-op. */
+  disabled?: boolean;
+}) {
   const editor = useEditor();
   const cards = editor
     .getSelectedShapes()
     .filter((s): s is IdeaCardShape => s.type === 'idea-card');
   if (cards.length === 0) return null;
   const multi = cards.length >= 2;
+  const disabledTip = 'Start a session first — idea actions talk to the live agent';
 
   // Fire a single-card verb on the lone selected card.
   const fire = (intent: PromptIntent) => {
@@ -95,14 +104,21 @@ export const CardVerbBar = track(function CardVerbBar({ onVerb }: { onVerb: Card
         {multi ? (
           <TldrawUiButton
             type="normal"
+            disabled={disabled}
             onClick={fireCombine}
-            tooltip={`Merge the ${cards.length} selected cards into one stronger idea`}
+            tooltip={disabled ? disabledTip : `Merge the ${cards.length} selected cards into one stronger idea`}
           >
             <TldrawUiButtonLabel>✦ Combine into one</TldrawUiButtonLabel>
           </TldrawUiButton>
         ) : (
           CARD_VERBS.map((verb) => (
-            <TldrawUiButton key={verb.intent} type="normal" onClick={() => fire(verb.intent)}>
+            <TldrawUiButton
+              key={verb.intent}
+              type="normal"
+              disabled={disabled}
+              tooltip={disabled ? disabledTip : undefined}
+              onClick={() => fire(verb.intent)}
+            >
               <TldrawUiButtonLabel>{verb.label}</TldrawUiButtonLabel>
             </TldrawUiButton>
           ))

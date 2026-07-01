@@ -19,6 +19,7 @@ import {
   track,
   useEditor,
   type Atom,
+  type Editor,
   DefaultMainMenu,
   DefaultMainMenuContent,
   DefaultContextMenu,
@@ -29,11 +30,31 @@ import {
   TldrawUiMenuCheckboxItem,
   TldrawUiMenuItem,
 } from 'tldraw';
-import { kindLabel, KNOWN_KINDS } from '../idea-descriptors';
-import { ideaCards, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
+import { kindLabel, KNOWN_KINDS, normalizeKind } from '../idea-descriptors';
+import { serializeCards } from '../canvas-text';
+import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from './filter';
 import { arrangeMindMap, arrangePriorityGrid, markSelected } from './layout';
 import { createUserIdea } from './idea-tool';
+
+/**
+ * Select every idea card matching `pred` (#106) — the shared engine behind the
+ * "select marked / untriaged / open questions" context actions. Only VISIBLE cards
+ * are eligible: the board filter hides a card by setting `opacity: 0` and locking
+ * it (see {@link applyFilter}), so selecting one would be a confusing invisible
+ * selection. No-op (clears nothing) when nothing matches.
+ */
+function selectMatching(editor: Editor, pred: (card: IdeaCardShape) => boolean): void {
+  const ids = ideaCards(editor)
+    .filter((c) => c.opacity > 0 && pred(c))
+    .map((c) => c.id);
+  if (ids.length > 0) editor.setSelectedShapes(ids);
+}
+
+const isMarked = (c: IdeaCardShape) => !!(c.meta as IdeaCardMeta).starred;
+const isUntriaged = (c: IdeaCardShape) => !(c.meta as IdeaCardMeta).score && !c.props.superseded;
+const isOpenQuestion = (c: IdeaCardShape) =>
+  normalizeKind(c.props.kind) === 'question' && !c.props.superseded;
 
 /** A workspace's live filter, held in a tldraw signal so it outlives menu open/close. */
 export type FilterAtom = Atom<BoardFilter>;
@@ -223,6 +244,22 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
     .getSelectedShapes()
     .filter((s): s is IdeaCardShape => s.type === 'idea-card');
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
+
+  // Board-wide "select by trait" (#106): counts drive the disabled state so a verb
+  // that would select nothing greys out rather than silently no-op'ing.
+  const cards = ideaCards(editor);
+  const markedCount = cards.filter(isMarked).length;
+  const untriagedCount = cards.filter(isUntriaged).length;
+  const openQuestionCount = cards.filter(isOpenQuestion).length;
+
+  // Copy the current pure-card selection as markdown (#106) — the context-menu twin
+  // of Ctrl/Cmd+C (see copy-text). Written here directly so it works on a mixed
+  // selection too, copying just the idea cards.
+  const copyAsMarkdown = () => {
+    const text = serializeCards(selectedCards.map(content));
+    if (text.trim()) void navigator.clipboard?.writeText(text);
+  };
+
   return (
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
@@ -231,6 +268,16 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
             id="mark"
             label={allStarred ? 'Unmark' : '★ Mark'}
             onSelect={() => markSelected(editor)}
+          />
+          <TldrawUiMenuItem
+            id="copy-cards-md"
+            label={
+              selectedCards.length > 1
+                ? `⧉ Copy ${selectedCards.length} cards as markdown`
+                : '⧉ Copy card as markdown'
+            }
+            readonlyOk
+            onSelect={copyAsMarkdown}
           />
         </TldrawUiMenuGroup>
       ) : (
@@ -244,6 +291,36 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
           />
         </TldrawUiMenuGroup>
       )}
+      {/* Board-wide selection helpers (#106) — always offered, disabled when no card
+          qualifies, so the reach for "just the marked ones" is one click, not a
+          manual lasso. */}
+      <TldrawUiMenuGroup id="ai-storm-select">
+        <TldrawUiMenuSubmenu id="select" label="Select" size="small">
+          <TldrawUiMenuGroup id="select-traits">
+            <TldrawUiMenuItem
+              id="select-marked"
+              label={markedCount > 0 ? `★ Marked (${markedCount})` : '★ Marked'}
+              disabled={markedCount === 0}
+              readonlyOk
+              onSelect={() => selectMatching(editor, isMarked)}
+            />
+            <TldrawUiMenuItem
+              id="select-untriaged"
+              label={untriagedCount > 0 ? `Untriaged (${untriagedCount})` : 'Untriaged'}
+              disabled={untriagedCount === 0}
+              readonlyOk
+              onSelect={() => selectMatching(editor, isUntriaged)}
+            />
+            <TldrawUiMenuItem
+              id="select-open-questions"
+              label={openQuestionCount > 0 ? `❓ Open questions (${openQuestionCount})` : '❓ Open questions'}
+              disabled={openQuestionCount === 0}
+              readonlyOk
+              onSelect={() => selectMatching(editor, isOpenQuestion)}
+            />
+          </TldrawUiMenuGroup>
+        </TldrawUiMenuSubmenu>
+      </TldrawUiMenuGroup>
       <DefaultContextMenuContent />
     </DefaultContextMenu>
   );

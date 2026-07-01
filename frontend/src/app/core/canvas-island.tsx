@@ -22,7 +22,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useThemeStore } from '../stores/theme.store';
 import { IdeaCardShapeUtil } from './canvas/idea-card';
 import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
-import { CanvasEmptyState } from './canvas/CanvasEmptyState';
+import { CanvasEmptyState, type EmptyStateActions } from './canvas/CanvasEmptyState';
 import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
 import { copyTextOptions } from './canvas/copy-text';
@@ -54,9 +54,15 @@ export interface CanvasBridge {
 export function CanvasIsland({
   workspaceId,
   bridge,
+  emptyStateActions,
+  sessionAttached = false,
 }: {
   workspaceId: string;
   bridge: CanvasBridge;
+  /** Primary-action handlers for the first-run empty state (#106). */
+  emptyStateActions?: EmptyStateActions;
+  /** Whether a live session backs this workspace — gates the card verbs (#106). */
+  sessionAttached?: boolean;
 }): React.JSX.Element {
   // One store per workspace, keyed by id → its own IndexedDB room (PD-001,
   // local-first; survives reload). Changing `key`/`persistenceKey` remounts
@@ -91,13 +97,13 @@ export function CanvasIsland({
       Toolbar: IdeaToolbar,
       InFrontOfTheCanvas: () => (
         <>
-          <CanvasEmptyState />
-          <CardVerbBar onVerb={bridge.onCardVerb} />
+          <CanvasEmptyState actions={emptyStateActions} />
+          <CardVerbBar onVerb={bridge.onCardVerb} disabled={!sessionAttached} />
           <FilterApplier $filter={$filter} />
         </>
       ),
     }),
-    [$filter, bridge],
+    [$filter, bridge, emptyStateActions, sessionAttached],
   );
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
