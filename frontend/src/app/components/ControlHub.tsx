@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import * as Toolbar from '@radix-ui/react-toolbar'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, PanelRightClose } from 'lucide-react'
 import { FACILITATION_MODES, getFacilitationMode } from '@ai-storm/shared'
 import { Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -46,7 +46,7 @@ const BACKGROUND_SOFT_CAP = 1500
  * provides the session controls, the harness selector, and diagnostic readouts
  * of the background connection.
  */
-export function ControlHub() {
+export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
   const ws = useWorkspaceStore(selectActive)
   const connState = useBackendStore((s) => s.state)
   const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false))
@@ -121,6 +121,23 @@ export function ControlHub() {
               Clear
             </Button>
           </Toolbar.Button>
+          {onCollapse && (
+            <Toolbar.Button asChild>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Collapse control hub"
+                    onClick={onCollapse}
+                  >
+                    <PanelRightClose className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Collapse control hub</TooltipContent>
+              </Tooltip>
+            </Toolbar.Button>
+          )}
         </Toolbar.Root>
       </header>
 
