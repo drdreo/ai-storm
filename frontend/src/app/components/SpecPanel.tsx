@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download, Sparkles } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -156,8 +156,8 @@ export function SpecPanel({
               <span>
                 Actually create the issues via <code>gh</code>
                 <span className="block text-muted-foreground">
-                  Needs <code>gh</code> auth and tool permission in the configured agent args (e.g.{' '}
-                  <code>--allowedTools "Bash(gh issue create:*)"</code>). Off = ready-to-file
+                  Permission is granted for this run only (scoped to{' '}
+                  <code>gh issue create</code>); needs <code>gh</code> auth. Off = ready-to-file
                   drafts, no side effects.
                 </span>
               </span>
@@ -184,9 +184,35 @@ export function SpecPanel({
               No hand-off yet — pick a format above and press Generate.
             </p>
           ) : markdown ? (
-            <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
-              {markdown}
-            </pre>
+            <>
+              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
+                {markdown}
+              </pre>
+              {spec.artifacts && spec.artifacts.length > 0 && (
+                <div className="mt-3 border-t pt-3">
+                  {/* Structured created-issue artifacts parsed server-side (#120) —
+                      link chips, the deferred follow-up from #110. */}
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                    Created issues
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pb-3">
+                    {spec.artifacts.map((a) => (
+                      <a
+                        key={a.url}
+                        href={a.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border bg-secondary px-2.5 py-0.5 text-xs text-secondary-foreground hover:bg-secondary/80"
+                        title={a.url}
+                      >
+                        <ExternalLink className="size-3 shrink-0" aria-hidden />
+                        <span className="truncate">{a.title}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               {done

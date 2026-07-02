@@ -15,23 +15,46 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import type { AgentStatusMessage } from "@ai-storm/shared";
+import type { AgentArtifact, AgentCapability, AgentStatusMessage, SpecFormat } from "@ai-storm/shared";
 import { resolveLaunch } from "../pty/resolve.ts";
+import { resolveCapabilities } from "./capabilities.ts";
+import { parseIssueArtifacts } from "./artifacts.ts";
 import { log } from "../log.ts";
 
 export type AgentEmitter = (msg: Omit<AgentStatusMessage, "type">) => void;
+export type ArtifactEmitter = (artifacts: AgentArtifact[]) => void;
 
 export interface AgentSpec {
   command: string;
   args?: string[];
   payload: string;
   cwd?: string;
+  /** Hand-off format metadata (#120) — echoed on `spawned`, keyed into logs. */
+  format?: SpecFormat;
+  /** Named per-run capabilities to resolve via the vetted table (#120). */
+  capabilities?: AgentCapability[];
 }
 
-export function runAgent(workspaceId: string, spec: AgentSpec, emit: AgentEmitter): ChildProcess | null {
+export function runAgent(
+  workspaceId: string,
+  spec: AgentSpec,
+  emit: AgentEmitter,
+  emitArtifacts?: ArtifactEmitter,
+): ChildProcess | null {
   // Only the static, trusted args reach the command line; the untrusted payload
-  // is piped to stdin below (see module header).
-  const requestedArgs = [...(spec.args ?? [])];
+  // is piped to stdin below (see module header). Requested capabilities append
+  // backend-owned flags from the vetted table (#120) — never client strings.
+  const caps = resolveCapabilities(spec.command, spec.capabilities);
+  const requestedArgs = [...(spec.args ?? []), ...caps.args];
+  for (const cap of caps.rejected) {
+    log.warn("agent.capability_rejected", { workspace: workspaceId, command: spec.command, capability: cap });
+    emit({
+      workspaceId,
+      status: "stderr",
+      data: `[ai-storm] Ignored requested capability "${cap}": no vetted permission mapping for command "${spec.command}".\n`,
+    });
+  }
+  const grantedCreateIssues = spec.capabilities?.includes("create-issues") === true && caps.rejected.length === 0;
 
   let launch;
   try {
@@ -67,17 +90,34 @@ export function runAgent(workspaceId: string, spec: AgentSpec, emit: AgentEmitte
   }
 
   child.on("spawn", () => {
-    log.info("agent.spawned", { workspace: workspaceId, command: spec.command, pid: child.pid ?? -1 });
-    emit({ workspaceId, status: "spawned", pid: child.pid ?? -1 });
+    log.info("agent.spawned", {
+      workspace: workspaceId,
+      command: spec.command,
+      pid: child.pid ?? -1,
+      format: spec.format ?? "",
+    });
+    emit({ workspaceId, status: "spawned", pid: child.pid ?? -1, format: spec.format });
   });
+
+  // Captured stdout for post-exit artifact parsing (#120) — only buffered when
+  // this run can actually produce artifacts (issues format + granted create).
+  const captureArtifacts = spec.format === "issues" && grantedCreateIssues && emitArtifacts != null;
+  let captured = "";
 
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
-  child.stdout?.on("data", (d: string) => emit({ workspaceId, status: "stdout", data: d }));
+  child.stdout?.on("data", (d: string) => {
+    if (captureArtifacts) captured += d;
+    emit({ workspaceId, status: "stdout", data: d });
+  });
   child.stderr?.on("data", (d: string) => emit({ workspaceId, status: "stderr", data: d }));
 
   child.on("close", (code) => {
     log.info("agent.exit", { workspace: workspaceId, command: spec.command, code: code ?? -1 });
+    if (captureArtifacts) {
+      const artifacts = parseIssueArtifacts(captured);
+      if (artifacts.length > 0) emitArtifacts(artifacts);
+    }
     emit({ workspaceId, status: "exit", code: code ?? -1 });
   });
 
