@@ -2,7 +2,14 @@ import { create } from 'zustand'
 import { backend } from './backend.store'
 import { canvas } from './canvas.store'
 import { ingestion } from './ingestion.store'
-import { framePrompt, frameTriage, frameSpec, type PromptIntent } from '../core/prompt-framing'
+import {
+  framePrompt,
+  frameTriage,
+  frameSpec,
+  type PromptIntent,
+  type SpecFormat,
+  type SpecOptions,
+} from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
 
 export interface AgentRun {
@@ -16,6 +23,12 @@ export interface AgentRun {
    * routed to a different surface without conflating it with the spec artifact.
    */
   kind?: 'spec'
+  /**
+   * Which output format the spec run was framed as (#110), stamped at dispatch —
+   * so the SpecPanel can label the status badge and name the download even after
+   * the panel reopens with a different picker selection.
+   */
+  format?: SpecFormat
 }
 
 /**
@@ -56,7 +69,13 @@ function ensureSubscription(workspaceId: string): void {
     const cur = getRun(workspaceId) ?? { status: 'spawned', output: '' }
     switch (msg.status) {
       case 'spawned':
-        setRun(workspaceId, { status: 'running', pid: msg.pid, output: '', kind: cur.kind })
+        setRun(workspaceId, {
+          status: 'running',
+          pid: msg.pid,
+          output: '',
+          kind: cur.kind,
+          format: cur.format,
+        })
         break
       case 'stdout':
       case 'stderr':
@@ -84,15 +103,24 @@ export const agent = {
    * run streams back into the store and surfaces in the control hub (with markdown
    * export) exactly like a `dispatch` run.
    *
+   * `format` (#110) picks how the request is framed — PRD, implementation plan,
+   * GitHub issues, or agent task prompts — and is stamped on the run so the panel
+   * can label and name the artifact; `opts` carries the issues create-toggle.
+   *
    * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
-  generateSpec(workspaceId: string, config: TerminalConfig): boolean {
-    const payload = frameSpec(canvas.serializeForHandoff(workspaceId))
+  generateSpec(
+    workspaceId: string,
+    config: TerminalConfig,
+    format: SpecFormat = 'prd',
+    opts: SpecOptions = {},
+  ): boolean {
+    const payload = frameSpec(canvas.serializeForHandoff(workspaceId), format, opts)
     if (!payload) return false
     const command = config.agentCommand?.trim() || 'claude'
 
     ensureSubscription(workspaceId)
-    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec' })
+    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec', format })
 
     backend.connect()
     backend.send({

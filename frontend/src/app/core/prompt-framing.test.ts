@@ -8,7 +8,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { framePrompt, frameTriage, frameSpec, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
+import {
+  framePrompt,
+  frameTriage,
+  frameSpec,
+  PROMPT_TEMPLATES,
+  SPEC_FORMATS,
+  type PromptIntent,
+  type SpecFormat,
+} from './prompt-framing';
 
 describe('framePrompt', () => {
   it('returns "" for an empty selection', () => {
@@ -233,21 +241,85 @@ describe('frameTriage (#60)', () => {
   });
 });
 
-describe('frameSpec (#89)', () => {
-  it('returns "" for an empty board', () => {
-    expect(frameSpec('')).toBe('');
-    expect(frameSpec('   \n  ')).toBe('');
+describe('frameSpec (#89, formats #110)', () => {
+  const FORMATS = Object.keys(SPEC_FORMATS) as SpecFormat[];
+  const board = '### ✨ Feature: Offline canvas\n\ncache CRDT ops';
+
+  it('returns "" for an empty board in every format', () => {
+    for (const format of FORMATS) {
+      expect(frameSpec('', format)).toBe('');
+      expect(frameSpec('   \n  ', format)).toBe('');
+    }
   });
 
-  it('embeds the board (trimmed) and asks for a spec/PRD with the expected sections', () => {
-    const prompt = frameSpec('### ✨ Feature: Offline canvas\n\ncache CRDT ops');
-    expect(prompt).toContain('### ✨ Feature: Offline canvas');
-    expect(prompt).toMatch(/spec\s*\/\s*PRD/i);
-    expect(prompt).toContain('Requirements');
-    expect(prompt).toContain('Open questions');
+  it('embeds the board (trimmed) in every format', () => {
+    for (const format of FORMATS) {
+      expect(frameSpec(`\n  ${board}  \n`, format)).toContain(board);
+    }
   });
 
-  it('tells the agent to treat ★ keep-marks as priorities (#59)', () => {
-    expect(frameSpec('### ★ ✨ Feature: Pinned')).toContain('★');
+  it('defaults to the PRD format (original #89 contract)', () => {
+    expect(frameSpec(board)).toBe(frameSpec(board, 'prd'));
+  });
+
+  it('applies the shared rules — grounding and ★ keep-marks — in every format (#59)', () => {
+    for (const format of FORMATS) {
+      const prompt = frameSpec('### ★ ✨ Feature: Pinned', format);
+      expect(prompt).toContain('do not invent scope');
+      expect(prompt).toContain('★');
+      expect(prompt).toMatch(/GitHub-flavored markdown/i);
+    }
+  });
+
+  it('prd: asks for the PRD sections, without an implementation plan section', () => {
+    const prompt = frameSpec(board, 'prd');
+    expect(prompt).toContain('PRD');
+    for (const section of ['Overview', 'Goals', 'Non-goals', 'Requirements', 'Open questions']) {
+      expect(prompt).toContain(section);
+    }
+    expect(prompt).not.toMatch(/implementation plan/i);
+  });
+
+  it('plan: asks for milestones, acceptance criteria, risks, and a testing strategy', () => {
+    const prompt = frameSpec(board, 'plan');
+    expect(prompt).toMatch(/implementation plan/i);
+    expect(prompt).toContain('milestones');
+    expect(prompt).toContain('acceptance criteria');
+    expect(prompt).toMatch(/risks/i);
+    expect(prompt).toMatch(/testing strategy/i);
+  });
+
+  it('issues (default): asks for ready-to-file drafts and forbids creating them', () => {
+    const prompt = frameSpec(board, 'issues');
+    expect(prompt).toContain('GitHub issues');
+    expect(prompt).toContain('##');
+    expect(prompt).toContain('labels');
+    expect(prompt).toMatch(/do\s+NOT create/);
+    expect(prompt).not.toContain('gh issue create');
+  });
+
+  it('issues with createIssues: instructs `gh issue create`, a created summary, and a drafts fallback', () => {
+    const prompt = frameSpec(board, 'issues', { createIssues: true });
+    expect(prompt).toContain('gh issue create');
+    expect(prompt).toMatch(/summary of what was created/i);
+    expect(prompt).toContain('URL');
+    expect(prompt).toMatch(/unavailable or unauthorized/i);
+    expect(prompt).toMatch(/fall back/i);
+  });
+
+  it('tasks: asks for self-contained, copy-pasteable task prompts with acceptance criteria', () => {
+    const prompt = frameSpec(board, 'tasks');
+    expect(prompt).toContain('self-contained');
+    expect(prompt).toMatch(/copy-pasteable/i);
+    expect(prompt).toContain('acceptance criteria');
+  });
+
+  it('SPEC_FORMATS descriptors carry a label, description, and file suffix per format', () => {
+    for (const format of FORMATS) {
+      const { label, description, fileSuffix } = SPEC_FORMATS[format];
+      expect(label.length).toBeGreaterThan(0);
+      expect(description.length).toBeGreaterThan(0);
+      expect(fileSuffix).toMatch(/^[a-z]+$/);
+    }
   });
 });

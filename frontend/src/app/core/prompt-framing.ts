@@ -93,25 +93,119 @@ export function frameTriage(board: string): string {
 }
 
 /**
- * Frame a spec/PRD hand-off request (#89, PD-015) — the convergence step that
- * closes the brainstorm → structure → hand-off loop (PRD §2). `board` is the
- * lifecycle-aware hand-off serialization (`handoffCardsToText`): superseded ghosts
- * already dropped, keep-marks already flagged with ★. The framed payload is piped
- * to the downstream orchestrator subprocess on stdin (PD-007 / `agent.generateSpec`),
- * NOT the live PTY — so, unlike the verb prompts and {@link frameTriage}, it is a
- * complete request with no editable trailing seam and no marker-echo concern.
+ * The output format of a spec hand-off (#110) — how the board is converged into
+ * a generated artifact. Only the prompt framing varies per format; the subprocess
+ * seam, WS streaming, and the Copy/Download flow are format-agnostic.
+ */
+export type SpecFormat = 'prd' | 'plan' | 'issues' | 'tasks';
+
+/**
+ * Per-format descriptors (#110) — the single source for the SpecPanel's picker
+ * UI, the status-badge label, and the download filename, so the panel carries no
+ * format-specific branching.
+ */
+export const SPEC_FORMATS: Record<
+  SpecFormat,
+  { label: string; description: string; fileSuffix: string }
+> = {
+  prd: {
+    label: 'PRD',
+    description:
+      'A concise product requirements doc: overview, goals, non-goals, requirements, open questions.',
+    fileSuffix: 'prd',
+  },
+  plan: {
+    label: 'Implementation plan',
+    description:
+      'An ordered engineering plan: milestones, concrete steps with acceptance criteria, risks, testing strategy.',
+    fileSuffix: 'plan',
+  },
+  issues: {
+    label: 'GitHub issues',
+    description:
+      'Ready-to-file GitHub issues — one per work item, with title, body, and suggested labels.',
+    fileSuffix: 'issues',
+  },
+  tasks: {
+    label: 'Agent tasks',
+    description:
+      'Self-contained task prompts, each individually copy-pasteable into a coding agent.',
+    fileSuffix: 'tasks',
+  },
+};
+
+/** Options threaded from the SpecPanel through {@link frameSpec} (#110). */
+export interface SpecOptions {
+  /**
+   * `issues` format only: instruct the agent to actually run `gh issue create`
+   * per issue (side effects are opt-in — off means ready-to-file drafts). The
+   * agent command needs `gh` auth and Bash tool permission in the configured
+   * agent args for this to succeed; the framing asks for a graceful drafts
+   * fallback when it can't.
+   */
+  createIssues?: boolean;
+}
+
+/**
+ * The rules every hand-off format shares: stay grounded in the cards, honor the
+ * ★ keep-marks, and speak GitHub-flavored markdown.
+ */
+const SPEC_RULES =
+  `Ground everything in the cards below — do not invent scope. Cards marked with a leading ★ are ` +
+  `the user's keep-marks: treat them as priorities. Write GitHub-flavored markdown.`;
+
+/**
+ * Per-format request bodies (#110). Each opens with what to turn the board into
+ * and closes with what to output — {@link frameSpec} appends {@link SPEC_RULES}
+ * and the board itself.
+ */
+const SPEC_BODIES: Record<SpecFormat, (opts: SpecOptions) => string> = {
+  prd: () =>
+    `Turn the brainstorm board below into a concise PRD ready to hand to a coding agent. ` +
+    `Use these sections: Overview, Goals, Non-goals, Requirements, and Open questions. ` +
+    `Output only the PRD markdown, nothing else.`,
+  plan: () =>
+    `Turn the brainstorm board below into an ordered implementation plan ready to hand to a coding ` +
+    `agent. Structure it as: milestones, then concrete steps each with acceptance criteria, then ` +
+    `risks and unknowns, then a testing strategy. Output only the plan markdown, nothing else.`,
+  issues: ({ createIssues }) =>
+    createIssues
+      ? `Turn the brainstorm board below into GitHub issues and CREATE them: for each work item, run ` +
+        `\`gh issue create\` in the current working directory with a clear title, a well-structured ` +
+        `body, and suggested labels. When done, output ONLY a summary of what was created — a table ` +
+        `with one row per issue: title and URL. If \`gh\` is unavailable or unauthorized, fall back to ` +
+        `outputting the issues as ready-to-file drafts (one \`##\` section per issue: title, body, ` +
+        `suggested labels), prefixed with a one-line explanation of why they were not created.`
+      : `Turn the brainstorm board below into a set of ready-to-file GitHub issues — draft them, do ` +
+        `NOT create them. Output one \`##\` section per issue containing the issue title, a ` +
+        `well-structured body, and suggested labels. Output only the issues markdown, nothing else.`,
+  tasks: () =>
+    `Turn the brainstorm board below into a set of self-contained task prompts for coding agents. ` +
+    `Output one \`##\` section per task, each individually copy-pasteable on its own: the context ` +
+    `the agent needs, the task itself, constraints, and acceptance criteria. Output only the task ` +
+    `prompts markdown, nothing else.`,
+};
+
+/**
+ * Frame a spec hand-off request (#89, PD-015; formats #110) — the convergence
+ * step that closes the brainstorm → structure → hand-off loop (PRD §2). `board`
+ * is the lifecycle-aware hand-off serialization (`handoffCardsToText`): superseded
+ * ghosts already dropped, keep-marks already flagged with ★. The framed payload is
+ * piped to the downstream orchestrator subprocess on stdin (PD-007 /
+ * `agent.generateSpec`), NOT the live PTY — so, unlike the verb prompts and
+ * {@link frameTriage}, it is a complete request with no editable trailing seam and
+ * no marker-echo concern. `format` picks the {@link SPEC_BODIES} body (default
+ * `'prd'` keeps the original contract); the shared {@link SPEC_RULES} apply to all.
  * Returns `''` for an empty board (nothing to hand off).
  */
-export function frameSpec(board: string): string {
+export function frameSpec(
+  board: string,
+  format: SpecFormat = 'prd',
+  opts: SpecOptions = {},
+): string {
   const trimmed = board.trim();
   if (!trimmed) return '';
-  return (
-    `Turn the brainstorm board below into a concise, executable spec / PRD ready to hand to a coding ` +
-    `agent. Write GitHub-flavored markdown with these sections: Overview, Goals, Non-goals, ` +
-    `Requirements, Implementation plan, and Open questions. Ground every requirement in the cards — do ` +
-    `not invent scope. Cards marked with a leading ★ are the user's keep-marks: treat them as priorities. ` +
-    `Output only the spec markdown, nothing else.\n\n${trimmed}\n`
-  );
+  return `${SPEC_BODIES[format](opts)} ${SPEC_RULES}\n\n${trimmed}\n`;
 }
 
 /**
