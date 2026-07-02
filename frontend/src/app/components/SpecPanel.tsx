@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download } from 'lucide-react'
+import { Check, Copy, Download, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Sheet,
   SheetContent,
@@ -10,14 +11,30 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { useAgentStore } from '../stores/agent.store'
+import { SPEC_FORMATS, type SpecFormat, type SpecOptions } from '../core/prompt-framing'
+
+/** Last-used hand-off format (#110) — repeat hand-offs default sensibly. */
+const FORMAT_KEY = 'ai-storm-spec-format'
+
+function initialFormat(): SpecFormat {
+  const stored = localStorage.getItem(FORMAT_KEY)
+  return stored && stored in SPEC_FORMATS ? (stored as SpecFormat) : 'prd'
+}
 
 /**
- * The spec/PRD hand-off panel (#89, PD-015) — the convergence step that closes the
- * brainstorm → structure → hand-off loop (PRD §2). It mirrors the synthesis panel
- * (#28): a **read-only reading** of the board, never an editable surface (PD-011
- * holds). Where synthesis is a pure, instant local read, the spec is *generated* by
- * the downstream agent (PD-007) — so this panel streams the run live (status badge
- * + output) and offers the markdown artifact via Copy / Download once it's there.
+ * The spec hand-off panel (#89, PD-015; format options #110) — the convergence
+ * step that closes the brainstorm → structure → hand-off loop (PRD §2). It mirrors
+ * the synthesis panel (#28): a **read-only reading** of the board, never an editable
+ * surface (PD-011 holds). Where synthesis is a pure, instant local read, the spec is
+ * *generated* by the downstream agent (PD-007) — so this panel streams the run live
+ * (status badge + output) and offers the markdown artifact via Copy / Download once
+ * it's there.
+ *
+ * The format picker (#110) frames the generation as a PRD, an implementation plan,
+ * GitHub issues, or agent task prompts — dispatch happens HERE via `onGenerate`
+ * (the toolbar verb just opens the panel), so switching format and re-running is
+ * one interaction. The panel never touches workspace/terminal config itself; the
+ * parent owns the dispatch.
  *
  * It subscribes to the workspace's agent run directly, so it re-renders on every
  * stream chunk without re-rendering the canvas. Only `kind: 'spec'` runs surface
@@ -28,16 +45,29 @@ export function SpecPanel({
   onOpenChange,
   workspaceId,
   workspaceName,
+  boardEmpty,
+  onGenerate,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspaceId?: string
   workspaceName?: string
+  /** The board has no cards to hand off — Generate is gated with why-copy. */
+  boardEmpty: boolean
+  onGenerate: (format: SpecFormat, opts: SpecOptions) => void
 }) {
   const run = useAgentStore((s) => (workspaceId ? s.runs[workspaceId] ?? null : null))
   const spec = run?.kind === 'spec' ? run : null
   const markdown = spec?.output ?? ''
   const done = spec?.status === 'exit' || spec?.status === 'error'
+  const running = spec != null && !done
+
+  const [format, setFormat] = useState<SpecFormat>(initialFormat)
+  const [createIssues, setCreateIssues] = useState(false)
+  const pickFormat = (next: SpecFormat) => {
+    setFormat(next)
+    localStorage.setItem(FORMAT_KEY, next)
+  }
 
   // Transient "it worked" confirmation for the two write actions (#106). Copy and
   // Download both leave the app — one to the OS clipboard, one to a file — with no
@@ -61,11 +91,14 @@ export function SpecPanel({
   const download = () => {
     if (!markdown) return
     const slug = (workspaceName ?? 'board').trim().replace(/[^\w-]+/g, '-').toLowerCase()
+    // Name by the format the run was actually generated as (stamped at dispatch),
+    // not the picker's current selection — they diverge once the user re-picks.
+    const suffix = spec?.format ? SPEC_FORMATS[spec.format].fileSuffix : 'spec'
     const blob = new Blob([markdown], { type: 'text/markdown' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${slug || 'board'}-spec.md`
+    a.download = `${slug || 'board'}-${suffix}.md`
     a.click()
     URL.revokeObjectURL(url)
     confirm('downloaded')
@@ -76,7 +109,7 @@ export function SpecPanel({
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
-            Spec / PRD hand-off
+            Hand off board
             {spec && (
               <Badge
                 variant={
@@ -90,19 +123,65 @@ export function SpecPanel({
               >
                 {spec.status}
                 {spec.code !== undefined ? ` (${spec.code})` : ''}
+                {spec.format ? ` · ${SPEC_FORMATS[spec.format].label}` : ''}
               </Badge>
             )}
           </SheetTitle>
           <SheetDescription>
-            A generated artifact (#89) — the board handed to the agent as a spec to give a coding
-            agent. A reading of the board, not an editable surface; refine on the canvas.
+            A generated artifact (#89, #110) — the board handed to the agent in the format you pick.
+            A reading of the board, not an editable surface; refine on the canvas.
           </SheetDescription>
         </SheetHeader>
+
+        <div className="flex flex-col gap-2 border-b px-4 pb-4">
+          <Tabs value={format} onValueChange={(v) => pickFormat(v as SpecFormat)}>
+            <TabsList className="w-full" aria-label="Output format">
+              {(Object.keys(SPEC_FORMATS) as SpecFormat[]).map((f) => (
+                <TabsTrigger key={f} value={f}>
+                  {SPEC_FORMATS[f].label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <p className="text-xs text-muted-foreground">{SPEC_FORMATS[format].description}</p>
+
+          {format === 'issues' && (
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={createIssues}
+                onChange={(e) => setCreateIssues(e.target.checked)}
+                className="mt-0.5 accent-primary"
+              />
+              <span>
+                Actually create the issues via <code>gh</code>
+                <span className="block text-muted-foreground">
+                  Needs <code>gh</code> auth and tool permission in the configured agent args (e.g.{' '}
+                  <code>--allowedTools "Bash(gh issue create:*)"</code>). Off = ready-to-file
+                  drafts, no side effects.
+                </span>
+              </span>
+            </label>
+          )}
+
+          <Button
+            size="sm"
+            onClick={() => onGenerate(format, { createIssues })}
+            disabled={boardEmpty || running}
+          >
+            <Sparkles aria-hidden /> {spec ? 'Regenerate' : 'Generate'}
+          </Button>
+          {boardEmpty && (
+            <p className="text-xs text-muted-foreground">
+              The board is empty — add cards before handing off.
+            </p>
+          )}
+        </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {!spec ? (
             <p className="text-sm text-muted-foreground">
-              No hand-off yet — click “Hand off” on the canvas to generate a spec from the board.
+              No hand-off yet — pick a format above and press Generate.
             </p>
           ) : markdown ? (
             <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
@@ -110,7 +189,9 @@ export function SpecPanel({
             </pre>
           ) : (
             <p className="text-sm text-muted-foreground">
-              {done ? 'The agent produced no output.' : 'Generating the spec…'}
+              {done
+                ? 'The agent produced no output.'
+                : `Generating the ${spec.format ? SPEC_FORMATS[spec.format].label : 'spec'}…`}
             </p>
           )}
         </div>
