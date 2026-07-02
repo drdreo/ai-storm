@@ -421,12 +421,22 @@ async function dispatch(
         command: msg.command,
         args: (msg.args ?? []).join(" "),
         payloadBytes: msg.payload.length,
+        format: msg.format ?? "",
+        capabilities: (msg.capabilities ?? []).join(","),
       });
       {
         const child = runAgent(
           msg.workspaceId,
-          { command: msg.command, args: msg.args, payload: msg.payload, cwd: msg.cwd },
+          {
+            command: msg.command,
+            args: msg.args,
+            payload: msg.payload,
+            cwd: msg.cwd,
+            format: msg.format,
+            capabilities: msg.capabilities,
+          },
           (status) => send({ type: "agent-status", ...status }),
+          (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts }),
         );
         // Track for connection-scoped teardown; drop once it exits on its own.
         if (child) {

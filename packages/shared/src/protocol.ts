@@ -116,6 +116,23 @@ export interface ContextMessage {
   document: string;
 }
 
+/**
+ * The output format of a spec hand-off (#110/#120) — how the board is converged
+ * into a generated artifact. Canonical home: shared, so the frontend framing and
+ * the backend run metadata speak the same union.
+ */
+export type SpecFormat = "prd" | "plan" | "issues" | "tasks";
+
+/**
+ * A named, backend-vetted permission a client may request for one agent run
+ * (#120). The client never sends raw argv for this — it asks for a capability
+ * by name, and the backend maps it to a hardcoded, command-specific flag (see
+ * `backend/src/agent/capabilities.ts`). Only `create-issues` exists today: it
+ * scopes `gh issue create` permission to the single run that opted in, instead
+ * of the user baking it into the workspace's global agent args.
+ */
+export type AgentCapability = "create-issues";
+
 /** Downstream agent execution hook (PRD §3.6). */
 export interface AgentMessage {
   type: "agent";
@@ -128,6 +145,14 @@ export interface AgentMessage {
   payload: string;
   /** Working directory for the spawned agent. */
   cwd?: string;
+  /**
+   * Which hand-off format the payload was framed as (#120). Run metadata, not
+   * behaviour: it labels backend logs and is echoed back on the `spawned`
+   * status so any attached client can label the run without local state.
+   */
+  format?: SpecFormat;
+  /** Named per-run capabilities the client requests (#120). */
+  capabilities?: AgentCapability[];
 }
 
 /** Messages sent from the backend daemon to the web client. */
@@ -138,6 +163,7 @@ export type ServerMessage =
   | ScoreMessage
   | ExitMessage
   | AgentStatusMessage
+  | AgentArtifactsMessage
   | ErrorMessage;
 
 /** Lifecycle of a durable session, decoupled from a specific connection. */
@@ -290,6 +316,35 @@ export interface AgentStatusMessage {
   pid?: number;
   data?: string;
   code?: number;
+  /**
+   * Echoed on `spawned` when the run carried a {@link SpecFormat} (#120), so a
+   * client attaching mid-run (refresh, second tab) can label the run without
+   * relying on its own dispatch-time memory.
+   */
+  format?: SpecFormat;
+}
+
+/**
+ * A structured artifact a finished agent run produced (#120). Only GitHub
+ * issues exist today: the created-issues summary the `issues` + `create-issues`
+ * run prints is parsed server-side into `{ title, url }` pairs so the client
+ * can render link chips instead of scraping markdown.
+ */
+export interface AgentArtifact {
+  kind: "github-issue";
+  title: string;
+  url: string;
+}
+
+/**
+ * Structured artifacts extracted from a completed agent run (#120). Emitted at
+ * most once, on exit of a run that opted into a side-effecting capability;
+ * empty artifact lists are not sent.
+ */
+export interface AgentArtifactsMessage {
+  type: "agent-artifacts";
+  workspaceId: string;
+  artifacts: AgentArtifact[];
 }
 
 /** A recoverable error scoped to a workspace (or the connection). */

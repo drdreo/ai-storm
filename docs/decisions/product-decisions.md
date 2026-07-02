@@ -194,6 +194,38 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-021 — Spec export is backend-aware: run metadata on the wire, capabilities by name
+
+`(2026-07-02, accepted, extends PD-007/PD-015; #110/#120)`
+
+- **Decision:** The spec hand-off (#110) stops being frontend-only. Three moves, one principle — the
+  backend owns everything that outlives one client's memory or widens a subprocess's permissions.
+  (1) **Run metadata rides the wire:** the `agent` message carries `format` (the shared `SpecFormat`
+  union now lives in `@ai-storm/shared`), the backend logs it and echoes it back on the `spawned`
+  status, so any attached client (refresh, second tab) can label the run and name the download without
+  local state. (2) **Side effects are opt-in by NAMED capability, scoped to one run:** instead of the
+  user baking `--allowedTools "Bash(gh issue create:*)"` into the workspace's global agent args (which
+  would apply to every hand-off), the client requests `capabilities: ['create-issues']` and the backend
+  maps it through a vetted, hardcoded per-command table (`agent/capabilities.ts`). Unknown command →
+  the capability is refused with a visible `stderr` note, never silently widened; the client never
+  supplies raw argv. (3) **Artifacts are structured, parsed server-side:** on exit of an
+  `issues` + `create-issues` run, the backend scans the captured stdout for created GitHub issue URLs,
+  pairs them with the summary-table titles (pure function, `agent/artifacts.ts`), and emits a single
+  `agent-artifacts` message the SpecPanel renders as link chips.
+- **Why:** The #110 ship proved the format picker; what it left client-local was exactly the state
+  that breaks on refresh (badge label, filename) and the one permission that should never be global
+  (issue creation). Naming capabilities keeps the executor's trust model intact — only static
+  backend-owned strings reach argv (the CVE-2024-27980 stance of the executor header) — while making
+  the side-effecting mode a per-run grant. Parsing artifacts server-side (not in the panel) keeps the
+  markdown blob as the display surface and the structured data on the protocol, where a future
+  consumer (e.g. linking issues back to cards) can reach it. Only the one-shot subprocess path
+  (PD-007) is touched; the live PTY seam is unchanged.
+- **Affects:** `packages/shared` (`SpecFormat` canonical home; `AgentCapability`; `format`/
+  `capabilities` on `AgentMessage`; `format` on `AgentStatusMessage`; new `AgentArtifactsMessage`),
+  backend `agent/capabilities.ts` + `agent/artifacts.ts` + executor/server wiring, frontend
+  `agent.generateSpec` (sends format + capabilities), `AgentRun.artifacts`, and the SpecPanel
+  (scoped-permission hint, created-issue chips).
+
 ### PD-016 — React + Vite, retiring Angular
 
 `(2026-06-07, accepted, supersedes the Angular shell of §4.1; refines PD-013)`

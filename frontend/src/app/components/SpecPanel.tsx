@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download, Sparkles } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldContent, FieldDescription, FieldLabel } from '@/components/ui/field'
 import {
   Sheet,
   SheetContent,
@@ -128,40 +136,48 @@ export function SpecPanel({
             )}
           </SheetTitle>
           <SheetDescription>
-            A generated artifact (#89, #110) — the board handed to the agent in the format you pick.
-            A reading of the board, not an editable surface; refine on the canvas.
+            Hand the board off to an agent as a PRD, plan, issue list, or task prompts. This is a
+            snapshot for the agent to read — it won't change your board; keep refining on the
+            canvas.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-2 border-b px-4 pb-4">
-          <Tabs value={format} onValueChange={(v) => pickFormat(v as SpecFormat)}>
-            <TabsList className="w-full" aria-label="Output format">
-              {(Object.keys(SPEC_FORMATS) as SpecFormat[]).map((f) => (
-                <TabsTrigger key={f} value={f}>
-                  {SPEC_FORMATS[f].label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          <p className="text-xs text-muted-foreground">{SPEC_FORMATS[format].description}</p>
+        <div className="flex flex-col gap-3 border-b px-4 pb-4">
+          <Field>
+            <FieldLabel htmlFor="spec-format">Format</FieldLabel>
+            <Select value={format} onValueChange={(v) => pickFormat(v as SpecFormat)}>
+              <SelectTrigger id="spec-format" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(SPEC_FORMATS) as SpecFormat[]).map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {SPEC_FORMATS[f].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldDescription>{SPEC_FORMATS[format].description}</FieldDescription>
+          </Field>
 
           {format === 'issues' && (
-            <label className="flex items-start gap-2 text-xs">
-              <input
-                type="checkbox"
+            <Field orientation="horizontal">
+              <Checkbox
+                id="spec-create-issues"
                 checked={createIssues}
-                onChange={(e) => setCreateIssues(e.target.checked)}
-                className="mt-0.5 accent-primary"
+                onCheckedChange={(checked) => setCreateIssues(checked === true)}
               />
-              <span>
-                Actually create the issues via <code>gh</code>
-                <span className="block text-muted-foreground">
-                  Needs <code>gh</code> auth and tool permission in the configured agent args (e.g.{' '}
-                  <code>--allowedTools "Bash(gh issue create:*)"</code>). Off = ready-to-file
+              <FieldContent>
+                <FieldLabel htmlFor="spec-create-issues">
+                  Actually create the issues via <code>gh</code>
+                </FieldLabel>
+                <FieldDescription>
+                  Permission is granted for this run only (scoped to{' '}
+                  <code>gh issue create</code>); needs <code>gh</code> auth. Off = ready-to-file
                   drafts, no side effects.
-                </span>
-              </span>
-            </label>
+                </FieldDescription>
+              </FieldContent>
+            </Field>
           )}
 
           <Button
@@ -184,9 +200,35 @@ export function SpecPanel({
               No hand-off yet — pick a format above and press Generate.
             </p>
           ) : markdown ? (
-            <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
-              {markdown}
-            </pre>
+            <>
+              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
+                {markdown}
+              </pre>
+              {spec.artifacts && spec.artifacts.length > 0 && (
+                <div className="mt-3 border-t pt-3">
+                  {/* Structured created-issue artifacts parsed server-side (#120) —
+                      link chips, the deferred follow-up from #110. */}
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                    Created issues
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 pb-3">
+                    {spec.artifacts.map((a) => (
+                      <a
+                        key={a.url}
+                        href={a.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border bg-secondary px-2.5 py-0.5 text-xs text-secondary-foreground hover:bg-secondary/80"
+                        title={a.url}
+                      >
+                        <ExternalLink className="size-3 shrink-0" aria-hidden />
+                        <span className="truncate">{a.title}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-sm text-muted-foreground">
               {done

@@ -11,6 +11,8 @@
  * plain Node vitest env.
  */
 
+import type { SpecFormat } from '@ai-storm/shared';
+
 /**
  * The intent behind feeding a selection into the prompt — one per card verb
  * (#13 `discuss`; #15 `expand` / `challenge` / `find-risks`). Adding a verb is:
@@ -95,9 +97,11 @@ export function frameTriage(board: string): string {
 /**
  * The output format of a spec hand-off (#110) — how the board is converged into
  * a generated artifact. Only the prompt framing varies per format; the subprocess
- * seam, WS streaming, and the Copy/Download flow are format-agnostic.
+ * seam, WS streaming, and the Copy/Download flow are format-agnostic. The union
+ * itself is canonical in `@ai-storm/shared` (#120) — the backend stamps it on
+ * run metadata — and re-exported here for the existing UI importers.
  */
-export type SpecFormat = 'prd' | 'plan' | 'issues' | 'tasks';
+export type { SpecFormat } from '@ai-storm/shared';
 
 /**
  * Per-format descriptors (#110) — the single source for the SpecPanel's picker
@@ -139,9 +143,10 @@ export interface SpecOptions {
   /**
    * `issues` format only: instruct the agent to actually run `gh issue create`
    * per issue (side effects are opt-in — off means ready-to-file drafts). The
-   * agent command needs `gh` auth and Bash tool permission in the configured
-   * agent args for this to succeed; the framing asks for a graceful drafts
-   * fallback when it can't.
+   * tool permission is granted per-run by the backend's vetted `create-issues`
+   * capability (#120), not by the workspace's global agent args; `gh` auth is
+   * still the user's — the framing asks for a graceful drafts fallback when the
+   * command can't create.
    */
   createIssues?: boolean;
 }

@@ -11,6 +11,7 @@ import {
   type SpecOptions,
 } from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
+import type { AgentArtifact } from '@ai-storm/shared'
 
 export interface AgentRun {
   status: 'spawned' | 'running' | 'exit' | 'error'
@@ -29,6 +30,12 @@ export interface AgentRun {
    * the panel reopens with a different picker selection.
    */
   format?: SpecFormat
+  /**
+   * Structured artifacts the backend parsed out of the finished run (#120) —
+   * created GitHub issues as `{ title, url }`, rendered as link chips in the
+   * SpecPanel. Present only after an `agent-artifacts` message arrived.
+   */
+  artifacts?: AgentArtifact[]
 }
 
 /**
@@ -65,6 +72,11 @@ function ensureSubscription(workspaceId: string): void {
   if (subscribed.has(workspaceId)) return
   subscribed.add(workspaceId)
   backend.subscribe(workspaceId, (msg) => {
+    if (msg.type === 'agent-artifacts') {
+      const run = getRun(workspaceId)
+      if (run) setRun(workspaceId, { ...run, artifacts: msg.artifacts })
+      return
+    }
     if (msg.type !== 'agent-status') return
     const cur = getRun(workspaceId) ?? { status: 'spawned', output: '' }
     switch (msg.status) {
@@ -74,7 +86,9 @@ function ensureSubscription(workspaceId: string): void {
           pid: msg.pid,
           output: '',
           kind: cur.kind,
-          format: cur.format,
+          // Prefer the backend-echoed format (#120): it survives where the
+          // dispatch-time stamp doesn't (refresh, second tab).
+          format: msg.format ?? cur.format,
         })
         break
       case 'stdout':
@@ -130,6 +144,11 @@ export const agent = {
       args: config.agentArgs ?? [],
       payload,
       cwd: config.cwd,
+      format,
+      // The side-effecting issues create-mode asks for a NAMED capability
+      // (#120); the backend maps it to a vetted, run-scoped permission flag —
+      // no more baking `gh` permission into the global agent args.
+      capabilities: opts.createIssues ? ['create-issues'] : [],
     })
     return true
   },
