@@ -117,7 +117,7 @@ export function CanvasPane() {
   const handoff = () => {
     if (!active) return
     // Open the panel even if the board is empty — it shows the empty/why state.
-    agent.generateSpec(active.id, active.terminal)
+    // Generation itself is now user-initiated from the panel's format picker (#110).
     setSpecOpen(true)
   }
   const startSession = () => {
@@ -211,6 +211,7 @@ export function CanvasPane() {
         onOpenChange={setSpecOpen}
         workspaceId={active?.id}
         workspaceName={active?.title}
+        terminalConfig={active?.terminal}
       />
 
       <BoardCommandPalette

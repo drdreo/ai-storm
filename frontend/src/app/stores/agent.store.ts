@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { backend } from './backend.store'
 import { canvas } from './canvas.store'
 import { ingestion } from './ingestion.store'
-import { framePrompt, frameTriage, frameSpec, type PromptIntent } from '../core/prompt-framing'
+import { framePrompt, frameTriage, frameSpec, type PromptIntent, type SpecFormat } from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
 
 export interface AgentRun {
@@ -16,6 +16,11 @@ export interface AgentRun {
    * routed to a different surface without conflating it with the spec artifact.
    */
   kind?: 'spec'
+  /**
+   * The output shape this run was framed for (#110) — stamped at dispatch so the
+   * panel can label the status badge and name the download even after reopen.
+   */
+  format?: SpecFormat
 }
 
 /**
@@ -56,7 +61,7 @@ function ensureSubscription(workspaceId: string): void {
     const cur = getRun(workspaceId) ?? { status: 'spawned', output: '' }
     switch (msg.status) {
       case 'spawned':
-        setRun(workspaceId, { status: 'running', pid: msg.pid, output: '', kind: cur.kind })
+        setRun(workspaceId, { status: 'running', pid: msg.pid, output: '', kind: cur.kind, format: cur.format })
         break
       case 'stdout':
       case 'stderr':
@@ -84,15 +89,25 @@ export const agent = {
    * run streams back into the store and surfaces in the control hub (with markdown
    * export) exactly like a `dispatch` run.
    *
+   * @param format Output shape (#110) — PRD, implementation plan, GitHub issues, or
+   *   agent task prompts; defaults to `'prd'`.
+   * @param opts.createIssues When `format` is `'issues'`, ask the agent to actually
+   *   run `gh issue create` (and report a created-issues summary) instead of
+   *   drafting the issues as markdown. Ignored for other formats.
    * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
-  generateSpec(workspaceId: string, config: TerminalConfig): boolean {
-    const payload = frameSpec(canvas.serializeForHandoff(workspaceId))
+  generateSpec(
+    workspaceId: string,
+    config: TerminalConfig,
+    format: SpecFormat = 'prd',
+    opts?: { createIssues?: boolean },
+  ): boolean {
+    const payload = frameSpec(canvas.serializeForHandoff(workspaceId), format, opts?.createIssues ?? false)
     if (!payload) return false
     const command = config.agentCommand?.trim() || 'claude'
 
     ensureSubscription(workspaceId)
-    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec' })
+    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec', format })
 
     backend.connect()
     backend.send({

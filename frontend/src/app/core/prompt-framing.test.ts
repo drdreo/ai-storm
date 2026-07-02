@@ -8,7 +8,15 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { framePrompt, frameTriage, frameSpec, PROMPT_TEMPLATES, type PromptIntent } from './prompt-framing';
+import {
+  framePrompt,
+  frameTriage,
+  frameSpec,
+  PROMPT_TEMPLATES,
+  SPEC_FORMATS,
+  type PromptIntent,
+  type SpecFormat,
+} from './prompt-framing';
 
 describe('framePrompt', () => {
   it('returns "" for an empty selection', () => {
@@ -249,5 +257,56 @@ describe('frameSpec (#89)', () => {
 
   it('tells the agent to treat ★ keep-marks as priorities (#59)', () => {
     expect(frameSpec('### ★ ✨ Feature: Pinned')).toContain('★');
+  });
+});
+
+describe('frameSpec formats (#110)', () => {
+  const formats: SpecFormat[] = ['prd', 'plan', 'issues', 'tasks'];
+
+  it('returns "" for an empty board regardless of format', () => {
+    for (const format of formats) {
+      expect(frameSpec('', format)).toBe('');
+    }
+  });
+
+  it('embeds the board and keeps the ★ keep-mark rule for every format', () => {
+    for (const format of formats) {
+      const prompt = frameSpec('### ★ ✨ Feature: Pinned', format);
+      expect(prompt).toContain('### ★ ✨ Feature: Pinned');
+      expect(prompt).toContain('★');
+    }
+  });
+
+  it('plan asks for milestones, steps, risks, and a testing strategy', () => {
+    const prompt = frameSpec('board', 'plan');
+    expect(prompt).toMatch(/milestones/i);
+    expect(prompt).toMatch(/acceptance criteria/i);
+    expect(prompt).toMatch(/risks/i);
+    expect(prompt).toMatch(/testing strategy/i);
+  });
+
+  it('issues drafts issues by default (no gh instruction) unless createIssues is set', () => {
+    const drafted = frameSpec('board', 'issues');
+    expect(drafted).toMatch(/ready-to-file/i);
+    expect(drafted).not.toMatch(/gh issue create/);
+
+    const created = frameSpec('board', 'issues', true);
+    expect(created).toMatch(/gh issue create/);
+    expect(created).toMatch(/summary table/i);
+  });
+
+  it('tasks asks for self-contained, copy-pasteable agent prompts', () => {
+    const prompt = frameSpec('board', 'tasks');
+    expect(prompt).toMatch(/self-contained/i);
+    expect(prompt).toMatch(/copy-pasteable/i);
+    expect(prompt).toMatch(/acceptance criteria/i);
+  });
+
+  it('SPEC_FORMATS has a label, description, and fileSuffix for every format', () => {
+    for (const format of formats) {
+      expect(SPEC_FORMATS[format].label).toBeTruthy();
+      expect(SPEC_FORMATS[format].description).toBeTruthy();
+      expect(SPEC_FORMATS[format].fileSuffix).toBeTruthy();
+    }
   });
 });

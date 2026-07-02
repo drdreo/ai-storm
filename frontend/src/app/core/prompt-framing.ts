@@ -93,25 +93,91 @@ export function frameTriage(board: string): string {
 }
 
 /**
- * Frame a spec/PRD hand-off request (#89, PD-015) — the convergence step that
+ * Output shapes for the spec/PRD hand-off (#110): which artifact the agent
+ * produces from the board. `SPEC_FORMATS` is the single source for the picker
+ * UI, the status-badge label, and the download filename — keeps
+ * format-specific copy out of the panel component.
+ */
+export type SpecFormat = 'prd' | 'plan' | 'issues' | 'tasks';
+
+export const SPEC_FORMATS: Record<SpecFormat, { label: string; description: string; fileSuffix: string }> = {
+  prd: {
+    label: 'PRD',
+    description: 'Overview, goals, non-goals, requirements, and open questions.',
+    fileSuffix: 'prd',
+  },
+  plan: {
+    label: 'Implementation plan',
+    description: 'Milestones, concrete steps with acceptance criteria, risks, and a testing strategy.',
+    fileSuffix: 'plan',
+  },
+  issues: {
+    label: 'GitHub issues',
+    description: 'Ready-to-file issues, one per card cluster — draft, or created via `gh` if enabled.',
+    fileSuffix: 'issues',
+  },
+  tasks: {
+    label: 'Agent task prompts',
+    description: 'Self-contained, copy-pasteable prompts for a coding agent — one per task.',
+    fileSuffix: 'tasks',
+  },
+};
+
+const SPEC_PREAMBLE =
+  `Ground everything in the cards below — do not invent scope. Cards marked with a leading ★ are the ` +
+  `user's keep-marks: treat them as priorities. Write GitHub-flavored markdown only.`;
+
+const SPEC_BODIES: Record<SpecFormat, string> = {
+  prd:
+    `Turn the brainstorm board below into a concise spec / PRD ready to hand to a coding agent. Write ` +
+    `these sections: Overview, Goals, Non-goals, Requirements, and Open questions. Output only the spec ` +
+    `markdown, nothing else.`,
+  plan:
+    `Turn the brainstorm board below into an ordered implementation plan ready to hand to a coding agent. ` +
+    `Write these sections: Milestones, concrete Steps (each with acceptance criteria), Risks / unknowns, ` +
+    `and Testing strategy. Output only the plan markdown, nothing else.`,
+  issues:
+    `Turn the brainstorm board below into a set of ready-to-file GitHub issues. For each issue, write a ` +
+    `"##" section with the issue title as the heading, followed by the issue body and a "Suggested ` +
+    `labels:" line. Output only the issues markdown, nothing else.`,
+  tasks:
+    `Turn the brainstorm board below into a set of self-contained agent task prompts — one per task, each ` +
+    `individually copy-pasteable. For each task, write a "##" section with the task title as the heading, ` +
+    `followed by Context, Task, Constraints, and Acceptance criteria. Output only the task-prompt ` +
+    `markdown, nothing else.`,
+};
+
+const SPEC_ISSUES_CREATE_BODY =
+  `Turn the brainstorm board below into a set of GitHub issues and CREATE them: run \`gh issue create\` ` +
+  `once per issue in the current working directory, using the card content for the title and body. If ` +
+  `\`gh\` is unavailable or unauthorized, fall back to drafting the issues as markdown instead and explain ` +
+  `why. End your reply with a summary table of what was created — columns "Title" and "URL" (or "Status" ` +
+  `for drafted/failed issues).`;
+
+/**
+ * Frame a spec/hand-off request (#89, #110, PD-015) — the convergence step that
  * closes the brainstorm → structure → hand-off loop (PRD §2). `board` is the
  * lifecycle-aware hand-off serialization (`handoffCardsToText`): superseded ghosts
  * already dropped, keep-marks already flagged with ★. The framed payload is piped
  * to the downstream orchestrator subprocess on stdin (PD-007 / `agent.generateSpec`),
  * NOT the live PTY — so, unlike the verb prompts and {@link frameTriage}, it is a
  * complete request with no editable trailing seam and no marker-echo concern.
+ *
+ * `format` selects the output shape (PRD, implementation plan, GitHub issues, or
+ * agent task prompts) via {@link SPEC_BODIES} — only the framing prompt varies;
+ * the subprocess seam, streaming, and Copy/Download flow are format-agnostic.
+ * When `format` is `'issues'`, `createIssues` switches the framing from drafting
+ * issues to instructing the agent to run `gh issue create` and report back a
+ * created-issues summary table (the "summary needs to be shown" requirement,
+ * satisfied by the streamed artifact itself — no new backend or parsing).
+ *
  * Returns `''` for an empty board (nothing to hand off).
  */
-export function frameSpec(board: string): string {
+export function frameSpec(board: string, format: SpecFormat = 'prd', createIssues = false): string {
   const trimmed = board.trim();
   if (!trimmed) return '';
-  return (
-    `Turn the brainstorm board below into a concise, executable spec / PRD ready to hand to a coding ` +
-    `agent. Write GitHub-flavored markdown with these sections: Overview, Goals, Non-goals, ` +
-    `Requirements, Implementation plan, and Open questions. Ground every requirement in the cards — do ` +
-    `not invent scope. Cards marked with a leading ★ are the user's keep-marks: treat them as priorities. ` +
-    `Output only the spec markdown, nothing else.\n\n${trimmed}\n`
-  );
+  const body = format === 'issues' && createIssues ? SPEC_ISSUES_CREATE_BODY : SPEC_BODIES[format];
+  return `${body} ${SPEC_PREAMBLE}\n\n${trimmed}\n`;
 }
 
 /**
