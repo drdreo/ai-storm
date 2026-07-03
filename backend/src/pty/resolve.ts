@@ -33,10 +33,13 @@ function hasPathSeparator(s: string): boolean {
 }
 
 /**
- * Control characters (NUL, ESC, CR/LF, …) never belong in a launch token: they
- * cannot appear in a legitimate executable name or CLI flag, but they can
- * smuggle line breaks into interpreters and escape sequences into logs. This
- * is checked on every platform, before any resolution happens (#142).
+ * STRICT launch-token validation (#142), applied only to client-triggered
+ * one-shot agent runs (`strict: true`): their args are supposed to be short
+ * static flags, so control characters (NUL, ESC, CR/LF, …) are never
+ * legitimate there. PTY session launches must NOT use this — their argv
+ * legitimately carries multi-line text (the `--append-system-prompt` prime,
+ * PD-020) and JSON with quotes (`--mcp-config`); they get the NUL-only check
+ * in `resolveLaunch` instead.
  */
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
@@ -95,13 +98,29 @@ export function hasFlag(args: readonly string[], flag: string): boolean {
   return args.some((a) => a === flag || a.startsWith(`${flag}=`));
 }
 
-export function resolveLaunch(command: string, args: string[]): ResolvedLaunch {
-  assertNoControlCharacters(command, args);
+export interface ResolveOptions {
+  /**
+   * Strict token validation (#142) for client-triggered one-shot agent runs:
+   * no control characters anywhere, no cmd metacharacters into a `.cmd`/`.bat`
+   * wrap. PTY sessions stay non-strict — their argv legitimately carries the
+   * multi-line prime and quoted JSON (see `CONTROL_CHARS` note).
+   */
+  strict?: boolean;
+}
+
+export function resolveLaunch(command: string, args: string[], opts: ResolveOptions = {}): ResolvedLaunch {
+  if (opts.strict) {
+    assertNoControlCharacters(command, args);
+  } else if ([command, ...args].some((t) => t.includes("\u0000"))) {
+    // NUL is never legal in any argv on any platform; everything else is the
+    // session owner's business.
+    throw new Error("Unsafe launch argument: NUL bytes are not allowed.");
+  }
   if (process.platform !== "win32") {
     return { cmd: command, args };
   }
   if (hasPathSeparator(command)) {
-    return wrapByExtension(command, args);
+    return wrapByExtension(command, args, opts);
   }
 
   const candidates = whereExe(command);
@@ -109,7 +128,7 @@ export function resolveLaunch(command: string, args: string[]): ResolvedLaunch {
   if (candidates.length === 0) throw new LaunchNotFoundError(command);
 
   const chosen = chooseBest(candidates);
-  const wrapped = wrapByExtension(chosen, args);
+  const wrapped = wrapByExtension(chosen, args, opts);
   log.debug("resolve.chosen", {
     command,
     chosen,
@@ -143,12 +162,14 @@ function whereExe(command: string): string[] {
   }
 }
 
-function wrapByExtension(target: string, args: string[]): ResolvedLaunch {
+function wrapByExtension(target: string, args: string[], opts: ResolveOptions = {}): ResolvedLaunch {
   const lower = target.toLowerCase();
   if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
-    // cmd.exe re-parses the /c line with its own (non-argv) rules; refuse any
-    // token it could interpret as shell syntax rather than trying to escape.
-    assertCmdSafeTokens(target, args);
+    // cmd.exe re-parses the /c line with its own (non-argv) rules; for strict
+    // (agent-run) launches, refuse any token it could interpret as shell
+    // syntax rather than trying to escape. Session launches keep their
+    // pre-#142 behaviour (the prime/JSON args predate this check).
+    if (opts.strict) assertCmdSafeTokens(target, args);
     return { cmd: "cmd.exe", args: ["/d", "/s", "/c", target, ...args] };
   }
   if (lower.endsWith(".ps1")) {

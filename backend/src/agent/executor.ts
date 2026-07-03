@@ -184,7 +184,11 @@ export function runAgent(
 
   let launch;
   try {
-    launch = withResourceLimits(resolveLaunch(spec.command, requestedArgs), limits);
+    // Strict validation is right for THIS path only: agent-run args are short
+    // static flags, so control chars / cmd metachars are never legitimate.
+    // (PTY sessions resolve non-strict — their argv carries the multi-line
+    // prime and quoted MCP JSON.)
+    launch = withResourceLimits(resolveLaunch(spec.command, requestedArgs, { strict: true }), limits);
   } catch (err) {
     log.error("agent.resolve_failed", {
       workspace: workspaceId,

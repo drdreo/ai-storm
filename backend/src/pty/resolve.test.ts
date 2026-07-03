@@ -1,5 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { tokenizeCommand, hasFlag, assertNoControlCharacters, assertCmdSafeTokens } from "./resolve.ts";
+import { tokenizeCommand, hasFlag, assertNoControlCharacters, assertCmdSafeTokens, resolveLaunch } from "./resolve.ts";
+
+describe("resolveLaunch strictness", () => {
+  const NL = String.fromCharCode(10);
+  const NUL = String.fromCharCode(0);
+
+  it("non-strict accepts a multi-line prime arg (PTY session path — #142 regression)", () => {
+    expect(() =>
+      resolveLaunch("node", ["--append-system-prompt", "You are in a brainstorming workspace." + NL + "Rules:"]),
+    ).not.toThrow();
+  });
+
+  it("non-strict accepts quoted JSON args (--mcp-config)", () => {
+    expect(() => resolveLaunch("node", ["--mcp-config", '{"mcpServers":{"x":{"type":"http"}}}'])).not.toThrow();
+  });
+
+  it("rejects NUL bytes even when non-strict", () => {
+    expect(() => resolveLaunch("node", ["a" + NUL + "b"])).toThrow(/NUL/);
+  });
+
+  it("strict mode rejects control characters (agent-run path)", () => {
+    expect(() => resolveLaunch("node", ["evil" + NL + "line"], { strict: true })).toThrow(/control characters/);
+  });
+});
 
 describe("tokenizeCommand", () => {
   it("returns an empty list for blank input", () => {
