@@ -62,15 +62,12 @@ export function Terminal() {
 
   // Update terminal themes when app theme changes.
   useEffect(() => {
-    const unsubscribe = useThemeStore.subscribe(
-      (state) => state.mode,
-      () => {
-        const bgColor = getTerminalBackgroundColor();
-        for (const entry of entries.current.values()) {
-          entry.term.options.theme = { background: bgColor };
-        }
+    const unsubscribe = useThemeStore.subscribe(() => {
+      const bgColor = getTerminalBackgroundColor();
+      for (const entry of entries.current.values()) {
+        entry.term.options.theme = { background: bgColor };
       }
-    );
+    });
     return unsubscribe;
   }, []);
 
@@ -92,7 +89,7 @@ export function Terminal() {
       return;
     }
     shownId.current = workspaceId;
-    const entry = ensure(workspaceId, hostEl);
+    const entry = ensure(workspaceId);
     // Only the active workspace's terminal is in the DOM.
     hostEl.replaceChildren(entry.container);
     // Open + wire xterm now that its container is attached, so the renderer
@@ -103,7 +100,7 @@ export function Terminal() {
     queueMicrotask(() => fit(workspaceId));
   }
 
-  function ensure(workspaceId: string, hostEl: HTMLElement): Entry {
+  function ensure(workspaceId: string): Entry {
     const existing = entries.current.get(workspaceId);
     if (existing) return existing;
 
