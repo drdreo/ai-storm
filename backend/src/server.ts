@@ -21,11 +21,14 @@ import type { SessionBackend } from "./session/types.ts";
 import { commandProfileName, getProfile } from "./session/extraction.ts";
 import { mcpRegistry } from "./mcp/registry.ts";
 import { mcpRoutes } from "./mcp/endpoint.ts";
-import { runAgent } from "./agent/executor.ts";
+import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, getFacilitationMode, type ServerMessage } from "@ai-storm/shared";
 
 let connectionSeq = 0;
+
+/** Ceiling on simultaneously live agent subprocesses per connection (#142). */
+const MAX_AGENTS_PER_CONNECTION = 4;
 
 /**
  * The §4.1 session-priming instruction. Delivered to a contract-aware harness
@@ -219,13 +222,7 @@ export function buildApp(config: ServerConfig) {
         // Detach (NOT kill) so durable sessions survive the disconnect (§3.5).
         for (const id of attached) backend.detach(id);
         attached.clear();
-        for (const child of agents) {
-          try {
-            child.kill();
-          } catch {
-            // already exited
-          }
-        }
+        for (const child of agents) killAgentTree(child);
         agents.clear();
       };
 
@@ -416,6 +413,18 @@ async function dispatch(
       }
       break;
     case "agent":
+      // Concurrency ceiling (#142): each run is a full harness process; an
+      // unbounded burst of `agent` messages would fork-bomb the host.
+      if (agents.size >= MAX_AGENTS_PER_CONNECTION) {
+        log.warn("agent.concurrency_capped", { conn, workspace: msg.workspaceId, live: agents.size });
+        send({
+          type: "agent-status",
+          workspaceId: msg.workspaceId,
+          status: "error",
+          data: `Concurrent agent-run limit (${MAX_AGENTS_PER_CONNECTION}) reached; wait for a run to finish.`,
+        });
+        break;
+      }
       log.info("agent.dispatch", {
         workspace: msg.workspaceId,
         command: msg.command,

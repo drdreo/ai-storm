@@ -1,0 +1,100 @@
+# Security review: PTY / agent subprocess spawning (#142)
+
+Scope: how the backend turns client `agent` messages and workspace session
+specs into local subprocesses — `backend/src/agent/executor.ts` (one-shot agent
+runs), `backend/src/pty/resolve.ts` (cross-platform launch resolution, shared
+with the PTY session backends), and the WebSocket dispatch in
+`backend/src/server.ts`. Platforms considered: Windows (ConPTY/node-pty,
+`cmd.exe`/`.ps1` shims), Linux (tmux), and future macOS (POSIX path, no
+platform-specific code today).
+
+## Threat model
+
+The server binds to loopback (`127.0.0.1`) and the `/pty` WebSocket rejects
+browser connections whose `Origin` is not a loopback host, so the attacker of
+interest is not a remote host but:
+
+1. **A compromised or buggy frontend** (XSS in the canvas, a malicious
+   dependency) sending crafted `agent`/`attach` messages.
+2. **Untrusted content flowing through trusted plumbing** — the payload handed
+   to an agent run is canvas/terminal-derived text the user did not author.
+3. **Resource abuse** — a runaway or hostile harness process exhausting CPU,
+   memory, or flooding the WebSocket.
+
+Spawning a *user-configured* command is the product's purpose; the goal is
+that the client can only launch the configured harness with vetted arguments
+and bounded resources — never smuggle extra commands through argument parsing.
+
+## Findings
+
+### Already sound (verified, unchanged)
+
+- **Payload never reaches argv.** The untrusted payload is delivered on stdin
+  and the stream is closed for EOF. This avoids both CVE-2024-27980-class
+  re-parsing and the ~32 KB Windows command-line limit.
+- **Capabilities are named, not raw argv.** A client requests `create-issues`;
+  the backend maps it to a hardcoded flag for the recognized command
+  (`capabilities.ts`). Unknown requests are rejected loudly.
+- **Origin gate.** Cross-site browser pages cannot open `/pty` (loopback-only
+  `Origin` allowlist; non-browser clients are local by definition).
+- **`.ps1` wrapping is injection-safe.** `powershell.exe -File` passes
+  remaining tokens as literal arguments; PowerShell does not re-parse them.
+
+### Fixed in this change
+
+| # | Finding | Severity | Fix |
+|---|---------|----------|-----|
+| 1 | **BatBadBut-class injection via `.cmd` shim wrapping** (CVE-2024-24576 class). npm shims (`claude.cmd`) are wrapped in `cmd.exe /d /s /c`, but cmd parses its `/c` line with its own rules, not `CommandLineToArgvW` — an arg like `x&calc` survives Node's quoting and cmd runs `calc`. Client-supplied `args`/`command` reach this path. | High (local, post-XSS) | `resolve.ts` rejects any token carrying a cmd metacharacter (`& \| < > ^ % "` or line breaks) before a `.cmd`/`.bat` wrap. Rejection, not escaping — cmd escaping is not reliably round-trippable. |
+| 2 | **No control-character validation on launch tokens** (NUL, ESC, CR/LF) on any platform. | Medium | `resolveLaunch` now rejects control characters in the command and every argument, for agent runs *and* PTY sessions. |
+| 3 | **No resource limits on agent runs** — a hung harness lived as long as the WebSocket. | Medium | Wall-clock timeout (default 10 min) with process-**tree** kill; on Linux, `prlimit --cpu` (default 900 s CPU). |
+| 4 | **Unbounded output/memory** — artifact capture buffered stdout without limit; stdout/stderr streamed to the browser unbounded. | Medium | Artifact capture capped (2 MB); total stdout+stderr capped (16 MB) — exceeding it kills the run with an explanatory `stderr` emit. Oversized payloads (> 2 MB) are refused before spawn. |
+| 5 | **Wrapper-only kill left orphans.** Disconnect teardown called `child.kill()`, which on Windows kills only the `cmd.exe` shim and strands the harness. | Medium | `killAgentTree`: `taskkill /t /f` on Windows; POSIX children are spawned `detached` (own process group) and the group is signalled. |
+| 6 | **No concurrency ceiling** — a message burst could fork-bomb the host. | Medium | Max 4 concurrent agent runs per connection; excess requests get an `agent-status: error`. |
+| 7 | **Loose `agent` message validation** — optional `args`/`cwd`/`capabilities`/`format` were not shape-checked; a non-string args entry would reach `spawn`. | Low | `parseClientMessage` now validates the optional fields (string / string-array). |
+
+### Resource-limit knobs
+
+All read per run from the environment (`0` disables where noted):
+
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `AI_STORM_AGENT_TIMEOUT_MS` | 600 000 | Wall-clock ceiling per run |
+| `AI_STORM_AGENT_MAX_PAYLOAD_BYTES` | 2 MiB | Max stdin payload accepted |
+| `AI_STORM_AGENT_MAX_CAPTURE_BYTES` | 2 MiB | Max stdout retained for artifact parsing |
+| `AI_STORM_AGENT_MAX_OUTPUT_BYTES` | 16 MiB | Max streamed stdout+stderr before kill |
+| `AI_STORM_AGENT_MAX_CPU_SECONDS` | 900 | Linux `prlimit --cpu`; 0 disables |
+| `AI_STORM_AGENT_MAX_MEMORY_MB` | 0 (off) | Linux `prlimit --as`; **opt-in** — V8-based harnesses (claude, codex) reserve tens of GB of *virtual* address space, so a naive cap breaks them at startup |
+
+### Deferred / accepted risk
+
+- **Hard memory/CPU caps on Windows and macOS.** Doing this properly needs
+  Windows Job Objects / macOS `posix_spawnattr` or cgroups — none reachable
+  from Node without native modules. The wall-clock timeout + tree kill is the
+  enforced bound there; the Linux path additionally gets `prlimit`.
+- **PTY sessions are intentionally not resource-limited.** They are the
+  user's interactive terminal; killing them on a timer would be wrong. They
+  inherit the injection fixes (shared `resolveLaunch`).
+- **`cwd` is client-chosen.** Spawning in an arbitrary directory is the
+  workspace feature itself; a nonexistent path fails the spawn and is
+  reported. No traversal risk beyond what the local user already has.
+
+## Reconnecting to spawned sessions after navigate/reload (investigated)
+
+Two different lifetimes exist today:
+
+- **PTY sessions already survive reloads.** A WebSocket close *detaches* the
+  stream but leaves the session alive (tmux detached session on POSIX;
+  in-process node-pty on Windows within the backend's lifetime, design §10.4).
+  Reattaching resumes it. No change needed.
+- **One-shot agent runs do not.** They are keyed to the *connection*
+  (`agents` set in `server.ts`) and are deliberately torn down on disconnect —
+  otherwise a reload would leak side-effecting runs (e.g. `gh issue create`)
+  with nobody watching the confirmation stream.
+
+Making agent runs survive a reload would need: a workspace-keyed run registry
+decoupled from the connection, a bounded output ring buffer for replay on
+reattach (the new `AI_STORM_AGENT_MAX_OUTPUT_BYTES` cap makes this feasible),
+an ownership rule for multiple tabs, and an orphan-reaping timeout for runs
+whose client never returns. That is a feature with UX decisions (does a reload
+*resume* the stream or summarize it?), not a hardening fix — recommended as a
+follow-up issue rather than part of #142.
