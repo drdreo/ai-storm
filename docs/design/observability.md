@@ -20,22 +20,12 @@ visualizer — not a hosted observability stack.
 
 ## 2. What's instrumented
 
-Both halves share the same shape, so a trace reads the same way regardless of which side emitted
-it:
-
-- `log.{debug,info,warn,error}(event, attrs)` — structured, human-readable console lines. Each call
-  also attaches an event to the currently active OTel span, so log lines show up inline in a trace
-  viewer even without a dedicated log pipeline.
-- `withSpan(name, attrs, fn)` — wraps `fn` in a real OTel span (`tracer.startActiveSpan`), records
-  thrown errors via `recordException` + `SpanStatusCode.ERROR`, and always ends the span.
-- `addEvent(name, attrs)` / `recordException(err)` — point-in-time additions to whatever span is
-  currently active.
-
-`@opentelemetry/api` is a normal (always-installed) dependency on both sides; the API is a no-op
-until a tracer provider is registered, so none of the call sites above cost anything unless tracing
-is explicitly turned on. The SDK/exporter packages that *do* register a provider are
-`optionalDependencies`, dynamically imported, and wrapped in try/catch — a missing or failed import
-degrades to "logs only, no exported spans" rather than crashing the app.
+`@opentelemetry/api` (and, on the frontend, `@opentelemetry/api-logs`) is a normal (always-installed)
+dependency on both sides; the API is a no-op until a provider is registered, so none of the
+instrumentation below costs anything unless tracing/logging is explicitly turned on. The SDK/exporter
+packages that *do* register a provider are `optionalDependencies`, dynamically imported, and wrapped
+in try/catch — a missing or failed import degrades to "console only, nothing exported" rather than
+crashing the app.
 
 ### Backend (`backend/src/log.ts`, `backend/src/otel.ts`)
 
@@ -43,25 +33,33 @@ degrades to "logs only, no exported spans" rather than crashing the app.
   `attach.request/setup/ready/error`, `resolve.candidates/chosen`, `pty.spawned/data/exit`,
   `input`/`input.flush_buffered`/`input.dropped`, `agent.dispatch/spawned/exit`, and the
   process-level `unhandledRejection`/`uncaughtException` guards in `main.ts`.
+- `log.{debug,info,warn,error}(event, attrs)` also attaches an event to the active OTel span
+  (`withSpan(name, attrs, fn)` wraps a flow in a real span, recording thrown errors).
 - `pnpm trace` (`node --import ./src/otel.ts src/main.ts`) registers a `NodeSDK` with an OTLP/HTTP
   trace exporter; `OTEL_EXPORTER_OTLP_ENDPOINT` points it at a collector (defaults to
   `http://localhost:4318`).
 
 ### Frontend (`frontend/src/lib/log.ts`, `frontend/src/otel.ts`)
 
-New for this issue:
+New for this issue — built on the **standard shipped browser instrumentations**
+(`@opentelemetry/browser-instrumentation`, see
+[opentelemetry-browser](https://github.com/open-telemetry/opentelemetry-browser)) instead of
+hand-rolled `window.onerror`/console wiring, to keep the setup minimal:
 
-- `initOtel()` runs once at boot (`main.tsx`). It always installs `window.onerror` and
-  `window.onunhandledrejection` handlers that call `log.error` (`frontend.uncaught_error` /
-  `frontend.unhandled_rejection`) with message/stack, and record the exception on the active span
-  if one exists — this is the "frontend errors are reported" acceptance criterion.
-- If `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` is set, it additionally registers a `WebTracerProvider`
-  (OTLP/HTTP exporter, `BatchSpanProcessor`) plus `FetchInstrumentation` and
-  `DocumentLoadInstrumentation`, so the boot-time document load and any `fetch` calls (e.g. the
-  `/health` probe) become spans automatically. Left unset, the whole SDK bootstrap is skipped.
-- Instrumented paths: `workspace.boot` (the CRDT registry rehydrate + starter-workspace flow) as a
-  span, WebSocket lifecycle (`ws.open/close/error`) in `backend.store.ts`, agent-run errors
-  (`agent.run_error`) in `agent.store.ts`, and the boot-failure path in `App.tsx`.
+- `initOtel()` runs once at boot (`main.tsx`) and always registers `ConsoleInstrumentation` (turns
+  every `console.{log,warn,error,info,debug}` call — including `log.ts`'s — into an OTel log record)
+  and `ErrorsInstrumentation` (does the same for uncaught errors and unhandled promise rejections).
+  Both patch global handlers unconditionally but are no-ops without a registered `LoggerProvider`,
+  so this satisfies "frontend errors/logs are reported" at zero cost when tracing is off.
+- If `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` is set, it additionally registers a `LoggerProvider` (OTLP
+  log exporter) so those console/error records actually export, plus a `WebTracerProvider` (OTLP
+  trace exporter) for `withSpan`. Left unset, only the instrumentation registration above runs — no
+  SDK, no exporter, no network calls.
+- `log.ts` is a thin leveled wrapper around `console.*` plus `withSpan`/`addEvent` for the couple of
+  places that want a real span rather than just a log line: `workspace.boot` (the CRDT registry
+  rehydrate + starter-workspace flow) is wrapped in `withSpan`; WebSocket lifecycle
+  (`ws.open/close/error`) in `backend.store.ts`, agent-run errors (`agent.run_error`) in
+  `agent.store.ts`, and the boot-failure path in `App.tsx` all just call `log.*`.
 
 Set `VITE_OTEL_SERVICE_NAME` to override the reported `service.name` (defaults to
 `ai-storm-frontend`); create `frontend/.env.local` to set either var for local dev (Vite loads
@@ -81,12 +79,14 @@ a required cloud account:
 | **otel-desktop-viewer** | Single static binary, no Docker | ✅ | ➖ | Interesting for a *dependency-free* option (matches the "local-first" spirit — no daemon to manage beyond the app itself), but less mature/maintained than Jaeger; keep as a fallback. |
 | **Hosted APM (Honeycomb, Datadog, etc.)** | N/A | — | — | Ruled out per the issue: this app never phones home, and a hosted vendor would be the one external dependency the whole product goes out of its way to avoid. |
 
-**Recommendation:** start with **Jaeger all-in-one** as the default local collector — one
-container, native OTLP/HTTP ingest on 4318, a trace UI on 16686, nothing to provision. It only
-covers traces (not the structured logs), but since both `log.ts` implementations already attach
-log events onto the active span, most of what you'd want from "logs" shows up inline in the Jaeger
-trace view anyway. If/when correlated log search across long-running sessions becomes a real need,
-revisit Grafana Tempo+Loki or SigNoz.
+**Recommendation:** start with **Jaeger all-in-one** as the default local collector for traces — one
+container, native OTLP/HTTP ingest on 4318, a trace UI on 16686, nothing to provision, and the
+backend already attaches its structured log events onto the active span, so most of what you'd want
+from "logs" shows up inline in the Jaeger trace view for `pnpm trace` sessions. Jaeger does not
+ingest OTLP logs, though, and the frontend now exports console/error log records as their own
+signal (via `ConsoleInstrumentation`/`ErrorsInstrumentation` + a `LoggerProvider`) rather than
+folding them into span events — so once frontend log search matters, not just traces, move to
+Grafana Tempo+Loki or SigNoz, both of which ingest OTLP logs and traces on the same collector.
 
 Actually vendoring a `docker-compose.yml` for Jaeger (or documenting the exact run command as a
 `pnpm` script) is left as follow-up work, per the issue ("will be added to repo later").
@@ -96,7 +96,10 @@ Actually vendoring a `docker-compose.yml` for Jaeger (or documenting the exact r
 - Metrics (counters/gauges) — spans + log events cover the "what happened and how long did it
   take" need; nothing in the current codebase needs numeric aggregation yet.
 - Sampling/rate-limiting — traffic volume here is one developer's local session, not production
-  load; every span is exported when tracing is on.
-- Auto-instrumenting the WebSocket transport itself — `@opentelemetry/instrumentation-fetch` covers
-  `fetch`, but there's no mature browser WS auto-instrumentation; the manual `ws.*` log events in
-  `backend.store.ts` cover the same events by hand.
+  load; every span/log record is exported when tracing is on.
+- Fetch/document-load/navigation auto-instrumentation — `@opentelemetry/browser-instrumentation`
+  ships these too (`navigation`, `navigation-timing`, `resource-timing`, `user-action`,
+  `web-vitals`), but they're skipped for now to keep the baseline setup minimal; `console` +
+  `errors` cover the acceptance criteria. Auto-instrumenting the WebSocket transport itself isn't an
+  option regardless — there's no mature browser WS auto-instrumentation — so the manual `ws.*` log
+  events in `backend.store.ts` cover those by hand either way.

@@ -1,12 +1,13 @@
 /**
- * Structured logging + tracing for the frontend flow — mirrors
- * `backend/src/log.ts` so the two halves read the same way in a combined trace.
+ * Structured logging + tracing for the frontend flow.
  *
- *   1. `log.{debug,info,warn,error}` — structured records, printed as
- *      human-readable console lines and attached as events to the active OTel
- *      span (if any is active).
+ *   1. `log.{debug,info,warn,error}` — thin, leveled `console.*` wrappers.
+ *      `otel.ts` registers the standard `ConsoleInstrumentation`
+ *      (https://github.com/open-telemetry/opentelemetry-browser), which turns
+ *      every one of these calls into an OTel log record automatically — no
+ *      manual span/log wiring needed here.
  *   2. `withSpan` / `addEvent` — real OTel spans via `@opentelemetry/api`. The
- *      API is a no-op unless a tracer provider is registered, so this has zero
+ *      API is a no-op unless a tracer provider is registered, so there is zero
  *      overhead until `initOtel()` (see `otel.ts`) turns tracing on.
  */
 
@@ -36,15 +37,11 @@ function clean(attrs?: Attrs): Record<string, AttrValue> {
 function emit(level: Level, event: string, attrs?: Attrs): void {
   if (LEVELS[level] < THRESHOLD) return
   const a = clean(attrs)
-
-  const active = trace.getActiveSpan()
-  if (active) active.addEvent(event, a)
-
-  const line = `${event}`
-  if (level === 'error') console.error(line, a)
-  else if (level === 'warn') console.warn(line, a)
-  else if (level === 'debug') console.debug(line, a)
-  else console.log(line, a)
+  const args = Object.keys(a).length ? [event, a] : [event]
+  if (level === 'error') console.error(...args)
+  else if (level === 'warn') console.warn(...args)
+  else if (level === 'debug') console.debug(...args)
+  else console.log(...args)
 }
 
 export const log = {
@@ -77,12 +74,4 @@ export async function withSpan<T>(
       span.end()
     }
   })
-}
-
-/** Record an exception on the active span (if any) without ending it. */
-export function recordException(err: unknown): void {
-  const active = trace.getActiveSpan()
-  if (!active) return
-  active.recordException(err instanceof Error ? err : new Error(String(err)))
-  active.setStatus({ code: SpanStatusCode.ERROR, message: String(err) })
 }

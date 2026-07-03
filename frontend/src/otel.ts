@@ -1,82 +1,83 @@
 /**
  * Optional OpenTelemetry Web bootstrap — the frontend half of `backend/src/otel.ts`.
  *
- * Off by default (spans stay no-ops, zero bundle cost beyond `@opentelemetry/api`).
- * Set `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in `frontend/.env.local`) to turn it
- * on: it registers a `WebTracerProvider` with an OTLP/HTTP exporter, plus
- * fetch/document-load auto-instrumentation, and wires `window.onerror` /
- * `unhandledrejection` to `log.error` + a recorded exception span so uncaught
- * frontend errors show up in the same trace backend as `pnpm trace` does for the
- * daemon (see `docs/decisions/observability.md`).
+ * Uses the standard shipped browser instrumentations
+ * (https://github.com/open-telemetry/opentelemetry-browser) instead of hand-rolled
+ * `window.onerror`/console wiring: `ConsoleInstrumentation` turns every
+ * `console.{log,warn,error,info,debug}` call into an OTel log record, and
+ * `ErrorsInstrumentation` does the same for uncaught errors and unhandled promise
+ * rejections. Both are always registered, so `log.ts`'s console calls and any
+ * uncaught error are captured — but they're no-ops without a registered
+ * `LoggerProvider`, so this costs nothing until an OTLP endpoint is configured.
  *
- * The optional SDK packages are dynamically imported so a plain `pnpm dev` build
- * never pulls them into the bundle.
+ * Set `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in `frontend/.env.local`) to
+ * additionally register a `LoggerProvider` + `TracerProvider` with OTLP/HTTP
+ * exporters, matching `pnpm trace` on the backend (see
+ * `docs/design/observability.md`).
+ *
+ * Every package here is an `optionalDependency`, dynamically imported, so a
+ * plain `pnpm dev`/`pnpm build` never pulls any of it into the bundle unless this
+ * code path actually runs.
  */
 
-import { log } from '@/lib/log'
-
 const endpoint = import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT as string | undefined
+const serviceName = (import.meta.env.VITE_OTEL_SERVICE_NAME as string | undefined) ?? 'ai-storm-frontend'
 
 export async function initOtel(): Promise<void> {
-  installGlobalErrorHandlers()
-
-  if (!endpoint) return
-
   try {
-    const [{ WebTracerProvider, BatchSpanProcessor, StackContextManager }, { OTLPTraceExporter }, { resourceFromAttributes }, { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION }, { registerInstrumentations }, { FetchInstrumentation }, { DocumentLoadInstrumentation }] =
+    const [{ ConsoleInstrumentation }, { ErrorsInstrumentation }, { registerInstrumentations }] =
       await Promise.all([
-        import('@opentelemetry/sdk-trace-web'),
-        import('@opentelemetry/exporter-trace-otlp-http'),
-        import('@opentelemetry/resources'),
-        import('@opentelemetry/semantic-conventions'),
+        import('@opentelemetry/browser-instrumentation/experimental/console'),
+        import('@opentelemetry/browser-instrumentation/experimental/errors'),
         import('@opentelemetry/instrumentation'),
-        import('@opentelemetry/instrumentation-fetch'),
-        import('@opentelemetry/instrumentation-document-load'),
       ])
 
-    const provider = new WebTracerProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: import.meta.env.VITE_OTEL_SERVICE_NAME ?? 'ai-storm-frontend',
-        [ATTR_SERVICE_VERSION]: '3.0.0',
-      }),
-      spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }))],
-    })
-    provider.register({ contextManager: new StackContextManager() })
+    if (endpoint) await registerExporters()
 
     registerInstrumentations({
-      instrumentations: [
-        new FetchInstrumentation({ propagateTraceHeaderCorsUrls: /.*/ }),
-        new DocumentLoadInstrumentation(),
-      ],
+      instrumentations: [new ConsoleInstrumentation(), new ErrorsInstrumentation()],
     })
-
-    log.info('otel.started', { endpoint })
   } catch (err) {
-    log.warn('otel.unavailable', { error: err instanceof Error ? err.message : String(err) })
+    console.warn('otel.unavailable', err instanceof Error ? err.message : String(err))
   }
 }
 
-let installed = false
+/** Wire up OTLP/HTTP exporters for logs (console + errors) and traces (`withSpan`). */
+async function registerExporters(): Promise<void> {
+  const [
+    { logs },
+    { LoggerProvider, BatchLogRecordProcessor },
+    { OTLPLogExporter },
+    { WebTracerProvider, BatchSpanProcessor, StackContextManager },
+    { OTLPTraceExporter },
+    { resourceFromAttributes },
+    { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION },
+  ] = await Promise.all([
+    import('@opentelemetry/api-logs'),
+    import('@opentelemetry/sdk-logs'),
+    import('@opentelemetry/exporter-logs-otlp-http'),
+    import('@opentelemetry/sdk-trace-web'),
+    import('@opentelemetry/exporter-trace-otlp-http'),
+    import('@opentelemetry/resources'),
+    import('@opentelemetry/semantic-conventions'),
+  ])
 
-function installGlobalErrorHandlers(): void {
-  if (installed) return
-  installed = true
-
-  window.addEventListener('error', (event) => {
-    log.error('frontend.uncaught_error', {
-      message: event.message,
-      source: event.filename,
-      line: event.lineno,
-      column: event.colno,
-      stack: event.error instanceof Error ? event.error.stack : undefined,
-    })
+  const resource = resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: serviceName,
+    [ATTR_SERVICE_VERSION]: '3.0.0',
   })
 
-  window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason
-    log.error('frontend.unhandled_rejection', {
-      message: reason instanceof Error ? reason.message : String(reason),
-      stack: reason instanceof Error ? reason.stack : undefined,
-    })
+  const loggerProvider = new LoggerProvider({
+    resource,
+    processors: [
+      new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: `${endpoint}/v1/logs` }) }),
+    ],
   })
+  logs.setGlobalLoggerProvider(loggerProvider)
+
+  const tracerProvider = new WebTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }))],
+  })
+  tracerProvider.register({ contextManager: new StackContextManager() })
 }

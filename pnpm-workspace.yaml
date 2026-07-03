@@ -25,3 +25,4 @@ minimumReleaseAgeExclude:
   - '@opentelemetry/sdk-trace-base@2.9.0'
   - '@opentelemetry/sdk-trace-web@2.9.0'
   - '@opentelemetry/sdk-trace@2.9.0'
+  - '@opentelemetry/exporter-logs-otlp-http@0.220.0'

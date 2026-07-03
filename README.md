@@ -172,11 +172,15 @@ the launch command), `pty.spawned` (pid), `attach.ready`, `input`
 flow is also emitted as an OTel span (via `@opentelemetry/api`); `pnpm trace`
 registers the exporter, otherwise the spans are no-ops.
 
-The frontend mirrors the same shape (`frontend/src/lib/log.ts`): uncaught errors
-and unhandled promise rejections are always logged, and setting
-`VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in a git-ignored `frontend/.env.local`)
-turns on a `WebTracerProvider` with the same OTLP/HTTP exporter plus
-fetch/document-load auto-instrumentation:
+The frontend mirrors the same shape (`frontend/src/lib/log.ts`), built on the
+standard shipped browser instrumentations
+([opentelemetry-browser](https://github.com/open-telemetry/opentelemetry-browser)):
+`ConsoleInstrumentation` and `ErrorsInstrumentation` are always registered, so
+every `log.*`/`console.*` call and every uncaught error or unhandled rejection
+becomes an OTel log record. Setting `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in
+a git-ignored `frontend/.env.local`) turns on a `LoggerProvider` + a
+`WebTracerProvider` with matching OTLP/HTTP exporters, so those records (and
+`withSpan` traces) actually get sent:
 
 ```sh
 # frontend/.env.local
