@@ -13,10 +13,12 @@
 try {
   const { NodeSDK } = await import("@opentelemetry/sdk-node");
   const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
+  const { getNodeAutoInstrumentations } = await import("@opentelemetry/auto-instrumentations-node");
 
   const sdk = new NodeSDK({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "ai-storm-backend",
     traceExporter: new OTLPTraceExporter(),
+    instrumentations: [getNodeAutoInstrumentations()],
   });
   sdk.start();
   console.log(
