@@ -3,6 +3,11 @@ import './index.css'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { App } from './app/App'
 import { theme } from './app/stores/theme.store'
+import { initOtel } from './otel'
+
+// Wires uncaught-error/rejection reporting and, if
+// VITE_OTEL_EXPORTER_OTLP_ENDPOINT is set, an OTLP trace exporter (#133).
+void initOtel()
 
 // Apply the stored theme choice and follow the OS when set to 'system'. The
 // inline script in index.html already painted the right palette before React;

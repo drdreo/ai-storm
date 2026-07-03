@@ -9,6 +9,7 @@ import {
   type WorkspaceStatus,
 } from '../core/models'
 import { buildExportBundle, type WorkspaceExportBundle } from '../core/workspace-portable'
+import { withSpan } from '../../lib/log'
 
 const REGISTRY_ROOM = 'ai-storm-registry'
 const ACTIVE_KEY = 'ai-storm.activeWorkspace'
@@ -66,38 +67,40 @@ export const workspace = {
   /** Boot sequence (PRD §3.5): rehydrate CRDT stores, restore last workspace. */
   async boot(): Promise<void> {
     if (useWorkspaceStore.getState().booted) return
-    await canvas.init()
+    await withSpan('workspace.boot', {}, async () => {
+      await canvas.init()
 
-    map = registryDoc.getMap<WorkspaceMeta>('workspaces')
-    registryPersistence = new IndexeddbPersistence(REGISTRY_ROOM, registryDoc)
-    await new Promise<void>((resolve) => {
-      registryPersistence.once('synced', () => resolve())
+      map = registryDoc.getMap<WorkspaceMeta>('workspaces')
+      registryPersistence = new IndexeddbPersistence(REGISTRY_ROOM, registryDoc)
+      await new Promise<void>((resolve) => {
+        registryPersistence.once('synced', () => resolve())
+      })
+
+      // Keep state in sync with the CRDT registry (immediate writes §3.5).
+      map.observe(() => syncFromMap())
+      syncFromMap()
+
+      const workspaces = useWorkspaceStore.getState().workspaces
+      if (workspaces.length === 0) {
+        // First run — stand up a starter workspace.
+        const id = workspace.create('Untitled Project')
+        workspace.setActive(id)
+      } else {
+        // Restore the most recently active workspace.
+        const stored = localStorage.getItem(ACTIVE_KEY)
+        const exists = stored && workspaces.some((w) => w.id === stored)
+        const fallback = [...workspaces].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0]
+        workspace.setActive(exists ? stored! : fallback.id)
+      }
+
+      // Let the canvas settle before rendering the panes (PRD §3.5 boot). tldraw
+      // loads the active workspace's store on mount, so this is a cheap no-op kept
+      // for parity / future async restore.
+      const active = useWorkspaceStore.getState().activeId
+      if (active) await canvas.ensureReady(active)
+
+      useWorkspaceStore.setState({ booted: true })
     })
-
-    // Keep state in sync with the CRDT registry (immediate writes §3.5).
-    map.observe(() => syncFromMap())
-    syncFromMap()
-
-    const workspaces = useWorkspaceStore.getState().workspaces
-    if (workspaces.length === 0) {
-      // First run — stand up a starter workspace.
-      const id = workspace.create('Untitled Project')
-      workspace.setActive(id)
-    } else {
-      // Restore the most recently active workspace.
-      const stored = localStorage.getItem(ACTIVE_KEY)
-      const exists = stored && workspaces.some((w) => w.id === stored)
-      const fallback = [...workspaces].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0]
-      workspace.setActive(exists ? stored! : fallback.id)
-    }
-
-    // Let the canvas settle before rendering the panes (PRD §3.5 boot). tldraw
-    // loads the active workspace's store on mount, so this is a cheap no-op kept
-    // for parity / future async restore.
-    const active = useWorkspaceStore.getState().activeId
-    if (active) await canvas.ensureReady(active)
-
-    useWorkspaceStore.setState({ booted: true })
   },
 
   create(title: string): string {

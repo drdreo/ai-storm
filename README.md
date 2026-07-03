@@ -172,6 +172,22 @@ the launch command), `pty.spawned` (pid), `attach.ready`, `input`
 flow is also emitted as an OTel span (via `@opentelemetry/api`); `pnpm trace`
 registers the exporter, otherwise the spans are no-ops.
 
+The frontend mirrors the same shape (`frontend/src/lib/log.ts`): uncaught errors
+and unhandled promise rejections are always logged, and setting
+`VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in a git-ignored `frontend/.env.local`)
+turns on a `WebTracerProvider` with the same OTLP/HTTP exporter plus
+fetch/document-load auto-instrumentation:
+
+```sh
+# frontend/.env.local
+VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+Point both at the same collector to see a workspace flow end-to-end. See
+[`docs/design/observability.md`](docs/design/observability.md) for what's
+instrumented on each side and the evaluated local-first trace visualizers
+(Jaeger all-in-one is the current recommendation).
+
 ## Security model (PRD §4.2)
 
 The daemon binds only to `127.0.0.1`, so the loop never leaves the local

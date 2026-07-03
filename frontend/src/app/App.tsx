@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar'
 import { CanvasPane } from './components/CanvasPane'
 import { ControlHub } from './components/ControlHub'
 import { SessionStatusDot } from './components/SessionStatusDot'
+import { log } from '@/lib/log'
 
 const HUB_MIN_WIDTH = 320
 const HUB_WIDTH_KEY = 'as:hub-width'
@@ -56,6 +57,7 @@ export function App() {
         if (!cancelled) backend.connect()
       })
       .catch((err: unknown) => {
+        log.error('app.boot_failed', { message: err instanceof Error ? err.message : String(err) })
         if (!cancelled) {
           setBootError(
             'Failed to restore local storage: ' +

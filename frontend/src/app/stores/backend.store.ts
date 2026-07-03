@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ClientMessage, ServerMessage } from '@ai-storm/shared'
+import { log } from '../../lib/log'
 
 export type ServerMessageHandler = (msg: ServerMessage) => void
 export type ConnectionState = 'connecting' | 'open' | 'closed'
@@ -46,6 +47,7 @@ function open(): void {
   socket = s
 
   s.onopen = () => {
+    log.info('ws.open', { url })
     setState('open')
     reconnectDelay = 500
     // Flush anything queued while disconnected.
@@ -68,12 +70,14 @@ function open(): void {
   }
 
   s.onclose = () => {
+    log.info('ws.close', { willReconnect: shouldRun })
     setState('closed')
     socket = null
     if (shouldRun) scheduleReconnect()
   }
 
   s.onerror = () => {
+    log.warn('ws.error', { url })
     s.close()
   }
 }

@@ -12,6 +12,7 @@ import {
 } from '../core/prompt-framing'
 import type { TerminalConfig } from '../core/models'
 import type { AgentArtifact } from '@ai-storm/shared'
+import { log } from '../../lib/log'
 
 export interface AgentRun {
   status: 'spawned' | 'running' | 'exit' | 'error'
@@ -99,6 +100,7 @@ function ensureSubscription(workspaceId: string): void {
         setRun(workspaceId, { ...cur, status: 'exit', code: msg.code })
         break
       case 'error':
+        log.error('agent.run_error', { workspace: workspaceId, data: msg.data })
         setRun(workspaceId, { ...cur, status: 'error', output: cur.output + (msg.data ?? '') })
         break
     }
