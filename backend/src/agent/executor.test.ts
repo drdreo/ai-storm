@@ -89,20 +89,24 @@ describe("runAgent", () => {
     expect(emits.at(-1)?.status).toBe("exit");
   }, 20_000);
 
-  it("reports an error for an unresolvable command", async () => {
+  it("reports failure for an unresolvable command", async () => {
+    // The failure shape is platform-dependent: Windows fails synchronously in
+    // resolveLaunch (where.exe miss, `error` status), bare POSIX gets a spawn
+    // ENOENT (`error` then `exit`), and Linux-under-prlimit spawns prlimit
+    // fine and sees it exit non-zero after failing to exec the target.
     const emits: Status[] = [];
-    const child = runAgent(
-      "ws-test",
-      { command: "definitely-not-a-real-binary-142", payload: "" },
-      (msg) => emits.push(msg),
-    );
-    // Windows fails synchronously in resolveLaunch (where.exe miss); POSIX
-    // defers to the spawn 'error' event.
-    if (child === null) {
-      expect(emits[0]).toMatchObject({ status: "error" });
-    } else {
-      await new Promise<void>((resolve) => child.on("error", () => resolve()));
-      expect(emits.some((e) => e.status === "error")).toBe(true);
-    }
+    await new Promise<void>((resolve) => {
+      const child = runAgent(
+        "ws-test",
+        { command: "definitely-not-a-real-binary-142", payload: "" },
+        (msg) => {
+          emits.push(msg);
+          if (msg.status === "error" || msg.status === "exit") resolve();
+        },
+      );
+      if (child === null) resolve();
+    });
+    const failed = emits.some((e) => e.status === "error" || (e.status === "exit" && e.code !== 0));
+    expect(failed).toBe(true);
   });
 });
