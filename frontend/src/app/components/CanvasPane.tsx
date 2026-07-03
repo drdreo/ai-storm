@@ -16,6 +16,7 @@ import { SpecPanel } from "./SpecPanel";
 import { BoardCommandPalette } from "./BoardCommandPalette";
 import type { ConvergentSummary } from "../core/synthesis";
 import type { SpecFormat, SpecOptions } from "../core/prompt-framing";
+import type { SearchableIdea } from "../core/canvas/search";
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -83,6 +84,9 @@ export function CanvasPane() {
   // is one interaction. Dispatch flows back up through `onGenerate`.
   const [specOpen, setSpecOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Full-text search index (#124): gathered fresh each time the palette opens —
+  // the mounted board read live, every other workspace from its persisted store.
+  const [searchIdeas, setSearchIdeas] = useState<readonly SearchableIdea[]>([]);
 
   // Bidirectional canvas (#13, #15): when a card verb fires, frame the card's
   // text and type it into the active workspace's live terminal. Registered once;
@@ -93,6 +97,20 @@ export function CanvasPane() {
       if (ws) agent.discussText(ws.id, text, intent, sourceRefs);
     });
   }, []);
+
+  // Gather the cross-workspace idea index whenever the palette opens (#124). A
+  // stale-guard drops the result if the palette closed before the async read
+  // (persisted-board reads hit IndexedDB) resolved.
+  useEffect(() => {
+    if (!paletteOpen) return;
+    let live = true;
+    canvas.collectSearchIdeas(workspaces.map((w) => ({ id: w.id, title: w.title }))).then((ideas) => {
+      if (live) setSearchIdeas(ideas);
+    });
+    return () => {
+      live = false;
+    };
+  }, [paletteOpen, workspaces]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -237,6 +255,8 @@ export function CanvasPane() {
         }
         onOpenSettings={ui.openSettings}
         onSwitchWorkspace={workspace.setActive}
+        searchIdeas={searchIdeas}
+        onRevealIdea={(workspaceId, shapeId) => void workspace.revealIdea(workspaceId, shapeId)}
       />
     </div>
   );

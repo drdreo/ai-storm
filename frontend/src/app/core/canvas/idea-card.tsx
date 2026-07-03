@@ -84,6 +84,13 @@ export interface IdeaCardMeta {
    * `meta` (like `starred`/`score`) so no schema migration.
    */
   editedByUser?: boolean;
+  /**
+   * Epoch ms the card was created (#124) — stamped by the AI ingest path and the
+   * manual "Idea" tool so full-text search can offer a date facet. `meta` (like
+   * `starred`/`score`) so no schema migration; cards made before this landed
+   * simply lack it and are treated as unknown-date by the search filter.
+   */
+  createdAt?: number;
   [key: string]: unknown;
 }
 

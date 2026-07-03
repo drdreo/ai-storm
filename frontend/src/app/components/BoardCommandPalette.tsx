@@ -1,15 +1,20 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Bot,
+  CalendarClock,
   FileOutput,
   Filter,
   Grid2X2,
   LayoutList,
+  Lightbulb,
   ListRestart,
   Play,
   Plus,
   Settings,
   Sparkles,
   Square,
+  Star,
+  User,
   Workflow
 } from "lucide-react";
 import {
@@ -20,8 +25,17 @@ import {
   CommandItem,
   CommandList
 } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import type { WorkspaceMeta } from "../core/models";
 import type { BoardFilter } from "../core/canvas/filter";
+import { KNOWN_KINDS, kindLabel, normalizeKind } from "../core/idea-descriptors";
+import {
+  EMPTY_IDEA_SEARCH_FILTER,
+  hasActiveIdeaFilter,
+  searchIdeas,
+  type IdeaSearchFilter,
+  type SearchableIdea
+} from "../core/canvas/search";
 
 type CommandIcon = typeof Plus;
 
@@ -66,6 +80,97 @@ interface BoardCommandPaletteProps {
   onClearFilters(): void;
   onOpenSettings(): void;
   onSwitchWorkspace(workspaceId: string): void;
+  /** Ideas gathered across every workspace for full-text search (#124). */
+  searchIdeas: readonly SearchableIdea[];
+  /** Open a search result's workspace and pan/zoom to the card (#124). */
+  onRevealIdea(workspaceId: string, shapeId: string): void;
+}
+
+const MAX_IDEA_RESULTS = 12;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Date facet presets (#124) — cycled by the "Any time" chip. */
+const DATE_PRESETS = [
+  { id: "any", label: "Any time", ms: undefined },
+  { id: "1d", label: "Past 24h", ms: DAY_MS },
+  { id: "7d", label: "Past 7 days", ms: 7 * DAY_MS },
+  { id: "30d", label: "Past 30 days", ms: 30 * DAY_MS }
+] as const;
+
+/** A small pressable filter chip — pressed state mirrors an active facet. */
+function FilterChip({
+  active,
+  onClick,
+  children
+}: {
+  active: boolean;
+  onClick(): void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input bg-transparent text-muted-foreground hover:bg-muted"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** The idea-search facet bar (#124): provenance / mark / triage / lifecycle / kind / date. */
+function IdeaFilterBar({
+  filter,
+  onChange,
+  availableKinds,
+  datePreset,
+  onCycleDate
+}: {
+  filter: IdeaSearchFilter;
+  onChange(next: IdeaSearchFilter): void;
+  availableKinds: readonly string[];
+  datePreset: (typeof DATE_PRESETS)[number];
+  onCycleDate(): void;
+}) {
+  const toggleKind = (kind: string) => {
+    const kinds = new Set(filter.kinds);
+    if (kinds.has(kind)) kinds.delete(kind);
+    else kinds.add(kind);
+    onChange({ ...filter, kinds });
+  };
+  const setOrigin = (origin: IdeaSearchFilter["origin"]) =>
+    onChange({ ...filter, origin: filter.origin === origin ? "all" : origin });
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-2 py-2">
+      <FilterChip active={filter.origin === "ai"} onClick={() => setOrigin("ai")}>
+        <Bot className="size-3" /> AI
+      </FilterChip>
+      <FilterChip active={filter.origin === "user"} onClick={() => setOrigin("user")}>
+        <User className="size-3" /> User
+      </FilterChip>
+      <FilterChip active={filter.markedOnly} onClick={() => onChange({ ...filter, markedOnly: !filter.markedOnly })}>
+        <Star className="size-3" /> Marked
+      </FilterChip>
+      <FilterChip active={filter.triagedOnly} onClick={() => onChange({ ...filter, triagedOnly: !filter.triagedOnly })}>
+        <Sparkles className="size-3" /> Triaged
+      </FilterChip>
+      <FilterChip active={datePreset.id !== "any"} onClick={onCycleDate}>
+        <CalendarClock className="size-3" /> {datePreset.label}
+      </FilterChip>
+      {availableKinds.map((kind) => (
+        <FilterChip key={kind} active={filter.kinds.has(kind)} onClick={() => toggleKind(kind)}>
+          {kindLabel(kind)}
+        </FilterChip>
+      ))}
+    </div>
+  );
 }
 
 function hasActiveFilter(filter: BoardFilter): boolean {
@@ -79,6 +184,54 @@ function hasActiveFilter(filter: BoardFilter): boolean {
 }
 
 export function BoardCommandPalette(props: BoardCommandPaletteProps) {
+  // Live search state (#124): the typed query drives cmdk's own filtering AND the
+  // idea search; the facet filter narrows which ideas are candidates.
+  const [query, setQuery] = useState("");
+  const [ideaFilter, setIdeaFilter] = useState<IdeaSearchFilter>(EMPTY_IDEA_SEARCH_FILTER);
+  const [dateIndex, setDateIndex] = useState(0);
+
+  // Reset the query and facets each time the palette opens, so a fresh Ctrl+K is
+  // a clean slate rather than resuming the last search.
+  useEffect(() => {
+    if (props.open) {
+      setQuery("");
+      setIdeaFilter(EMPTY_IDEA_SEARCH_FILTER);
+      setDateIndex(0);
+    }
+  }, [props.open]);
+
+  const datePreset = DATE_PRESETS[dateIndex];
+  const cycleDate = () => {
+    const next = (dateIndex + 1) % DATE_PRESETS.length;
+    setDateIndex(next);
+    const ms = DATE_PRESETS[next].ms;
+    setIdeaFilter((f) => ({ ...f, createdAfter: ms === undefined ? undefined : Date.now() - ms }));
+  };
+
+  // Kinds actually present across the gathered ideas — so the facet bar only
+  // offers kinds a search could match (mirrors the canvas Filter menu's approach).
+  const availableKinds = useMemo(() => {
+    const present = new Set<string>();
+    for (const idea of props.searchIdeas) {
+      const k = normalizeKind(idea.kind);
+      if (k) present.add(k);
+    }
+    return KNOWN_KINDS.filter((k) => present.has(k));
+  }, [props.searchIdeas]);
+
+  // Show the Ideas group whenever the user is searching — a keyword OR any active
+  // facet counts as an intent to browse ideas.
+  const searching = query.trim() !== "" || hasActiveIdeaFilter(ideaFilter);
+  const ideaResults = useMemo(
+    () => (searching ? searchIdeas(props.searchIdeas, query, ideaFilter, MAX_IDEA_RESULTS) : []),
+    [searching, props.searchIdeas, query, ideaFilter]
+  );
+
+  const revealIdea = (idea: SearchableIdea) => {
+    props.onRevealIdea(idea.workspaceId, idea.shapeId);
+    props.onOpenChange(false);
+  };
+
   const noWorkspace = props.active ? undefined : "Create or switch to a workspace first.";
   const boardUnavailable = noWorkspace ?? (!props.board.mounted ? "The board is still mounting." : undefined);
   const emptyBoard = boardUnavailable ?? (props.board.cardCount === 0 ? "The board is empty." : undefined);
@@ -264,9 +417,44 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
       title="Command palette"
       description="Search and run board commands."
     >
-      <CommandInput placeholder="Search commands..." />
+      <CommandInput placeholder="Search commands and ideas..." value={query} onValueChange={setQuery} />
+      {props.searchIdeas.length > 0 && (
+        <IdeaFilterBar
+          filter={ideaFilter}
+          onChange={setIdeaFilter}
+          availableKinds={availableKinds}
+          datePreset={datePreset}
+          onCycleDate={cycleDate}
+        />
+      )}
       <CommandList>
-        <CommandEmpty>No commands found.</CommandEmpty>
+        <CommandEmpty>No commands or ideas found.</CommandEmpty>
+        {ideaResults.length > 0 && (
+          <CommandGroup heading="Ideas">
+            {ideaResults.map(({ idea }) => {
+              const kind = normalizeKind(idea.kind);
+              const meta = [idea.workspaceTitle, kind ? kindLabel(kind) : null, idea.superseded ? "superseded" : null]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <CommandItem
+                  key={`${idea.workspaceId}:${idea.shapeId}`}
+                  // Value carries the searchable text (so cmdk keeps it) plus a
+                  // unique workspace:shape suffix for stable item identity.
+                  value={[idea.title, idea.body, kind, idea.workspaceTitle, idea.workspaceId, idea.shapeId].join(" ")}
+                  onSelect={() => revealIdea(idea)}
+                >
+                  {idea.origin === "ai" ? <Bot /> : <Lightbulb />}
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{idea.title || "Untitled idea"}</span>
+                    <span className="truncate text-xs text-muted-foreground">{meta}</span>
+                  </div>
+                  {idea.starred ? <Star className="size-3.5 shrink-0 fill-current text-amber-500" /> : null}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
         {groups.map(([group, groupActions]) => (
           <CommandGroup key={group} heading={group}>
             {groupActions.map((action) => {

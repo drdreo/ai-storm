@@ -29,7 +29,7 @@ import {
   type TLUiOverrides,
   type VecLike
 } from "tldraw";
-import { CARD_W, CARD_H, type IdeaCardShape } from "./idea-card";
+import { CARD_W, CARD_H, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 
 /**
  * Create a user-origin idea card centred on `at`, select it, and drop straight
@@ -44,8 +44,10 @@ export function createUserIdea(editor: Editor, at: VecLike): void {
       id,
       type: "idea-card",
       x: at.x - CARD_W / 2,
-      y: at.y - CARD_H / 2
-      // No props → the shape's getDefaultProps wins: origin: 'user'.
+      y: at.y - CARD_H / 2,
+      // No props → the shape's getDefaultProps wins: origin: 'user'. Stamp the
+      // creation time (#124) so the card is dateable by full-text search.
+      meta: { createdAt: Date.now() } satisfies IdeaCardMeta
     });
     editor.select(id);
     // Enter the card's text edit mode (idea-card canEdit === true) so the title

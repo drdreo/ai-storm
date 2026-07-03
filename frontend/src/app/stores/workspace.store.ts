@@ -183,6 +183,23 @@ export const workspace = {
   },
 
   /**
+   * Open the workspace holding an idea and frame that card (#124) — the landing
+   * action for a full-text search result. Switches onto the target workspace if
+   * needed (same path as clicking its sidebar row), waits for its editor to
+   * mount, then selects + pans/zooms to the card. Returns false if the shape no
+   * longer exists (e.g. the card was deleted since the index was gathered).
+   */
+  async revealIdea(workspaceId: string, shapeId: string): Promise<boolean> {
+    if (!map.get(workspaceId)) return false;
+    if (useWorkspaceStore.getState().activeId !== workspaceId) {
+      workspace.setActive(workspaceId);
+      canvas.switchTo(workspaceId);
+    }
+    await canvas.waitForMount(workspaceId);
+    return canvas.focusIdea(workspaceId, shapeId);
+  },
+
+  /**
    * Import a bundle as a brand-new workspace (#105) — never overwrites an
    * existing one. Standing up + activating the workspace mirrors `create` +
    * `setActive`; the imported board is rendered once its (fresh, empty) editor
