@@ -40,7 +40,7 @@ import {
   getProfile,
   commandProfileName,
   launchArgsForProfile,
-  type HarnessProfile,
+  type HarnessProfile
 } from "./extraction.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
@@ -142,7 +142,7 @@ interface Poller {
 async function defaultTmux(...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, {
     timeout: TMUX_TIMEOUT_MS,
-    windowsHide: true,
+    windowsHide: true
   });
   return stdout.trimEnd();
 }
@@ -203,7 +203,7 @@ export class TmuxSessionBackend implements SessionBackend {
       throw new Error(
         "tmux is required on POSIX but was not found on PATH. Install it: " +
           "sudo apt install tmux (Debian/Ubuntu), sudo dnf install tmux (Fedora), " +
-          "or brew install tmux (macOS).",
+          "or brew install tmux (macOS)."
       );
     }
   }
@@ -265,9 +265,7 @@ export class TmuxSessionBackend implements SessionBackend {
     // Select the harness profile from the command basename (e.g. "claude" →
     // CLAUDE_PROFILE), stored so `attach()` builds the extractor with it (§7.2).
     const profileName = spec.harnessProfile ?? commandProfileName(command);
-    const profile = getProfile(profileName, (m) =>
-      log.warn("extract.profile", { workspace: workspaceId, message: m }),
-    );
+    const profile = getProfile(profileName, (m) => log.warn("extract.profile", { workspace: workspaceId, message: m }));
     const cols = spec.cols ?? 120;
     this.#configs.set(workspaceId, { profile, cols });
 
@@ -292,14 +290,12 @@ export class TmuxSessionBackend implements SessionBackend {
       profile,
       specArgs,
       spec.prime,
-      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined,
+      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined
     );
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
-    const launch = command
-      ? withKeepAliveShell([command, ...args].map(shellEscape).join(" "))
-      : KEEP_ALIVE_SHELL;
+    const launch = command ? withKeepAliveShell([command, ...args].map(shellEscape).join(" ")) : KEEP_ALIVE_SHELL;
     const shellCommand = launch.length > 200 ? writeLaunchScript(launch) : launch;
 
     const envArgs: string[] = [];
@@ -322,7 +318,7 @@ export class TmuxSessionBackend implements SessionBackend {
         "-y",
         String(rows),
         ...envArgs,
-        shellCommand,
+        shellCommand
       );
     } catch (err) {
       // The minted token must not outlive a launch that never happened.
@@ -350,7 +346,11 @@ export class TmuxSessionBackend implements SessionBackend {
       throw new Error(`Failed to configure session "${sessionName}": ${msg}`, { cause: err });
     }
 
-    log.info("session.created", { workspace: workspaceId, session: sessionName, command: command || "(shell)" });
+    log.info("session.created", {
+      workspace: workspaceId,
+      session: sessionName,
+      command: command || "(shell)"
+    });
 
     return { workspaceId, sessionId: sessionName };
   }
@@ -360,7 +360,7 @@ export class TmuxSessionBackend implements SessionBackend {
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
-    onError: (message: string) => void,
+    onError: (message: string) => void
   ): Promise<void> {
     assertValidWorkspaceId(workspaceId);
     // Idempotent reattach: stop any prior poller for this workspace first.
@@ -384,7 +384,7 @@ export class TmuxSessionBackend implements SessionBackend {
         onDebug: (event, data) => {
           const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
           log[level](event, { workspace: workspaceId, ...data });
-        },
+        }
       }),
       scoreScanner: new ScoreScanner(scoreSink),
       // Query mode (no onScan): the poll keeps its own cadence and consults
@@ -401,7 +401,7 @@ export class TmuxSessionBackend implements SessionBackend {
       rawOffset: 0,
       rawWatcher: null,
       rawDecoder: new StringDecoder("utf8"),
-      rawReading: false,
+      rawReading: false
     };
     this.#pollers.set(workspaceId, poller);
 
@@ -479,7 +479,7 @@ export class TmuxSessionBackend implements SessionBackend {
         workspace: workspaceId,
         kind: idea.kind ?? "",
         title: idea.title,
-        body: idea.body.slice(0, 120),
+        body: idea.body.slice(0, 120)
       });
       poller.onIdea(idea);
     }
@@ -489,7 +489,7 @@ export class TmuxSessionBackend implements SessionBackend {
         workspace: workspaceId,
         ref: score.ref,
         impact: score.impact,
-        effort: score.effort,
+        effort: score.effort
       });
       poller.onScore(score);
     }
@@ -517,7 +517,7 @@ export class TmuxSessionBackend implements SessionBackend {
     } catch (err) {
       log.warn("pipe.start_failed", {
         workspace: workspaceId,
-        message: err instanceof Error ? err.message : String(err),
+        message: err instanceof Error ? err.message : String(err)
       });
     }
   }
@@ -589,7 +589,7 @@ export class TmuxSessionBackend implements SessionBackend {
       "-p",
       "-J",
       "-S",
-      `-${CAPTURE_LINES}`,
+      `-${CAPTURE_LINES}`
     );
     return sanitize(raw);
   }
@@ -606,7 +606,7 @@ export class TmuxSessionBackend implements SessionBackend {
     } catch (err) {
       log.warn("send.failed", {
         workspace: workspaceId,
-        message: err instanceof Error ? err.message : String(err),
+        message: err instanceof Error ? err.message : String(err)
       });
     }
   }

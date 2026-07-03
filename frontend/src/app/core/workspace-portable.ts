@@ -6,14 +6,14 @@
  * validation, and the filename convention, so it stays pure and unit-testable
  * (no tldraw `Editor` involved).
  */
-import type { TerminalConfig, WorkspaceMeta } from './models';
+import type { TerminalConfig, WorkspaceMeta } from "./models";
 
 export interface PortableCard {
   ref: string;
   kind: string;
   title: string;
   body: string;
-  origin: 'ai' | 'user';
+  origin: "ai" | "user";
   superseded: boolean;
   starred: boolean;
 }
@@ -21,7 +21,7 @@ export interface PortableCard {
 export interface PortableEdge {
   from: string;
   to: string;
-  relation: 'about' | 'supersedes';
+  relation: "about" | "supersedes";
 }
 
 export interface PortableBoard {
@@ -48,7 +48,7 @@ export function buildExportBundle(meta: WorkspaceMeta, board: PortableBoard): Wo
     version: CURRENT_VERSION,
     exportedAt: Date.now(),
     workspace: { title: meta.title, color: meta.color, terminal: { ...meta.terminal } },
-    board,
+    board
   };
 }
 
@@ -62,24 +62,24 @@ export function parseExportBundle(json: string): WorkspaceExportBundle {
   try {
     data = JSON.parse(json);
   } catch {
-    throw new Error('That file is not valid JSON.');
+    throw new Error("That file is not valid JSON.");
   }
-  if (!data || typeof data !== 'object') {
-    throw new Error('Not a recognizable ai-storm workspace file.');
+  if (!data || typeof data !== "object") {
+    throw new Error("Not a recognizable ai-storm workspace file.");
   }
   const bundle = data as Record<string, unknown>;
   if (bundle.version !== CURRENT_VERSION) {
     throw new Error(
-      `Unsupported workspace file version (got ${JSON.stringify(bundle.version)}, expected ${CURRENT_VERSION}).`,
+      `Unsupported workspace file version (got ${JSON.stringify(bundle.version)}, expected ${CURRENT_VERSION}).`
     );
   }
   const ws = bundle.workspace as Record<string, unknown> | undefined;
-  if (!ws || typeof ws.title !== 'string' || !ws.terminal || typeof ws.terminal !== 'object') {
-    throw new Error('Not a recognizable ai-storm workspace file.');
+  if (!ws || typeof ws.title !== "string" || !ws.terminal || typeof ws.terminal !== "object") {
+    throw new Error("Not a recognizable ai-storm workspace file.");
   }
   const board = bundle.board as Record<string, unknown> | undefined;
   if (!board || !Array.isArray(board.cards) || !Array.isArray(board.edges)) {
-    throw new Error('Not a recognizable ai-storm workspace file.');
+    throw new Error("Not a recognizable ai-storm workspace file.");
   }
   return bundle as unknown as WorkspaceExportBundle;
 }
@@ -88,8 +88,8 @@ export function parseExportBundle(json: string): WorkspaceExportBundle {
 export function exportFileSlug(title: string): string {
   const slug = title
     .trim()
-    .replace(/[^\w-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^\w-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return slug || 'workspace';
+  return slug || "workspace";
 }

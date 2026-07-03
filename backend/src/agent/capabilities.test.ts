@@ -10,7 +10,7 @@ describe("resolveCapabilities (#120)", () => {
   it("maps create-issues to the vetted flag for claude", () => {
     expect(resolveCapabilities("claude", ["create-issues"])).toEqual({
       args: ["--allowedTools", "Bash(gh issue create:*)"],
-      rejected: [],
+      rejected: []
     });
   });
 
@@ -20,11 +20,11 @@ describe("resolveCapabilities (#120)", () => {
       "claude --model=opus",
       "C:\\Users\\x\\AppData\\Roaming\\npm\\claude.cmd",
       "/usr/local/bin/claude",
-      "claude.exe",
+      "claude.exe"
     ]) {
       expect(resolveCapabilities(command, ["create-issues"]).args).toEqual([
         "--allowedTools",
-        "Bash(gh issue create:*)",
+        "Bash(gh issue create:*)"
       ]);
     }
   });
@@ -32,7 +32,7 @@ describe("resolveCapabilities (#120)", () => {
   it("rejects the capability for an unrecognized command instead of widening", () => {
     expect(resolveCapabilities("aider", ["create-issues"])).toEqual({
       args: [],
-      rejected: ["create-issues"],
+      rejected: ["create-issues"]
     });
   });
 

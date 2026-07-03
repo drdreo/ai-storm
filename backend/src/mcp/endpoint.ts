@@ -60,18 +60,18 @@ const TOOLS = [
           type: "string",
           minLength: 1,
           maxLength: 120,
-          description: "The card heading — short, stable.",
+          description: "The card heading — short, stable."
         },
         body: {
           type: "string",
           maxLength: 2000,
           default: "",
-          description: "Description; multi-line welcome.",
+          description: "Description; multi-line welcome."
         },
         kind: {
           type: "string",
           pattern: KIND_PATTERN.source,
-          description: "Optional kind tag: risk | feature | question | decision | …",
+          description: "Optional kind tag: risk | feature | question | decision | …"
         },
         links: {
           type: "array",
@@ -84,23 +84,23 @@ const TOOLS = [
               to: {
                 type: "string",
                 pattern: REF_PATTERN.source,
-                description: 'Short ref of an existing card (@a1 → "a1").',
+                description: 'Short ref of an existing card (@a1 → "a1").'
               },
               relation: {
                 type: "string",
                 enum: ["about", "supersedes"],
                 default: "about",
-                description: '"supersedes" when this idea replaces the target card.',
-              },
+                description: '"supersedes" when this idea replaces the target card.'
+              }
             },
             required: ["to"],
-            additionalProperties: false,
-          },
-        },
+            additionalProperties: false
+          }
+        }
       },
       required: ["title"],
-      additionalProperties: false,
-    },
+      additionalProperties: false
+    }
   },
   {
     name: "capture_score",
@@ -113,16 +113,16 @@ const TOOLS = [
         ref: {
           type: "string",
           pattern: REF_PATTERN.source,
-          description: "The card's @ref (required — a score needs a target).",
+          description: "The card's @ref (required — a score needs a target)."
         },
         impact: { type: "integer", minimum: 1, maximum: 5 },
         effort: { type: "integer", minimum: 1, maximum: 5 },
-        confidence: { type: "integer", minimum: 1, maximum: 5 },
+        confidence: { type: "integer", minimum: 1, maximum: 5 }
       },
       required: ["ref", "impact", "effort"],
-      additionalProperties: false,
-    },
-  },
+      additionalProperties: false
+    }
+  }
 ] as const;
 
 // ── Tool-argument parsing (hand-rolled, protocol.ts style) ──
@@ -145,9 +145,7 @@ function parseCaptureIdea(args: Record<string, unknown>): Idea {
     throw new Error(`\`body\` is too long (${body.length} chars; max 2000). Trim the description.`);
   }
   if (kind !== undefined && (typeof kind !== "string" || !KIND_PATTERN.test(kind))) {
-    throw new Error(
-      "`kind` must be a lowercase tag matching ^[a-z][\\w-]*$ (e.g. risk, feature, question, decision).",
-    );
+    throw new Error("`kind` must be a lowercase tag matching ^[a-z][\\w-]*$ (e.g. risk, feature, question, decision).");
   }
   const parsedLinks: IdeaLink[] = [];
   if (links !== undefined) {
@@ -155,7 +153,7 @@ function parseCaptureIdea(args: Record<string, unknown>): Idea {
     if (links.length > 8) throw new Error(`Too many links (${links.length}; max 8).`);
     for (const link of links) {
       if (typeof link !== "object" || link === null) {
-        throw new Error("Each link must be an object like {to: \"a1\"}.");
+        throw new Error('Each link must be an object like {to: "a1"}.');
       }
       const { to, relation } = link as Record<string, unknown>;
       if (typeof to !== "string" || !REF_PATTERN.test(to)) {
@@ -191,7 +189,7 @@ function parseCaptureScore(args: Record<string, unknown>): Score {
   const score: Score = {
     ref,
     impact: parseScoreValue(impact, "impact"),
-    effort: parseScoreValue(effort, "effort"),
+    effort: parseScoreValue(effort, "effort")
   };
   if (confidence !== undefined) score.confidence = parseScoreValue(confidence, "confidence");
   return score;
@@ -227,7 +225,7 @@ function initializeResult(params: Record<string, unknown> | undefined) {
     // otherwise counter-offer ours (the client then decides to proceed or not).
     protocolVersion: requested && KNOWN_VERSIONS.has(requested) ? requested : PROTOCOL_VERSION,
     capabilities: { tools: {} },
-    serverInfo: SERVER_INFO,
+    serverInfo: SERVER_INFO
   };
 }
 
@@ -240,7 +238,7 @@ function handleToolCall(
   id: RpcId,
   params: Record<string, unknown> | undefined,
   workspaceId: string,
-  session: McpSession,
+  session: McpSession
 ) {
   const name = params?.name;
   const args = (params?.arguments ?? {}) as Record<string, unknown>;
@@ -269,7 +267,7 @@ function handleToolCall(
         workspace: workspaceId,
         ref,
         kind: idea.kind ?? "",
-        title: idea.title,
+        title: idea.title
       });
       attachment.onIdea(idea);
       return toolText(id, `Captured as @${ref}. Link follow-up ideas to it with links:[{to:"${ref}"}].`);
@@ -282,7 +280,7 @@ function handleToolCall(
         workspace: workspaceId,
         ref: score.ref,
         impact: score.impact,
-        effort: score.effort,
+        effort: score.effort
       });
       attachment.onScore(score);
     }

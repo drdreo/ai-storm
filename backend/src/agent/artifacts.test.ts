@@ -7,7 +7,7 @@ describe("parseIssueArtifacts (#120)", () => {
       "gh is not authorized; outputting drafts instead.",
       "## Add dark mode",
       "Body text…",
-      "## Fix login flake",
+      "## Fix login flake"
     ].join("\n");
     expect(parseIssueArtifacts(drafts)).toEqual([]);
     expect(parseIssueArtifacts("")).toEqual([]);
@@ -20,24 +20,36 @@ describe("parseIssueArtifacts (#120)", () => {
       "| Title | URL |",
       "| --- | --- |",
       "| Add dark mode | https://github.com/acme/app/issues/12 |",
-      "| Fix login flake | https://github.com/acme/app/issues/13 |",
+      "| Fix login flake | https://github.com/acme/app/issues/13 |"
     ].join("\n");
     expect(parseIssueArtifacts(out)).toEqual([
-      { kind: "github-issue", title: "Add dark mode", url: "https://github.com/acme/app/issues/12" },
-      { kind: "github-issue", title: "Fix login flake", url: "https://github.com/acme/app/issues/13" },
+      {
+        kind: "github-issue",
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12"
+      },
+      {
+        kind: "github-issue",
+        title: "Fix login flake",
+        url: "https://github.com/acme/app/issues/13"
+      }
     ]);
   });
 
   it("uses a markdown-link label as the title", () => {
     const out = "| Add dark mode | [acme/app#12](https://github.com/acme/app/issues/12) |";
     expect(parseIssueArtifacts(out)).toEqual([
-      { kind: "github-issue", title: "Add dark mode", url: "https://github.com/acme/app/issues/12" },
+      {
+        kind: "github-issue",
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12"
+      }
     ]);
   });
 
   it("falls back to Issue #n for a bare gh-printed URL line", () => {
     expect(parseIssueArtifacts("https://github.com/acme/app/issues/7")).toEqual([
-      { kind: "github-issue", title: "Issue #7", url: "https://github.com/acme/app/issues/7" },
+      { kind: "github-issue", title: "Issue #7", url: "https://github.com/acme/app/issues/7" }
     ]);
   });
 
@@ -47,10 +59,14 @@ describe("parseIssueArtifacts (#120)", () => {
       "",
       "| Title | URL |",
       "| --- | --- |",
-      "| Add dark mode | https://github.com/acme/app/issues/12 |",
+      "| Add dark mode | https://github.com/acme/app/issues/12 |"
     ].join("\n");
     expect(parseIssueArtifacts(out)).toEqual([
-      { kind: "github-issue", title: "Add dark mode", url: "https://github.com/acme/app/issues/12" },
+      {
+        kind: "github-issue",
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12"
+      }
     ]);
   });
 

@@ -48,7 +48,7 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
     id: "free",
     label: "Free-form",
     hint: "type directly — ideas land on the canvas",
-    prime: "",
+    prime: ""
   },
   {
     id: "scamper",
@@ -59,7 +59,7 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
       "Substitute, Combine, Adapt, Modify (magnify/minify), Put to another use, " +
       "Eliminate, Reverse. Work the topic through each lens in turn and capture " +
       "the ideas each lens provokes — you may name the lens in the " +
-      'title (e.g. "Substitute: …").',
+      'title (e.g. "Substitute: …").'
   },
   {
     id: "six-hats",
@@ -71,7 +71,7 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
       "(risks/caution), Yellow (benefits/optimism), Green (creativity/alternatives), " +
       "Blue (process/overview). Move hat by hat and capture what each surfaces as " +
       "ideas, tagging the kind where it fits (Black → risk, a Blue " +
-      "summary → decision).",
+      "summary → decision)."
   },
   {
     id: "crazy-8s",
@@ -81,7 +81,7 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
       "FACILITATION MODE — Crazy-8s. Generate ideas fast and in volume: aim for " +
       "eight distinct, divergent ideas in quick succession before refining any of " +
       "them. Favour quantity and range over polish, and capture each as its own " +
-      "idea. Don't self-censor — wild ideas are welcome.",
+      "idea. Don't self-censor — wild ideas are welcome."
   },
   {
     id: "yes-and",
@@ -92,8 +92,8 @@ export const FACILITATION_MODES: readonly FacilitationMode[] = [
       "(yours or the user's) and extend it rather than blocking it. When you build " +
       "on an existing card, link your additive idea to it with its @ref so the " +
       "build chain is visible on the canvas. Keep momentum — every turn should " +
-      "accept and add.",
-  },
+      "accept and add."
+  }
 ];
 
 /** Look up a mode by id, falling back to the default if absent/unknown. */

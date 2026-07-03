@@ -29,17 +29,14 @@ const ANSI_PATTERN = new RegExp(
     "\\u001B[()][AB0-2]",
     // Single-character escapes: ESC + one byte in @..Z or \.._
     //   (excludes 0x5B '[' and 0x5D ']' which start CSI/OSC, handled above).
-    "\\u001B[\\u0040-\\u005A\\u005E-\\u005F]",
+    "\\u001B[\\u0040-\\u005A\\u005E-\\u005F]"
   ].join("|"),
-  "g",
+  "g"
 );
 
 // Stray C0 control bytes (0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F) plus DEL (0x7F),
 // excluding \t (0x09), \n (0x0A), \r (0x0D) which carry layout meaning.
-const STRAY_CONTROL = new RegExp(
-  "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]",
-  "g",
-);
+const STRAY_CONTROL = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]", "g");
 
 /** Remove all ANSI escape sequences from a string. */
 export function stripAnsi(input: string): string {

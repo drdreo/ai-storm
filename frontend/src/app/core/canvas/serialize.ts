@@ -4,18 +4,12 @@
  * for synthesis/triage (#28/#60), and the ref-annotated triage serialization (#60).
  * No mutation here (except `cardRef`'s lazy ref mint); these just read the editor.
  */
-import type { Editor } from 'tldraw';
-import { serializeCards, handoffCardsToText } from '../canvas-text';
-import { isTriageableKind, normalizeKind } from '../idea-descriptors';
-import type { BoardCard, BoardEdge, BoardSnapshot } from '../synthesis';
-import {
-  cardRef,
-  cardsInOrder,
-  content,
-  type IdeaCardMeta,
-  type IdeaCardShape,
-} from './idea-card';
-import { ideaEdges } from './edges';
+import type { Editor } from "tldraw";
+import { serializeCards, handoffCardsToText } from "../canvas-text";
+import { isTriageableKind, normalizeKind } from "../idea-descriptors";
+import type { BoardCard, BoardEdge, BoardSnapshot } from "../synthesis";
+import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import { ideaEdges } from "./edges";
 
 /** Serialize every idea card to a normalized markdown document (PRD §3.2). */
 export function serializeEditor(editor: Editor): string {
@@ -40,12 +34,12 @@ export function collectBoard(editor: Editor): BoardSnapshot {
     body: c.props.body,
     starred: !!(c.meta as IdeaCardMeta).starred,
     superseded: c.props.superseded,
-    origin: c.props.origin,
+    origin: c.props.origin
   }));
   const edges: BoardEdge[] = ideaEdges(editor, cardIds).map((e) => ({
     from: e.from as string,
     to: e.to as string,
-    relation: e.relation,
+    relation: e.relation
   }));
   return { cards: boardCards, edges };
 }
@@ -55,9 +49,7 @@ export function collectBoard(editor: Editor): BoardSnapshot {
  * idea cards, or the whole canvas when nothing is selected.
  */
 export function selectedText(editor: Editor): string {
-  const selected = editor
-    .getSelectedShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const selected = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   if (selected.length === 0) return serializeEditor(editor);
   return serializeCards(selected.map(content));
 }
@@ -70,9 +62,7 @@ export function selectedText(editor: Editor): string {
  * keep-marked cards (#59) are flagged with ★. Empty / all-ghost board → `''`.
  */
 export function serializeForHandoff(editor: Editor): string {
-  const selected = editor
-    .getSelectedShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const selected = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const source = selected.length > 0 ? selected : cardsInOrder(editor);
   return handoffCardsToText(
     source.map((c) => ({
@@ -80,8 +70,8 @@ export function serializeForHandoff(editor: Editor): string {
       title: c.props.title,
       body: c.props.body,
       starred: !!(c.meta as IdeaCardMeta).starred,
-      superseded: c.props.superseded,
-    })),
+      superseded: c.props.superseded
+    }))
   );
 }
 
@@ -93,16 +83,18 @@ export function serializeForHandoff(editor: Editor): string {
  * prose for context) — the ref is the whole point here. Empty board → `''`.
  */
 export function serializeForTriage(editor: Editor): string {
-  return cardsInOrder(editor)
-    // Only rate actionable ideas (#60) — skip risks/questions (commentary).
-    .filter((card) => isTriageableKind(card.props.kind))
-    .map((card) => {
-      const ref = cardRef(editor, card.id);
-      const kind = normalizeKind(card.props.kind);
-      const tag = kind ? ` [${kind}]` : '';
-      const body = card.props.body?.trim();
-      const desc = body ? ` — ${body}` : '';
-      return `@${ref}${tag} ${card.props.title.trim()}${desc}`;
-    })
-    .join('\n');
+  return (
+    cardsInOrder(editor)
+      // Only rate actionable ideas (#60) — skip risks/questions (commentary).
+      .filter((card) => isTriageableKind(card.props.kind))
+      .map((card) => {
+        const ref = cardRef(editor, card.id);
+        const kind = normalizeKind(card.props.kind);
+        const tag = kind ? ` [${kind}]` : "";
+        const body = card.props.body?.trim();
+        const desc = body ? ` — ${body}` : "";
+        return `@${ref}${tag} ${card.props.title.trim()}${desc}`;
+      })
+      .join("\n")
+  );
 }

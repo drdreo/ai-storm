@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { create } from "zustand";
 
 /**
  * App-chrome UI state that several unrelated components drive but no single one
@@ -7,14 +7,14 @@ import { create } from 'zustand'
  * it through both siblings, both read/set it here (parity with the other stores).
  */
 interface UiState {
-  settingsOpen: boolean
+  settingsOpen: boolean;
 }
 
 export const useUiStore = create<UiState>(() => ({
-  settingsOpen: false,
-}))
+  settingsOpen: false
+}));
 
 export const ui = {
   openSettings: () => useUiStore.setState({ settingsOpen: true }),
-  setSettingsOpen: (open: boolean) => useUiStore.setState({ settingsOpen: open }),
-}
+  setSettingsOpen: (open: boolean) => useUiStore.setState({ settingsOpen: open })
+};

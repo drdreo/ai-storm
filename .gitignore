@@ -4,6 +4,7 @@ frontend/dist/
 frontend/test-results/
 frontend/playwright-report/
 frontend/.playwright/
+frontend/.env.local
 *.log
 *.stackdump
 .DS_Store

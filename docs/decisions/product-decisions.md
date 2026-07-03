@@ -295,7 +295,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   the tldraw `Editor` handle, and per-workspace ingestion pipelines. The five Angular services port
   near 1:1 to "singleton store + subscribe hook": `signal()` → store state, `computed()` →
   selectors/`useMemo`, `effect()` → `useEffect`. The socket, Y.Doc, pipelines, and editor stay as
-  imperative module singletons (exactly as before); only their *reactive surface* (connection state,
+  imperative module singletons (exactly as before); only their _reactive surface_ (connection state,
   workspace list, attached set, agent-run output, `ideasTick`) lives in a store, so code running
   **outside** the component tree (the WebSocket dispatcher, the ingestion pipelines) reads/writes via
   `store.getState()` / `setState()`.
@@ -323,7 +323,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   the stock shadcn theme (neutral base, dark mode) verbatim and defer bespoke theming** — the app
   wears the default shadcn look for now; a themed palette is a later pass. The old Angular CSS
   custom-property tokens are **not** carried over. tldraw and xterm keep their own CSS.
-- **Why:** shadcn is Radix + Tailwind with the component code scaffolded *into the repo* (we own and
+- **Why:** shadcn is Radix + Tailwind with the component code scaffolded _into the repo_ (we own and
   restyle it, not a themed black box), which ends per-component hand-written CSS and supplies the a11y
   primitives that replace `@angular/aria` — no separate primitives lib. Starting from the **unmodified
   shadcn theme** (rather than re-implementing the previous bespoke palette) gets a clean, consistent
@@ -342,17 +342,17 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 `(2026-06-07, accepted, extends PD-008/#61)`
 
 - **Decision:** Pre-brainstorm **background context** (#76) — a freeform "set the scene" string the
-  user authors before starting (e.g. *"We're a B2B fintech, audience is CFOs, avoid ideas needing new
-  hardware"*) — is **baked into the launch system-prompt** as a **third priming segment**, beside the
+  user authors before starting (e.g. _"We're a B2B fintech, audience is CFOs, avoid ideas needing new
+  hardware"_) — is **baked into the launch system-prompt** as a **third priming segment**, beside the
   base `«IDEA»` contract (`PRIME_INSTRUCTION`) and the facilitation-mode preset (#61). The prime is
   composed `[PRIME_INSTRUCTION, modePreset, formatBackground(background)].filter(Boolean).join("\n\n")`;
   `formatBackground` wraps the user text in a labelled "BACKGROUND CONTEXT — standing context…" block so
   it reads as **guidance, not instructions**. Because it rides the launch prompt, it is **locked while
   the session is attached** — editing means **Stop & Start**, exactly like facilitation mode. We
   deliberately do **not** route it through the mid-session `ContextMessage` lane (PRD §3.2), which stays
-  for *evolving* context (the serialized canvas). Three roles, three lanes: **background is
+  for _evolving_ context (the serialized canvas). Three roles, three lanes: **background is
   foundational, mode is how, canvas is what's emerged.**
-- **Why:** Background is *standing* context that should shape **turn one** and every turn after — the
+- **Why:** Background is _standing_ context that should shape **turn one** and every turn after — the
   launch system-prompt is the strongest, earliest steering surface, so that's where it belongs. The
   session layer already treats priming as a first-class, swappable concept and already layers two
   segments on this exact seam (PD-008 passthrough prime + #61 mode), so background is a third segment on
@@ -368,7 +368,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   the third compose segment via `formatBackground`. UI groups harness + mode + background under one
   **"Session setup · applied on start"** header in `ControlHub.tsx` — all three share the lock rule;
   while attached the group dims, inputs are `disabled`, and the header flips to a "🔒 session live — Stop
-  to edit setup" tag with a hover tooltip giving the *how*. The textarea carries a ~1500-char soft cap
+  to edit setup" tag with a hover tooltip giving the _how_. The textarea carries a ~1500-char soft cap
   (amber past it, not enforced — it rides every turn's prompt) and persists per workspace.
 
 ### PD-019 — Combine (merge) is a multi-source supersede, like challenge
@@ -379,16 +379,16 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   is modelled as a **convergent supersede**, the same shape as the single-card Challenge (PD-012),
   just fanned out: the agent emits **one** merged idea that **`supersedes` every selected source**, and
   each source **dims/archives** (lifecycle, #20) rather than disappearing. We rejected the `about`
-  alternative (keep all sources live, merge merely *about*-links them): a merge is an act of
-  *convergence*, so leaving the originals as live peers of their own synthesis re-clutters the board —
+  alternative (keep all sources live, merge merely _about_-links them): a merge is an act of
+  _convergence_, so leaving the originals as live peers of their own synthesis re-clutters the board —
   exactly what supersede-and-dim avoids. The user retains the originals as ghosts (history kept,
   breadcrumb per #22), so nothing is lost; if they truly want a source kept live, they don't merge it.
 - **Why:** The board's job is to converge (#22/#28), and Challenge already established the pattern —
   the strongest version wins while the path to it stays visible (PD-012). A merge is just that move
   over N sources instead of one, so it should reuse the same edge (`supersedes`), the same lifecycle
   dimming, and the same breadcrumb rather than inventing a new relation. Keeping it a supersede also
-  means no new kind and no new lifecycle state — `combine` is *what was done*, an edge, not *what a
-  card is* (PD-010/PD-012). The bar shows **only** Combine for a 2+ selection: the single-card moves
+  means no new kind and no new lifecycle state — `combine` is _what was done_, an edge, not _what a
+  card is_ (PD-010/PD-012). The bar shows **only** Combine for a 2+ selection: the single-card moves
   (discuss/expand/challenge) are about one idea and don't map onto a multi-card convergent action.
 - **Affects:** Adds the `combine` `PromptIntent` + template + `combineDirective` (prompt-framing) and a
   multi-select branch in the `CardVerbBar` (#13/#15 seam). The supersede fan rides the **single-line
@@ -405,22 +405,22 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 - **Decision:** The brainstorm-ux epic built **divergence and structure** deeply (verbs #15, the
   idea graph #42, source-linking #40, lifecycle/supersede #20/#22, kinds #21, Arrange #16); the
   thin half is **convergence** — turning a full board into a decision or an output. We invest there
-  next, and we build it as **generated artifacts produced on demand from the board**, *not* as a
+  next, and we build it as **generated artifacts produced on demand from the board**, _not_ as a
   second authoring surface. A synthesis, a ranking, a theme rollup, a spec hand-off — each is a
-  *reading* of the canvas: route `serializeToText(...)` through the agent and place the result
+  _reading_ of the canvas: route `serializeToText(...)` through the agent and place the result
   somewhere (a markdown export, a read-only panel, or new cards/edges), then leave it for the user
   to curate on the one canvas. This keeps **PD-011** intact: the edgeless canvas stays the sole
-  place you *author*; convergence never reintroduces a page/document *mode* you edit in.
+  place you _author_; convergence never reintroduces a page/document _mode_ you edit in.
 - **Why:** You can already generate, link, type, and lay out ideas, but the product's promised
   three-stage workflow (PRD §2: brainstorm → structure → hand-off) dead-ends at structure — there
   is no step that collapses the wall of cards into "here's the decision / here's the spec." That is
-  the highest-leverage missing value, and it is *cheap* because the seams already exist: the
+  the highest-leverage missing value, and it is _cheap_ because the seams already exist: the
   whole-board context path (`serializeToText` → context injection, PRD §3.2), the verb round-trip
   (`prompt-framing.ts`), union-find clustering and the placement engine (`idea-layout.ts`), and the
-  typed edge/ref graph (#42). Building convergence as generated *output* (not a new editable
+  typed edge/ref graph (#42). Building convergence as generated _output_ (not a new editable
   surface) reuses all of that and avoids the "two places to author the same thing" trap PD-011
   closed.
-- **Affects:** Reframes **#28** (synthesis is a *generate + export* action, not the dead
+- **Affects:** Reframes **#28** (synthesis is a _generate + export_ action, not the dead
   page/edgeless mode-switch). Splits **#29**: the lightweight keep-mark star shipped in #59, and the
   "ranking drives visual weight + AI triage" half is refiled as **#60**. Spawns the convergence
   toolkit — synthesis (#28), AI triage / rank & weight (#60), cluster summarize → theme card (#63),
@@ -437,24 +437,24 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   canvas UI — a single click that re-flows the cards into an **organic mind map** — **not** an
   always-on auto-layout mode. The board never repositions a card on its own: cards land where the
   producer drops them (a new AI card docks near its linked target, else falls to the grid tail),
-  and the user is free to drag anything anywhere. Arranging is something the user *invokes*;
+  and the user is free to drag anything anywhere. Arranging is something the user _invokes_;
   between invocations, manual positions are left untouched. The layout is **graph-driven, not
   lane-based**: each connected group of related cards becomes a cluster that **radiates out from
   its main idea** (an `about` child fans outward; same-kind children are grouped together in the
-  fan), a `supersedes` relation reads **left→right** (the greyed original sits to the *left*, the
+  fan), a `supersedes` relation reads **left→right** (the greyed original sits to the _left_, the
   new card is the anchor everything else fans from — PD-012), and unrelated loose cards are tidied
   into kind-grouped lanes off to the side. Distinct clusters get generous **breathing room** so
   the board doesn't read as one overloaded wall. Relationships are preserved for free — edges are
   native tldraw arrows **bound** to both cards, so they track their endpoints as Arrange moves
   them; Arrange only mutates card `x/y`, never the graph. Default for a new workspace: nothing
   auto-runs (the action is simply available).
-- **Why:** Space carries meaning on an edgeless canvas, and the user's deliberate placement *is*
+- **Why:** Space carries meaning on an edgeless canvas, and the user's deliberate placement _is_
   meaning. An automatic re-layout that fires on every new card would fight the user — snapping a
   card they just nudged back — which destroys exactly the spatial intent the canvas exists to
-  capture. Making it a click keeps the user in control of *when* the board reorganizes: diverge
+  capture. Making it a click keeps the user in control of _when_ the board reorganizes: diverge
   freely by hand, then converge with one action when the pile needs tidying. Rigid kind-columns
   (the first cut) aligned everything into hard lanes and read as a spreadsheet, not a brainstorm;
-  a mind map that clusters by *relationship* and fans children around their idea matches how the
+  a mind map that clusters by _relationship_ and fans children around their idea matches how the
   graph (PD-010) actually reads and leaves cognitive room. A continuous/auto mode, a persisted
   preference, or model-driven affinity re-clustering (#17) can layer on later without reversing
   this call.
@@ -465,7 +465,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   (`about` fans out, `supersedes` pins the original left) → shelf-packing with `clusterGap`
   breathing room; loose cards fall back to kind-grouped lanes. The trigger is an "Arrange" button
   in the existing canvas-pane toolbar (alongside the #21 kind filters and the Inject/Send
-  actions). The dumb 3-col tiler in `applyIdeas` stays as the *new-card drop* fallback (this PD
+  actions). The dumb 3-col tiler in `applyIdeas` stays as the _new-card drop_ fallback (this PD
   governs the explicit re-flow, not where a single fresh card lands). Out of scope, deferred: an
   auto/continuous mode, a persisted setting, labeled cluster frames and model-driven affinity
   clustering (#17), overlap-free force resolution on dense graphs, docking heuristics beyond the
@@ -508,12 +508,12 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   so the history of the argument is preserved. So `challenge` is dropped from the kind enumeration
   in PD-010 — there is no `challenge`-tinted card. (A counter-point the user wants to keep as a
   standalone note is just an ordinary idea card, optionally `about`-linked.)
-- **Why:** A challenge is fundamentally *about changing an idea*, not adding a parallel one. Spawning
+- **Why:** A challenge is fundamentally _about changing an idea_, not adding a parallel one. Spawning
   a free-floating "challenge" card (what an early kind-registry entry would have done) leaves the
   contested idea untouched and clutters the board with disconnected objections. Routing it through
   `supersedes` makes the board converge — the strongest version wins and the path to it stays
   visible — which is the point of decision capture (#22) and lifecycle (#20). It also keeps the
-  kind set about *what a card is*, not *what was done to it* (that's an edge, per PD-010).
+  kind set about _what a card is_, not _what was done to it_ (that's an edge, per PD-010).
 - **Affects:** Implemented by #20 (lifecycle states: e.g. `active` → `superseded`) + #22 (decision
   capture / snapshot the superseded card). The data home already exists — a typed edge carries its
   `relation`, including `supersedes`, natively (a tldraw arrow's `meta`). The Challenge verb's prompt
@@ -530,7 +530,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   graph, layout, lifecycle — are designed for and built on it. Selection-based features read the
   canvas selection (`editor.getSelectedShapes()`).
 - **Why:** Ideation is spatial — the product's value is the infinite canvas, where space carries
-  meaning (#16/#17). A linear document is best understood as a convergent *reading* of the board
+  meaning (#16/#17). A linear document is best understood as a convergent _reading_ of the board
   (the natural home for synthesis, #28, produced on demand), not a second place to author the
   divergent brainstorm. Committing to one surface keeps the UX coherent and the implementation
   focused.
@@ -545,11 +545,11 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 `(2026-06-06, accepted)`
 
 - **Decision:** Model the board as a **graph**, not a pile or a tree. Three axes that were
-  being conflated into `kind` are kept independent: **kind** (*what a card is* — risk /
+  being conflated into `kind` are kept independent: **kind** (_what a card is_ — risk /
   feature / question / decision — on the node; **not** `challenge`, which is a supersede
-  operation, see PD-012), **link** (*what it's about* —
+  operation, see PD-012), **link** (_what it's about_ —
   a generic `about` edge to another card; the only edge type carrying its own meaning is
-  `supersedes`), and **provenance** (*who made it* — `ai`/`user`, already PD-009). A node has
+  `supersedes`), and **provenance** (_who made it_ — `ai`/`user`, already PD-009). A node has
   one kind but many edges, to many targets. Flavor is **not** duplicated onto the edge (no
   `risk-of`/`challenge-of` relation taxonomy) — you read "risk of X" by following an `about`
   edge from a `risk`-kind card. Per-kind behavior (label, tint, future shape/lifecycle) lives
@@ -584,7 +584,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   default. AI cards are made visually distinct (kind color **and** a 🤖 badge).
 - **Why:** A second input path is redundant when the editor already creates notes, and a structured
   composer's value was latent (kind is presentation-only until #21). The genuinely useful, missing
-  signal is *who made this* — at-a-glance separation of AI suggestions from the user's own thinking.
+  signal is _who made this_ — at-a-glance separation of AI suggestions from the user's own thinking.
   Marking only the AI path (and defaulting everything else to user) needs no hook into user editing.
 - **Affects:** Reframes [#31](https://github.com/drdreo/ai-storm/issues/31) (was "human idea-capture",
   now "note provenance"). The composer work (PR #34) is closed unmerged. Provenance persists with the
@@ -599,7 +599,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 - **Why:** Today the only human path to a card is drawing one directly on the canvas. A first-class
   "add idea" affordance is needed. The clean approach reuses the existing AI pipeline: a human-authored idea
   produces the same `Idea {title, body, kind}` object and flows through `ideaToDescriptors()` →
-  `RenderScheduler` → `CanvasService.applyIdeas()`. So we add a second *producer* to an existing
+  `RenderScheduler` → `CanvasService.applyIdeas()`. So we add a second _producer_ to an existing
   pipeline rather than building a parallel system — which also de-risks the bidirectional-canvas
   keystone by proving an input-side entry point.
 - **Affects:** Chosen **starting ticket** for the brainstorm-ux epic
@@ -633,7 +633,7 @@ requirements are in Part 1.
   bytes (base64 `data` messages) and the browser renders them with xterm.js. The backend scans the
   rendered screen only for the `«IDEA»` / ` ```idea ` markers and emits one deduped `idea` message
   per capture. This replaces PRD §3.3's client-side slicing/chunking/markdown-parsing buffer for the
-  *conversation* path.
+  _conversation_ path.
 - **Why:** Server-side chat extraction and per-CLI-version chrome regexes were fragile and version-
   tuned. Passing the terminal through verbatim deleted that whole class of bugs; only the robust idea
   scan remains.

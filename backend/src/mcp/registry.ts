@@ -148,7 +148,7 @@ export class McpSessionRegistry {
       get attachment() {
         return entry.attachment;
       },
-      mintRef: () => `i${entry.nextRef++}`,
+      mintRef: () => `i${entry.nextRef++}`
     };
   }
 }

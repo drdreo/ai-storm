@@ -1,6 +1,6 @@
 # Design: tmux-based interactive AI session layer (POSIX) + response extraction
 
-**Status:** Partially superseded — the durable-session layer stands; the response *extraction* (§4.3 chrome filter, §6 `ResponseMessage`) is replaced by terminal passthrough. See banner.
+**Status:** Partially superseded — the durable-session layer stands; the response _extraction_ (§4.3 chrome filter, §6 `ResponseMessage`) is replaced by terminal passthrough. See banner.
 **Author:** ai-storm backend
 **Related:** [Product decisions](../decisions/product-decisions.md) §3.2, §3.3, §3.5, §3.6, §4.2, §5.1, §5.2 (the PRD now lives there)
 **Reference implementation:** [`agent-orchestrator`](https://github.com/ComposioHQ/agent-orchestrator)
@@ -38,11 +38,11 @@ ai-storm streams a local CLI agent's output into a tldraw canvas as structured c
 
 This works but has three structural problems we want to fix while keeping the existing ingestion pipeline intact:
 
-1. **The PTY is bound to a WebSocket connection, not to a workspace.** When the backend restarts, the browser refreshes, or the socket drops, the agent process dies with it. PRD §3.5 requires that workspace sessions *"survive runtime crashes, web application refreshes, system restarts, and terminal disconnections."* A direct-spawned PTY cannot satisfy this.
+1. **The PTY is bound to a WebSocket connection, not to a workspace.** When the backend restarts, the browser refreshes, or the socket drops, the agent process dies with it. PRD §3.5 requires that workspace sessions _"survive runtime crashes, web application refreshes, system restarts, and terminal disconnections."_ A direct-spawned PTY cannot satisfy this.
 
-2. **There is an input race.** `IngestionService.attach()` sends `{type:"attach"}` and `ControlHubComponent.send()` immediately follows with `{type:"input"}` before the PTY has spawned (see §3.3 below). It is currently *papered over* by buffering in `PtyManager.#pendingInput`, but the fragility is real: the contract is "spray input at a process that may not exist yet."
+2. **There is an input race.** `IngestionService.attach()` sends `{type:"attach"}` and `ControlHubComponent.send()` immediately follows with `{type:"input"}` before the PTY has spawned (see §3.3 below). It is currently _papered over_ by buffering in `PtyManager.#pendingInput`, but the fragility is real: the contract is "spray input at a process that may not exist yet."
 
-3. **We forward a raw terminal, not responses.** The product wants the canvas to show the **agent's responses** — not the user's echoed prompt, not the harness's spinner/`>` prompt chrome. Today every byte (including the echo of the user's own keystrokes and the harness banner) flows into the parser. The frontend pipeline is good at *cleaning* bytes but has no notion of *"this span is the agent talking vs. this span is my prompt being echoed back."*
+3. **We forward a raw terminal, not responses.** The product wants the canvas to show the **agent's responses** — not the user's echoed prompt, not the harness's spinner/`>` prompt chrome. Today every byte (including the echo of the user's own keystrokes and the harness banner) flows into the parser. The frontend pipeline is good at _cleaning_ bytes but has no notion of _"this span is the agent talking vs. this span is my prompt being echoed back."_
 
 The goal of this design is to host the **real interactive harness** (`claude`, or any harness — **harness-agnostic**, **never** a `-p`/`--output-format` headless mode) inside a **named, connection-independent session**, and to add a **net-new response-extraction layer** that emits only the agent's response text into the existing ingestion pipeline.
 
@@ -56,7 +56,7 @@ The goal of this design is to host the **real interactive harness** (`claude`, o
 
 ## 2. The agent-orchestrator mechanism (the template we port)
 
-agent-orchestrator (AO) already solves "host an interactive harness in a durable, reattachable tmux session and relay it to a browser." We port its **session + transport** layer almost verbatim. The one thing AO does **not** do is extract clean responses — *"AO streams the RAW rendered bytes to xterm.js and does NOT extract clean responses. Its only clean-text primitive is `tmux capture-pane -p`."* That gap is the core of §4.
+agent-orchestrator (AO) already solves "host an interactive harness in a durable, reattachable tmux session and relay it to a browser." We port its **session + transport** layer almost verbatim. The one thing AO does **not** do is extract clean responses — _"AO streams the RAW rendered bytes to xterm.js and does NOT extract clean responses. Its only clean-text primitive is `tmux capture-pane -p`."_ That gap is the core of §4.
 
 ### 2.1 Default runtime selection — `packages/core/src/platform.ts`
 
@@ -123,19 +123,23 @@ tmux kill-session -t {sessionName}
 AO's `sendKeys` is the model for `sendInput`. It does **not** just blast keys; it follows a deliberate sequence designed for interactive REPLs:
 
 1. **Clear partial input first** (tmux.ts:89–92):
+
    ```ts
    await tmux("send-keys", "-t", sessionName, "Escape");
    await new Promise((resolve) => setTimeout(resolve, 100)); // let Escape land
    ```
 
 2. **Long or multiline messages** (`message.includes("\n") || message.length > 200`) go through a **tmux paste buffer** — never as keystrokes — so newlines don't prematurely submit and large prompts don't overflow:
+
    ```
    tmux load-buffer -b {bufferName} {tmpPath}
    tmux paste-buffer  -b {bufferName} -t {sessionName} -d   # -d: delete buffer after paste
    ```
+
    (Message is written to a `0o600` temp file first; buffer/temp file cleaned up after.)
 
 3. **Short single-line messages** go as a **literal** send (the `-l` flag stops tmux interpreting words like `Enter`/`C-c` as keysyms):
+
    ```
    tmux send-keys -t {sessionName} -l {message}
    ```
@@ -147,7 +151,7 @@ AO's `sendKeys` is the model for `sendInput`. It does **not** just blast keys; i
 
 ### 2.4 Transport / reattach — `packages/web/server/mux-websocket.ts`
 
-AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and relays bytes to the browser. **We keep this only as a fallback diagnostic transport, if at all** — ai-storm does *not* mirror a raw terminal — but the reattach machinery is the part we want:
+AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and relays bytes to the browser. **We keep this only as a fallback diagnostic transport, if at all** — ai-storm does _not_ mirror a raw terminal — but the reattach machinery is the part we want:
 
 - Exact-match attach (prevents `ao-1` matching `ao-15`):
   ```ts
@@ -170,12 +174,12 @@ AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and r
 
 ### 3.1 What exists today
 
-| Component | File | Behavior |
-|---|---|---|
-| WS server | `backend/src/server.ts` | Hono HTTP+WS bound to `127.0.0.1`; `/pty` multiplexes all workspaces over one socket; dispatches `attach`/`input`/`resize`/`detach`/`context`/`agent`. Tears down PTYs + tracked agent subprocesses on disconnect. |
-| PTY manager | `backend/src/pty/manager.ts` | `PtyManager.attach(workspaceId, opts, onData, onExit, onError)` spawns one `node-pty` per workspace. `#sessions`, `#attaching`, `#pendingInput` maps. |
-| Agent executor | `backend/src/agent/executor.ts` | `runAgent(workspaceId, spec, emit)` — one-shot subprocess for the §3.6 hand-off; untrusted payload delivered on **stdin only** (not argv) to avoid cmd.exe re-parse + `ARG_MAX`. |
-| Wire protocol | `packages/shared/src/protocol.ts` | `ClientMessage`/`ServerMessage` unions (quoted in §6). |
+| Component      | File                              | Behavior                                                                                                                                                                                                           |
+| -------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| WS server      | `backend/src/server.ts`           | Hono HTTP+WS bound to `127.0.0.1`; `/pty` multiplexes all workspaces over one socket; dispatches `attach`/`input`/`resize`/`detach`/`context`/`agent`. Tears down PTYs + tracked agent subprocesses on disconnect. |
+| PTY manager    | `backend/src/pty/manager.ts`      | `PtyManager.attach(workspaceId, opts, onData, onExit, onError)` spawns one `node-pty` per workspace. `#sessions`, `#attaching`, `#pendingInput` maps.                                                              |
+| Agent executor | `backend/src/agent/executor.ts`   | `runAgent(workspaceId, spec, emit)` — one-shot subprocess for the §3.6 hand-off; untrusted payload delivered on **stdin only** (not argv) to avoid cmd.exe re-parse + `ARG_MAX`.                                   |
+| Wire protocol  | `packages/shared/src/protocol.ts` | `ClientMessage`/`ServerMessage` unions (quoted in §6).                                                                                                                                                             |
 
 ### 3.2 The lifecycle today (direct spawn)
 
@@ -230,12 +234,14 @@ tmux capture-pane -t ai-storm-{workspaceId} -p -S -2000
 `-p` prints to stdout; `-S -N` includes N lines of scrollback. `capture-pane` returns the **rendered screen text already flattened** — tmux has applied all cursor moves, line rewrites, and (without `-e`) **dropped escape sequences**. So a spinner that repaints the same cell, or a progress bar overwriting itself, collapses to its final state rather than a flood of intermediate frames.
 
 **Pros**
+
 - Trivial dependency surface: just `tmux`, already required. No emulator.
 - tmux is the source of truth for the rendered screen — we inherit its (correct, battle-tested) VT handling for free.
 - Naturally collapses in-place rewrites (spinners, `\r` progress) into stable text — exactly the “terminal garbage” PRD §3.3 wants gone.
 - Resilient across backend restarts: capture is stateless; reattaching = capture again.
 
 **Cons**
+
 - **Diffing is non-trivial.** The pane is a fixed-size grid; content scrolls. A naive line-by-line diff breaks when the screen scrolls (every line "changes"). Needs anchoring (track last-emitted logical line, or capture a large scrollback window `-S -<big>` and diff the tail by content, not position).
 - **Polling cadence vs. latency trade-off.** Too slow = laggy cards; too fast = CPU + redundant captures. Mitigated by idle/active adaptive cadence (§4.3) and the fact that `RenderScheduler` already throttles the DOM side (PRD §5.1).
 - Reflow on resize reshuffles wrapped lines; must capture at a **fixed pane width** and treat width changes as a re-anchor event (§5).
@@ -251,11 +257,13 @@ tmux pipe-pane -t ai-storm-{workspaceId} -O 'cat >> /path/to/fifo-or-pipe'
 `pipe-pane -O` pipes pane **output** to a command; we'd feed those raw bytes into `@xterm/headless`, which maintains rows/cols/scrollback, and scrape `buffer.active` for text.
 
 **Pros**
+
 - Byte-level stream → lowest latency; no polling.
 - We own the emulator state, so we can hook precisely when a line is finalized.
 
 **Cons**
-- **We'd be reimplementing what tmux already did.** tmux is *already* a terminal emulator maintaining this exact pane. Piping its raw output into a *second* emulator is redundant emulation of an emulator.
+
+- **We'd be reimplementing what tmux already did.** tmux is _already_ a terminal emulator maintaining this exact pane. Piping its raw output into a _second_ emulator is redundant emulation of an emulator.
 - **New heavyweight dependency** (`@xterm/headless`) on the backend — currently the repo has **no xterm dependency at all** (verified: `package.json` has none). PRD §4.2 emphasizes a "lightweight, local-only execution environment."
 - **`pipe-pane` lifecycle is fragile**: the pipe must be re-established on every reattach and after backend restarts; a dropped FIFO silently stops the stream. Capture-pane has no such long-lived side channel.
 - **Still doesn't solve the hard problem.** Distinguishing response-vs-echo-vs-chrome is identical work in both approaches — B just gives you the same flattened text A gives you, at higher cost. The emulator gives byte-accuracy we don't need (we're going to strip styling anyway via the existing `ansi.ts`).
@@ -263,7 +271,7 @@ tmux pipe-pane -t ai-storm-{workspaceId} -O 'cat >> /path/to/fifo-or-pipe'
 
 ### 4.3 Recommendation: **Approach A (capture-pane diff) with adaptive cadence + prompt-anchored extraction**
 
-`capture-pane -p` already gives us flattened, spinner-collapsed, escape-stripped screen text — which is *precisely* what the PRD §3.3 ingest engine wants — using a dependency we already require. Approach B adds a redundant emulator and a fragile long-lived pipe to arrive at the same text. **We recommend A and reject B.**
+`capture-pane -p` already gives us flattened, spinner-collapsed, escape-stripped screen text — which is _precisely_ what the PRD §3.3 ingest engine wants — using a dependency we already require. Approach B adds a redundant emulator and a fragile long-lived pipe to arrive at the same text. **We recommend A and reject B.**
 
 The extraction algorithm:
 
@@ -273,7 +281,7 @@ The extraction algorithm:
    - emits everything **after the echoed prompt line and before the next idle prompt marker** as response text,
    - treats the **reappearance of the idle prompt marker** as the completion signal.
 2. **Idle detection (response complete).** Completion = "the next idle prompt marker reappeared" **OR** "the pane content has been byte-identical for `IDLE_MS` (e.g. 400–600 ms)." Idle detection also drives **cadence**: poll fast (~80–120 ms) while content is changing, back off (~500 ms–1 s) once idle. This keeps cards arriving promptly during a response and near-zero CPU between responses.
-3. **Strip chrome.** Spinners/“thinking…”/box UI that tmux *didn't* collapse (because they're distinct text, not in-place rewrites) are removed by a small, **per-harness-overridable chrome filter** (regexes for known spinner frames, prompt glyphs, status footers). Default filter handles the common cases; harness-specific profiles refine it. Whatever survives goes through the **existing** `ansi.ts` `sanitize()` for residual control bytes.
+3. **Strip chrome.** Spinners/“thinking…”/box UI that tmux _didn't_ collapse (because they're distinct text, not in-place rewrites) are removed by a small, **per-harness-overridable chrome filter** (regexes for known spinner frames, prompt glyphs, status footers). Default filter handles the common cases; harness-specific profiles refine it. Whatever survives goes through the **existing** `ansi.ts` `sanitize()` for residual control bytes.
 4. **Feed the existing pipeline unchanged.** The emitted response lines are exactly the "clean lines" the frontend already expects — but now produced **backend-side** and shipped as a new `response` message (§6) instead of raw `data`. `SlicingBuffer`, `MarkdownBlockParser`, `RenderScheduler`, `CanvasService.applyBlocks` are **untouched**.
 
 > **Honest scope note (open question, §10):** prompt-marker detection is inherently harness-specific at the margins. The design is "good defaults + per-harness profile override," not "magic universal parser." Approach B would not make this easier — it produces the same ambiguous text. We log when a profile is missing rather than silently mis-attributing echo as response.
@@ -345,7 +353,7 @@ export interface SessionBackend {
   attach(
     workspaceId: string,
     onChunk: (chunk: ResponseChunk) => void,
-    onError: (message: string) => void,
+    onError: (message: string) => void
   ): Promise<void>;
 
   /** Send a prompt to the session (Escape→clear→literal/paste→delayed Enter, §2.3). */
@@ -380,7 +388,7 @@ The existing `backend/src/pty/manager.ts` becomes the Windows implementation, re
 - `sendInput`/`resize`/`kill`/`detach`: map to `pty.write`/`pty.resize`/`pty.kill`/stop-relay.
 - `hasSession`: workspace key present in the map.
 
-This keeps the platform difference confined to *"where do the bytes come from"* (tmux capture vs. PTY stream); the response-extraction and the protocol are identical.
+This keeps the platform difference confined to _"where do the bytes come from"_ (tmux capture vs. PTY stream); the response-extraction and the protocol are identical.
 
 ---
 
@@ -420,7 +428,7 @@ export interface SessionStatusMessage {
 }
 ```
 
-`ClientMessage` stays nearly identical, but the **semantics** of `attach` change from *"spawn a PTY now"* to *"ensure the named session exists and start streaming its responses to me"* (idempotent — §3.3). `AttachMessage.shell` is reinterpreted as the **harness command** (kept optional, defaults to the configured harness). `ResizeMessage` now re-anchors extraction width. `ContextMessage` (§3.2) and `AgentMessage` (§3.6) are unchanged — the §3.6 one-shot executor and its **stdin-only payload** security property are untouched.
+`ClientMessage` stays nearly identical, but the **semantics** of `attach` change from _"spawn a PTY now"_ to _"ensure the named session exists and start streaming its responses to me"_ (idempotent — §3.3). `AttachMessage.shell` is reinterpreted as the **harness command** (kept optional, defaults to the configured harness). `ResizeMessage` now re-anchors extraction width. `ContextMessage` (§3.2) and `AgentMessage` (§3.6) are unchanged — the §3.6 one-shot executor and its **stdin-only payload** security property are untouched.
 
 `DataMessage` is removed (or retained, deprecated, only behind an opt-in raw-debug flag — **not** shipped to the canvas).
 
@@ -461,7 +469,7 @@ Staged so each step is independently shippable and the app stays working.
 - **Session naming.** `ai-storm-<workspaceId>`, with `<workspaceId>` validated against `^[a-zA-Z0-9_-]+$` (AO's `SAFE_SESSION_ID`) **before** any interpolation — this is the injection guard for every tmux invocation. Always address sessions with the exact-match `=` prefix (`-t =ai-storm-<id>`) to avoid prefix collisions.
 - **Persistence/reattach (PRD §3.5).** Detached tmux sessions survive backend restart, browser refresh, and socket loss. The keep-alive shell (`exec "${SHELL:-/bin/bash}" -i`) keeps the pane alive even if the agent itself exits, so the workspace can be reattached and a new agent launched without recreating the session. On boot the backend reconciles live `ai-storm-*` sessions with known workspaces.
 - **Teardown / memory (PRD §5.2).** `detach` (refresh/hot-switch) stops the poller and disposes the `RenderScheduler` but **leaves tmux alive**. Explicit `kill` (close workspace) runs `kill-session` and drops all maps. Polling is adaptive (idle → ~1 s, near-zero CPU); only one lightweight `capture-pane` subprocess per active, responding workspace. Bound retained scrollback the way AO bounds its ring buffer (50 KB) so a long session can't grow unbounded.
-- **Frame throttling (PRD §5.1).** Unchanged and complementary: the backend extractor controls *how often clean lines are produced*; `RenderScheduler` (double-buffer, `maxPerFrame: 80`, rAF) still governs *how often the canvas mutates*. The two decouple network/extraction cadence from DOM cadence exactly as §5.1 requires.
+- **Frame throttling (PRD §5.1).** Unchanged and complementary: the backend extractor controls _how often clean lines are produced_; `RenderScheduler` (double-buffer, `maxPerFrame: 80`, rAF) still governs _how often the canvas mutates_. The two decouple network/extraction cadence from DOM cadence exactly as §5.1 requires.
 
 ---
 
@@ -469,7 +477,7 @@ Staged so each step is independently shippable and the app stays working.
 
 1. **Prompt-marker detection is harness-specific.** The biggest risk. Mitigation: ship good defaults + per-harness profiles (`harnessProfile`), test against recorded fixtures, and **log** (not silently guess) when no profile matches. Neither approach A nor B removes this risk.
 2. **Multiline / wrapped output + reflow.** Capture is grid-based; wide responses wrap and resize reflows them. Mitigation: capture at a fixed pane width, treat resize as a re-anchor, and prefer large `-S` scrollback windows diffed by content rather than row position.
-3. **Streaming harnesses that repaint partial answers** (token-by-token with cursor moves). tmux collapses in-place repaints to final state, which is *good* for final cards but means **mid-response token streaming is lossy** under polling. Open question: is incremental token display a product requirement, or are finalized cards enough? (PRD §3.3 implies finalized structural blocks — likely fine.)
+3. **Streaming harnesses that repaint partial answers** (token-by-token with cursor moves). tmux collapses in-place repaints to final state, which is _good_ for final cards but means **mid-response token streaming is lossy** under polling. Open question: is incremental token display a product requirement, or are finalized cards enough? (PRD §3.3 implies finalized structural blocks — likely fine.)
 4. **Windows persistence gap.** node-pty sessions die with the backend process; true §3.5 cross-restart durability is POSIX-only for now. Option: adopt AO's named-pipe relay (a detached helper) on Windows later. Documented as a known limitation.
 5. **Echo matching edge cases.** If a harness reformats or doesn't echo input, the "skip the line we sent" heuristic needs the prompt-marker fallback. Covered by profiles + idle detection, but worth fixture coverage.
 6. **Capture cadence vs. very fast output.** Between two polls a screenful could scroll past the captured window. Mitigation: size the `-S` scrollback window generously relative to expected output rate and poll faster while active.
@@ -479,16 +487,16 @@ Staged so each step is independently shippable and the app stays working.
 
 ## Appendix A — exact tmux commands used
 
-| Purpose | Command |
-|---|---|
-| Create detached session | `tmux new-session -d -s ai-storm-<id> -c <cwd> -e KEY=VAL... <launch>` |
-| Hide status bar | `tmux set-option -t ai-storm-<id> status off` |
-| Keep-alive shell (in launch) | `exec "${SHELL:-/bin/bash}" -i` |
-| Clear partial input | `tmux send-keys -t ai-storm-<id> Escape` (+100 ms) |
-| Long/multiline input | `tmux load-buffer -b <buf> <tmp>` → `tmux paste-buffer -b <buf> -t ai-storm-<id> -d` |
-| Short literal input | `tmux send-keys -t ai-storm-<id> -l <text>` |
-| Submit | `tmux send-keys -t ai-storm-<id> Enter` (after 300 ms / 1 s) |
-| Extract clean text | `tmux capture-pane -t ai-storm-<id> -p -S -<N>` |
-| Existence check | `tmux has-session -t =ai-storm-<id>` |
-| Teardown | `tmux kill-session -t =ai-storm-<id>` |
-| (Rejected B) raw stream | `tmux pipe-pane -t ai-storm-<id> -O '<sink>'` |
+| Purpose                      | Command                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| Create detached session      | `tmux new-session -d -s ai-storm-<id> -c <cwd> -e KEY=VAL... <launch>`               |
+| Hide status bar              | `tmux set-option -t ai-storm-<id> status off`                                        |
+| Keep-alive shell (in launch) | `exec "${SHELL:-/bin/bash}" -i`                                                      |
+| Clear partial input          | `tmux send-keys -t ai-storm-<id> Escape` (+100 ms)                                   |
+| Long/multiline input         | `tmux load-buffer -b <buf> <tmp>` → `tmux paste-buffer -b <buf> -t ai-storm-<id> -d` |
+| Short literal input          | `tmux send-keys -t ai-storm-<id> -l <text>`                                          |
+| Submit                       | `tmux send-keys -t ai-storm-<id> Enter` (after 300 ms / 1 s)                         |
+| Extract clean text           | `tmux capture-pane -t ai-storm-<id> -p -S -<N>`                                      |
+| Existence check              | `tmux has-session -t =ai-storm-<id>`                                                 |
+| Teardown                     | `tmux kill-session -t =ai-storm-<id>`                                                |
+| (Rejected B) raw stream      | `tmux pipe-pane -t ai-storm-<id> -O '<sink>'`                                        |

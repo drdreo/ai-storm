@@ -20,7 +20,7 @@ describe("tokenizeCommand", () => {
     expect(tokenizeCommand('"C:\\Program Files\\x\\pi.exe" --model gpt-4o')).toEqual([
       "C:\\Program Files\\x\\pi.exe",
       "--model",
-      "gpt-4o",
+      "gpt-4o"
     ]);
     expect(tokenizeCommand("'/opt/my tools/claude' --foo")).toEqual(["/opt/my tools/claude", "--foo"]);
   });

@@ -1,21 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
-import * as Toolbar from '@radix-ui/react-toolbar'
-import { Command, Scale, ScrollText, FileOutput } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { SidebarTrigger } from '@/components/ui/sidebar'
-import { Separator } from '@/components/ui/separator'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
-import { canvas, useCanvasStore } from '../stores/canvas.store'
-import { agent } from '../stores/agent.store'
-import { ingestion, useIngestionStore } from '../stores/ingestion.store'
-import { ui } from '../stores/ui.store'
-import { CanvasIsland } from '../core/canvas-island'
-import { SummaryPanel } from './SummaryPanel'
-import { SpecPanel } from './SpecPanel'
-import { BoardCommandPalette } from './BoardCommandPalette'
-import type { ConvergentSummary } from '../core/synthesis'
-import type { SpecFormat, SpecOptions } from '../core/prompt-framing'
+import { useEffect, useMemo, useState } from "react";
+import * as Toolbar from "@radix-ui/react-toolbar";
+import { Command, Scale, ScrollText, FileOutput } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useWorkspaceStore, selectActive, workspace } from "../stores/workspace.store";
+import { canvas, useCanvasStore } from "../stores/canvas.store";
+import { agent } from "../stores/agent.store";
+import { ingestion, useIngestionStore } from "../stores/ingestion.store";
+import { ui } from "../stores/ui.store";
+import { CanvasIsland } from "../core/canvas-island";
+import { SummaryPanel } from "./SummaryPanel";
+import { SpecPanel } from "./SpecPanel";
+import { BoardCommandPalette } from "./BoardCommandPalette";
+import type { ConvergentSummary } from "../core/synthesis";
+import type { SpecFormat, SpecOptions } from "../core/prompt-framing";
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -26,18 +26,18 @@ import type { SpecFormat, SpecOptions } from '../core/prompt-framing'
 function ToolbarVerb({
   onClick,
   tip,
-  variant = 'default',
+  variant = "default",
   disabled = false,
   disabledTip,
-  children,
+  children
 }: {
-  onClick: () => void
-  tip: string
-  variant?: 'default' | 'ghost'
-  disabled?: boolean
+  onClick: () => void;
+  tip: string;
+  variant?: "default" | "ghost";
+  disabled?: boolean;
   /** Why the verb is unavailable (#106) — shown in place of `tip` when disabled. */
-  disabledTip?: string
-  children: React.ReactNode
+  disabledTip?: string;
+  children: React.ReactNode;
 }) {
   return (
     <Tooltip>
@@ -51,15 +51,15 @@ function ToolbarVerb({
             variant={variant}
             onClick={disabled ? undefined : onClick}
             aria-disabled={disabled}
-            className={disabled ? 'pointer-events-auto opacity-50' : undefined}
+            className={disabled ? "pointer-events-auto opacity-50" : undefined}
           >
             {children}
           </Button>
         </Toolbar.Button>
       </TooltipTrigger>
-      <TooltipContent>{disabled ? disabledTip ?? tip : tip}</TooltipContent>
+      <TooltipContent>{disabled ? (disabledTip ?? tip) : tip}</TooltipContent>
     </Tooltip>
-  )
+  );
 }
 
 /**
@@ -70,72 +70,71 @@ function ToolbarVerb({
  * itself (top-right), not in this toolbar.
  */
 export function CanvasPane() {
-  const active = useWorkspaceStore(selectActive)
-  const workspaces = useWorkspaceStore((s) => s.workspaces)
-  const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false))
-  useCanvasStore((s) => s.ideasTick)
+  const active = useWorkspaceStore(selectActive);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false));
+  useCanvasStore((s) => s.ideasTick);
   // Convergence panel (#28): the summary is regenerated each time it opens — a
   // fresh on-demand reading of the current board, never cached stale.
-  const [summary, setSummary] = useState<ConvergentSummary | null>(null)
-  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summary, setSummary] = useState<ConvergentSummary | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   // Spec hand-off (#89, #110): "Hand off" just opens the panel — the panel owns
   // the format picker and the Generate button, so switching format and re-running
   // is one interaction. Dispatch flows back up through `onGenerate`.
-  const [specOpen, setSpecOpen] = useState(false)
-  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [specOpen, setSpecOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Bidirectional canvas (#13, #15): when a card verb fires, frame the card's
   // text and type it into the active workspace's live terminal. Registered once;
   // reads the latest active workspace at fire time.
   useEffect(() => {
     canvas.onCardVerb((text, intent, sourceRefs) => {
-      const ws = selectActive(useWorkspaceStore.getState())
-      if (ws) agent.discussText(ws.id, text, intent, sourceRefs)
-    })
-  }, [])
+      const ws = selectActive(useWorkspaceStore.getState());
+      if (ws) agent.discussText(ws.id, text, intent, sourceRefs);
+    });
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault()
-        setPaletteOpen((open) => !open)
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
       }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // React to workspace switches — rebind the tldraw island (PRD §3.4). Done at
   // render time (idempotent) so the controller's active id is set BEFORE the
   // freshly-keyed CanvasIsland mounts and `onEditorMount` drains its queue.
-  if (active) canvas.switchTo(active.id)
+  if (active) canvas.switchTo(active.id);
 
-  const triage = () => active && agent.triage(active.id)
+  const triage = () => active && agent.triage(active.id);
   const synthesize = () => {
-    if (!active) return
-    setSummary(canvas.synthesize(active.id))
-    setSummaryOpen(true)
-  }
+    if (!active) return;
+    setSummary(canvas.synthesize(active.id));
+    setSummaryOpen(true);
+  };
   // Open the panel even if the board is empty — it shows the empty/why state.
-  const handoff = () => setSpecOpen(true)
+  const handoff = () => setSpecOpen(true);
   const generateSpec = (format: SpecFormat, opts: SpecOptions) => {
-    if (active) agent.generateSpec(active.id, active.terminal, format, opts)
-  }
+    if (active) agent.generateSpec(active.id, active.terminal, format, opts);
+  };
   // Gates the panel's Generate with why-copy. Only serialized while the panel is
   // open (it walks the board); the `ideasTick` subscription above keeps it fresh.
-  const specBoardEmpty = !(specOpen && active && canvas.serializeForHandoff(active.id).trim())
+  const specBoardEmpty = !(specOpen && active && canvas.serializeForHandoff(active.id).trim());
   const startSession = () => {
-    if (active) ingestion.attach(active.id, active.terminal)
-  }
+    if (active) ingestion.attach(active.id, active.terminal);
+  };
   const stopSession = () => {
-    if (active) ingestion.kill(active.id)
-  }
+    if (active) ingestion.kill(active.id);
+  };
   // Board facts drive the palette's disabled-reason copy, but computing them
   // walks every idea card — so only do it while the palette is open. When it's
   // closed we hand back the cheap "unmounted" shape (no card walk), and each
   // open recomputes fresh (#96 review).
-  const boardState =
-    paletteOpen && active ? canvas.boardCommandState(active.id) : canvas.boardCommandState('')
+  const boardState = paletteOpen && active ? canvas.boardCommandState(active.id) : canvas.boardCommandState("");
 
   // First-run empty-state actions (#106), rendered inside the canvas island so a
   // newcomer's first move is one click. Memoized on the facts they close over so
@@ -147,12 +146,12 @@ export function CanvasPane() {
             onNewIdea: () => canvas.createIdea(active.id),
             onStartSession: startSession,
             onOpenSettings: ui.openSettings,
-            attached,
+            attached
           }
         : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active?.id, attached],
-  )
+    [active?.id, attached]
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -161,11 +160,7 @@ export function CanvasPane() {
         <Separator orientation="vertical" className="!h-5" />
         <div className="flex-1" />
         <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
-          <ToolbarVerb
-            onClick={() => setPaletteOpen(true)}
-            variant="ghost"
-            tip="Open command palette (Ctrl/⌘ K)"
-          >
+          <ToolbarVerb onClick={() => setPaletteOpen(true)} variant="ghost" tip="Open command palette (Ctrl/⌘ K)">
             <Command /> Commands
           </ToolbarVerb>
           <ToolbarVerb
@@ -203,12 +198,7 @@ export function CanvasPane() {
         )}
       </div>
 
-      <SummaryPanel
-        open={summaryOpen}
-        onOpenChange={setSummaryOpen}
-        summary={summary}
-        workspaceName={active?.title}
-      />
+      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} workspaceName={active?.title} />
 
       <SpecPanel
         open={specOpen}
@@ -239,15 +229,15 @@ export function CanvasPane() {
           active &&
           canvas.patchFilter(active.id, {
             hiddenKinds: new Set(),
-            origin: 'all',
+            origin: "all",
             markedOnly: false,
             showSuperseded: true,
-            triagedOnly: false,
+            triagedOnly: false
           })
         }
         onOpenSettings={ui.openSettings}
         onSwitchWorkspace={workspace.setActive}
       />
     </div>
-  )
+  );
 }

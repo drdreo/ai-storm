@@ -1,41 +1,42 @@
-import { create } from 'zustand'
-import { backend } from './backend.store'
-import { canvas } from './canvas.store'
-import { ingestion } from './ingestion.store'
+import { create } from "zustand";
+import { backend } from "./backend.store";
+import { canvas } from "./canvas.store";
+import { ingestion } from "./ingestion.store";
 import {
   framePrompt,
   frameTriage,
   frameSpec,
   type PromptIntent,
   type SpecFormat,
-  type SpecOptions,
-} from '../core/prompt-framing'
-import type { TerminalConfig } from '../core/models'
-import type { AgentArtifact } from '@ai-storm/shared'
+  type SpecOptions
+} from "../core/prompt-framing";
+import type { TerminalConfig } from "../core/models";
+import type { AgentArtifact } from "@ai-storm/shared";
+import { log } from "../../lib/log";
 
 export interface AgentRun {
-  status: 'spawned' | 'running' | 'exit' | 'error'
-  pid?: number
-  output: string
-  code?: number
+  status: "spawned" | "running" | "exit" | "error";
+  pid?: number;
+  output: string;
+  code?: number;
   /**
    * What kicked the run off (#89). Currently only the spec/PRD hand-off spawns a
    * run, shown in its own SpecPanel; the field stays so any future run type can be
    * routed to a different surface without conflating it with the spec artifact.
    */
-  kind?: 'spec'
+  kind?: "spec";
   /**
    * Which output format the spec run was framed as (#110), stamped at dispatch —
    * so the SpecPanel can label the status badge and name the download even after
    * the panel reopens with a different picker selection.
    */
-  format?: SpecFormat
+  format?: SpecFormat;
   /**
    * Structured artifacts the backend parsed out of the finished run (#120) —
    * created GitHub issues as `{ title, url }`, rendered as link chips in the
    * SpecPanel. Present only after an `agent-artifacts` message arrived.
    */
-  artifacts?: AgentArtifact[]
+  artifacts?: AgentArtifact[];
 }
 
 /**
@@ -53,56 +54,57 @@ export interface AgentRun {
  */
 
 interface AgentState {
-  runs: Record<string, AgentRun | null>
+  runs: Record<string, AgentRun | null>;
 }
 
-export const useAgentStore = create<AgentState>(() => ({ runs: {} }))
+export const useAgentStore = create<AgentState>(() => ({ runs: {} }));
 
-const subscribed = new Set<string>()
+const subscribed = new Set<string>();
 
 function setRun(workspaceId: string, run: AgentRun | null): void {
-  useAgentStore.setState((s) => ({ runs: { ...s.runs, [workspaceId]: run } }))
+  useAgentStore.setState((s) => ({ runs: { ...s.runs, [workspaceId]: run } }));
 }
 
 function getRun(workspaceId: string): AgentRun | null {
-  return useAgentStore.getState().runs[workspaceId] ?? null
+  return useAgentStore.getState().runs[workspaceId] ?? null;
 }
 
 function ensureSubscription(workspaceId: string): void {
-  if (subscribed.has(workspaceId)) return
-  subscribed.add(workspaceId)
+  if (subscribed.has(workspaceId)) return;
+  subscribed.add(workspaceId);
   backend.subscribe(workspaceId, (msg) => {
-    if (msg.type === 'agent-artifacts') {
-      const run = getRun(workspaceId)
-      if (run) setRun(workspaceId, { ...run, artifacts: msg.artifacts })
-      return
+    if (msg.type === "agent-artifacts") {
+      const run = getRun(workspaceId);
+      if (run) setRun(workspaceId, { ...run, artifacts: msg.artifacts });
+      return;
     }
-    if (msg.type !== 'agent-status') return
-    const cur = getRun(workspaceId) ?? { status: 'spawned', output: '' }
+    if (msg.type !== "agent-status") return;
+    const cur = getRun(workspaceId) ?? { status: "spawned", output: "" };
     switch (msg.status) {
-      case 'spawned':
+      case "spawned":
         setRun(workspaceId, {
-          status: 'running',
+          status: "running",
           pid: msg.pid,
-          output: '',
+          output: "",
           kind: cur.kind,
           // Prefer the backend-echoed format (#120): it survives where the
           // dispatch-time stamp doesn't (refresh, second tab).
-          format: msg.format ?? cur.format,
-        })
-        break
-      case 'stdout':
-      case 'stderr':
-        setRun(workspaceId, { ...cur, status: 'running', output: cur.output + (msg.data ?? '') })
-        break
-      case 'exit':
-        setRun(workspaceId, { ...cur, status: 'exit', code: msg.code })
-        break
-      case 'error':
-        setRun(workspaceId, { ...cur, status: 'error', output: cur.output + (msg.data ?? '') })
-        break
+          format: msg.format ?? cur.format
+        });
+        break;
+      case "stdout":
+      case "stderr":
+        setRun(workspaceId, { ...cur, status: "running", output: cur.output + (msg.data ?? "") });
+        break;
+      case "exit":
+        setRun(workspaceId, { ...cur, status: "exit", code: msg.code });
+        break;
+      case "error":
+        log.error("agent.run_error", { workspace: workspaceId, data: msg.data });
+        setRun(workspaceId, { ...cur, status: "error", output: cur.output + (msg.data ?? "") });
+        break;
     }
-  })
+  });
 }
 
 export const agent = {
@@ -126,19 +128,19 @@ export const agent = {
   generateSpec(
     workspaceId: string,
     config: TerminalConfig,
-    format: SpecFormat = 'prd',
-    opts: SpecOptions = {},
+    format: SpecFormat = "prd",
+    opts: SpecOptions = {}
   ): boolean {
-    const payload = frameSpec(canvas.serializeForHandoff(workspaceId), format, opts)
-    if (!payload) return false
-    const command = config.agentCommand?.trim() || 'claude'
+    const payload = frameSpec(canvas.serializeForHandoff(workspaceId), format, opts);
+    if (!payload) return false;
+    const command = config.agentCommand?.trim() || "claude";
 
-    ensureSubscription(workspaceId)
-    setRun(workspaceId, { status: 'spawned', output: '', kind: 'spec', format })
+    ensureSubscription(workspaceId);
+    setRun(workspaceId, { status: "spawned", output: "", kind: "spec", format });
 
-    backend.connect()
+    backend.connect();
     backend.send({
-      type: 'agent',
+      type: "agent",
       workspaceId,
       command,
       args: config.agentArgs ?? [],
@@ -148,9 +150,9 @@ export const agent = {
       // The side-effecting issues create-mode asks for a NAMED capability
       // (#120); the backend maps it to a vetted, run-scoped permission flag —
       // no more baking `gh` permission into the global agent args.
-      capabilities: opts.createIssues ? ['create-issues'] : [],
-    })
-    return true
+      capabilities: opts.createIssues ? ["create-issues"] : []
+    });
+    return true;
   },
 
   /**
@@ -164,16 +166,16 @@ export const agent = {
   discussText(
     workspaceId: string,
     text: string,
-    intent: PromptIntent = 'discuss',
-    sourceRefs: readonly string[] = [],
+    intent: PromptIntent = "discuss",
+    sourceRefs: readonly string[] = []
   ): boolean {
-    if (!ingestion.isAttached(workspaceId)) return false
-    const prompt = framePrompt(text.trim() ? text : '', intent, sourceRefs)
-    if (!prompt) return false
+    if (!ingestion.isAttached(workspaceId)) return false;
+    const prompt = framePrompt(text.trim() ? text : "", intent, sourceRefs);
+    if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
-    ingestion.sendInput(workspaceId, prompt)
-    ingestion.focusTerminal(workspaceId)
-    return true
+    ingestion.sendInput(workspaceId, prompt);
+    ingestion.focusTerminal(workspaceId);
+    return true;
   },
 
   /**
@@ -187,13 +189,13 @@ export const agent = {
    *   attached or the board is empty.
    */
   triage(workspaceId: string): boolean {
-    if (!ingestion.isAttached(workspaceId)) return false
-    const prompt = frameTriage(canvas.serializeForTriage(workspaceId))
-    if (!prompt) return false
+    if (!ingestion.isAttached(workspaceId)) return false;
+    const prompt = frameTriage(canvas.serializeForTriage(workspaceId));
+    if (!prompt) return false;
     // Trailing '\r' submits it — a triage pass is a complete request, not an
     // editable seam like the card verbs.
-    ingestion.sendInput(workspaceId, prompt + '\r')
-    ingestion.focusTerminal(workspaceId)
-    return true
-  },
-}
+    ingestion.sendInput(workspaceId, prompt + "\r");
+    ingestion.focusTerminal(workspaceId);
+    return true;
+  }
+};

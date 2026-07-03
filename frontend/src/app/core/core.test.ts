@@ -19,7 +19,7 @@ describe("MarkdownBlockParser", () => {
     expect(p.translate("## Title here")).toEqual({
       type: "heading",
       level: 2,
-      text: "Title here",
+      text: "Title here"
     });
   });
 
@@ -28,12 +28,12 @@ describe("MarkdownBlockParser", () => {
     expect(p.translate("- [x] done task")).toEqual({
       type: "todo",
       checked: true,
-      text: "done task",
+      text: "done task"
     });
     expect(p.translate("- [ ] open task")).toEqual({
       type: "todo",
       checked: false,
-      text: "open task",
+      text: "open task"
     });
   });
 
@@ -43,7 +43,7 @@ describe("MarkdownBlockParser", () => {
     expect(p.translate("3) third item")).toEqual({
       type: "numbered",
       order: 3,
-      text: "third item",
+      text: "third item"
     });
   });
 
@@ -55,7 +55,7 @@ describe("MarkdownBlockParser", () => {
     expect(p.translate("```")).toEqual({
       type: "code",
       language: "ts",
-      text: "const x = 1;\nconst y = 2;",
+      text: "const x = 1;\nconst y = 2;"
     });
   });
 
@@ -69,7 +69,7 @@ describe("MarkdownBlockParser", () => {
     const p = new MarkdownBlockParser();
     expect(p.translate("just some prose")).toEqual({
       type: "paragraph",
-      text: "just some prose",
+      text: "just some prose"
     });
   });
 });
@@ -84,7 +84,7 @@ describe("RenderScheduler", () => {
         fireFrame = cb;
         return 1;
       },
-      cancelFrame: () => {},
+      cancelFrame: () => {}
     });
 
     scheduler.enqueue(1);
@@ -107,7 +107,7 @@ describe("RenderScheduler", () => {
         return frames.length;
       },
       cancelFrame: () => {},
-      maxPerFrame: 2,
+      maxPerFrame: 2
     });
 
     scheduler.enqueueAll([1, 2, 3, 4, 5]);
@@ -124,7 +124,7 @@ describe("RenderScheduler", () => {
     const scheduler = new RenderScheduler<number>({
       sink: (batch) => batches.push(batch),
       requestFrame: () => 1,
-      cancelFrame: () => {},
+      cancelFrame: () => {}
     });
     scheduler.enqueueAll([1, 2, 3]);
     scheduler.flushNow();
@@ -141,7 +141,7 @@ describe("RenderScheduler", () => {
         return nextHandle++;
       },
       cancelFrame: (h) => cancelledHandles.push(h),
-      maxPerFrame: 2,
+      maxPerFrame: 2
     });
 
     scheduler.enqueueAll([1, 2, 3, 4, 5]);

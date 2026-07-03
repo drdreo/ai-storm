@@ -7,8 +7,8 @@
  * the render scheduler.
  */
 
-import type { Idea } from '@ai-storm/shared';
-import { MarkdownBlockParser, type BlockDescriptor } from './markdown-block-parser';
+import type { Idea } from "@ai-storm/shared";
+import { MarkdownBlockParser, type BlockDescriptor } from "./markdown-block-parser";
 
 /**
  * One kind's behaviour, in one place (idea-graph design §3.2). The registry is
@@ -32,7 +32,7 @@ export interface KindSpec {
    */
   color: string;
   /** Per-kind card shape (#40). 'note' for every kind today; reserved. */
-  shape?: 'note' | 'diamond';
+  shape?: "note" | "diamond";
 }
 
 /**
@@ -40,19 +40,19 @@ export interface KindSpec {
  * the literal {@link IdeaKind} union, {@link KNOWN_KINDS} ordering, and the
  * registry's key completeness (a missing entry is a compile error).
  */
-const KIND_ORDER = ['risk', 'feature', 'question', 'decision', 'todo', 'heuristic'] as const;
+const KIND_ORDER = ["risk", "feature", "question", "decision", "todo", "heuristic"] as const;
 
 /** The kinds AI-Storm recognises (#21). */
 export type IdeaKind = (typeof KIND_ORDER)[number];
 
 /** The single source of truth for per-kind behaviour (idea-graph design §3.2). */
 export const KIND_REGISTRY: Record<IdeaKind, KindSpec> = {
-  risk: { label: '⚠ Risk', color: 'red' },
-  feature: { label: '✨ Feature', color: 'green' },
-  question: { label: '❓ Question', color: 'yellow' },
-  decision: { label: '✅ Decision', color: 'blue' },
-  todo: { label: '☑ Todo', color: 'light-blue' },
-  heuristic: { label: '💡 Idea', color: 'violet' },
+  risk: { label: "⚠ Risk", color: "red" },
+  feature: { label: "✨ Feature", color: "green" },
+  question: { label: "❓ Question", color: "yellow" },
+  decision: { label: "✅ Decision", color: "blue" },
+  todo: { label: "☑ Todo", color: "light-blue" },
+  heuristic: { label: "💡 Idea", color: "violet" }
 };
 
 /** Ordered list of the known {@link IdeaKind}s (#21), e.g. for chip ordering. */
@@ -96,7 +96,7 @@ export function kindColor(kind?: string): string | undefined {
  * grid (a high-impact risk reads like a high-value idea). Triage therefore rates
  * only the actionable cards (features, decisions, todos, and kindless root ideas).
  */
-export const TRIAGE_SKIP_KINDS: ReadonlySet<string> = new Set(['risk', 'question']);
+export const TRIAGE_SKIP_KINDS: ReadonlySet<string> = new Set(["risk", "question"]);
 
 /**
  * Whether a card of this kind should be rated by AI triage (#60). True for an
@@ -104,7 +104,7 @@ export const TRIAGE_SKIP_KINDS: ReadonlySet<string> = new Set(['risk', 'question
  * the commentary kinds in {@link TRIAGE_SKIP_KINDS}.
  */
 export function isTriageableKind(kind?: string): boolean {
-  return !TRIAGE_SKIP_KINDS.has(normalizeKind(kind) ?? '');
+  return !TRIAGE_SKIP_KINDS.has(normalizeKind(kind) ?? "");
 }
 
 /** Prefix a card heading with its kind badge (or `#tag`); bare title if no kind. */
@@ -114,7 +114,7 @@ export function decorateTitle(title: string, kind?: string): string {
 }
 
 /** Provenance origin of a canvas note (#31, PD-009): AI-created vs user-drawn. */
-export type NoteOrigin = 'ai' | 'user';
+export type NoteOrigin = "ai" | "user";
 
 /**
  * Lifecycle state of an idea card (#20, PD-012). Minimal for now: a card is
@@ -124,14 +124,14 @@ export type NoteOrigin = 'ai' | 'user';
  * The full captured→exploring→decided→parked/killed machine (#20) extends this
  * union later; `superseded` is the one state PD-012 requires.
  */
-export type IdeaLifecycle = 'active' | 'superseded';
+export type IdeaLifecycle = "active" | "superseded";
 
 /**
  * Distinct provenance glyph prepended to AI-created card headings (#31, PD-009).
  * Deliberately different from the `kind` badges in {@link KIND_REGISTRY} (✨/⚠/…)
  * so a reader can separate "who made this" from "what kind it is" at a glance.
  */
-export const AI_PROVENANCE_BADGE = '🤖';
+export const AI_PROVENANCE_BADGE = "🤖";
 
 /**
  * Prefix an AI card's decorated heading with the provenance badge (#31, PD-009)
@@ -141,7 +141,7 @@ export const AI_PROVENANCE_BADGE = '🤖';
  * badge is never double-prefixed.
  */
 export function decorateProvenance(title: string, origin: NoteOrigin): string {
-  if (origin !== 'ai') return title;
+  if (origin !== "ai") return title;
   if (title.startsWith(`${AI_PROVENANCE_BADGE} `)) return title;
   return `${AI_PROVENANCE_BADGE} ${title}`;
 }
@@ -155,13 +155,11 @@ export function decorateProvenance(title: string, origin: NoteOrigin): string {
  * role: formatting a known idea body, never parsing the raw stream).
  */
 export function ideaToDescriptors(idea: Idea): BlockDescriptor[] {
-  const out: BlockDescriptor[] = [
-    { type: 'heading', level: 3, text: decorateTitle(idea.title, idea.kind) },
-  ];
+  const out: BlockDescriptor[] = [{ type: "heading", level: 3, text: decorateTitle(idea.title, idea.kind) }];
   const body = idea.body?.trim();
   if (body) {
     const parser = new MarkdownBlockParser();
-    out.push(...parser.translateAll(body.split('\n')));
+    out.push(...parser.translateAll(body.split("\n")));
     const tail = parser.flush();
     if (tail) out.push(tail);
   }

@@ -11,7 +11,7 @@
  * plain Node vitest env.
  */
 
-import type { SpecFormat } from '@ai-storm/shared';
+import type { SpecFormat } from "@ai-storm/shared";
 
 /**
  * The intent behind feeding a selection into the prompt — one per card verb
@@ -19,7 +19,7 @@ import type { SpecFormat } from '@ai-storm/shared';
  * widen this union, add a matching {@link PROMPT_TEMPLATES} entry, and add a row
  * to `CARD_VERBS` in `discuss-toolbar.ts` (the menu item that carries it).
  */
-export type PromptIntent = 'discuss' | 'expand' | 'challenge' | 'find-risks' | 'combine';
+export type PromptIntent = "discuss" | "expand" | "challenge" | "find-risks" | "combine";
 
 /**
  * Frames a (trimmed, non-empty) selection into an editable prompt per intent.
@@ -30,16 +30,15 @@ export type PromptIntent = 'discuss' | 'expand' | 'challenge' | 'find-risks' | '
  * user steers it before submitting — the whole point of the editable seam.
  */
 export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => string> = {
-  discuss: (selection) =>
-    `Regarding these notes from the canvas:\n\n${selection}\n\nLet's discuss: `,
+  discuss: (selection) => `Regarding these notes from the canvas:\n\n${selection}\n\nLet's discuss: `,
   expand: (selection) =>
     `Expand on this idea from the canvas — flesh it out with detail, concrete examples, and next steps:\n\n${selection}\n\nMy angle: `,
   challenge: (selection) =>
     `Challenge this idea from the canvas — stress-test it for the strongest objections, then give me a refined, stronger version that addresses them and supersedes the original:\n\n${selection}\n\nPush hardest on: `,
-  'find-risks': (selection) =>
+  "find-risks": (selection) =>
     `Find the risks, failure modes, and hidden assumptions in this idea from the canvas:\n\n${selection}\n\nI'm most worried about: `,
   combine: (selection) =>
-    `Combine these ideas from the canvas into ONE stronger, unified idea — synthesize their best elements, resolve overlaps and tensions, and produce a single refined idea that stands on its own and supersedes its sources:\n\n${selection}\n\nWhat matters most in the merge: `,
+    `Combine these ideas from the canvas into ONE stronger, unified idea — synthesize their best elements, resolve overlaps and tensions, and produce a single refined idea that stands on its own and supersedes its sources:\n\n${selection}\n\nWhat matters most in the merge: `
 };
 
 /**
@@ -58,14 +57,14 @@ export const PROMPT_TEMPLATES: Record<PromptIntent, (selection: string) => strin
  */
 export function framePrompt(
   selection: string,
-  intent: PromptIntent = 'discuss',
-  sourceRef?: string | readonly string[],
+  intent: PromptIntent = "discuss",
+  sourceRef?: string | readonly string[]
 ): string {
   const trimmed = selection.trim();
-  if (!trimmed) return '';
-  const refs = sourceRef == null ? [] : typeof sourceRef === 'string' ? [sourceRef] : sourceRef;
+  if (!trimmed) return "";
+  const refs = sourceRef == null ? [] : typeof sourceRef === "string" ? [sourceRef] : sourceRef;
   const body = PROMPT_TEMPLATES[intent](trimmed);
-  const directive = refs.length ? refDirective(refs, intent) : '';
+  const directive = refs.length ? refDirective(refs, intent) : "";
   return directive ? `${directive}\n\n${body}` : body;
 }
 
@@ -84,7 +83,7 @@ export function framePrompt(
  */
 export function frameTriage(board: string): string {
   const trimmed = board.trim();
-  if (!trimmed) return '';
+  if (!trimmed) return "";
   return (
     `Triage the cards on my canvas below. Rate EACH card for impact, effort, and confidence — ` +
     `each an integer from 1 to 5 (higher impact = more valuable, higher effort = more costly, ` +
@@ -101,41 +100,35 @@ export function frameTriage(board: string): string {
  * itself is canonical in `@ai-storm/shared` (#120) — the backend stamps it on
  * run metadata — and re-exported here for the existing UI importers.
  */
-export type { SpecFormat } from '@ai-storm/shared';
+export type { SpecFormat } from "@ai-storm/shared";
 
 /**
  * Per-format descriptors (#110) — the single source for the SpecPanel's picker
  * UI, the status-badge label, and the download filename, so the panel carries no
  * format-specific branching.
  */
-export const SPEC_FORMATS: Record<
-  SpecFormat,
-  { label: string; description: string; fileSuffix: string }
-> = {
+export const SPEC_FORMATS: Record<SpecFormat, { label: string; description: string; fileSuffix: string }> = {
   prd: {
-    label: 'PRD',
-    description:
-      'A concise product requirements doc: overview, goals, non-goals, requirements, open questions.',
-    fileSuffix: 'prd',
+    label: "PRD",
+    description: "A concise product requirements doc: overview, goals, non-goals, requirements, open questions.",
+    fileSuffix: "prd"
   },
   plan: {
-    label: 'Implementation plan',
+    label: "Implementation plan",
     description:
-      'An ordered engineering plan: milestones, concrete steps with acceptance criteria, risks, testing strategy.',
-    fileSuffix: 'plan',
+      "An ordered engineering plan: milestones, concrete steps with acceptance criteria, risks, testing strategy.",
+    fileSuffix: "plan"
   },
   issues: {
-    label: 'GitHub issues',
-    description:
-      'Ready-to-file GitHub issues — one per work item, with title, body, and suggested labels.',
-    fileSuffix: 'issues',
+    label: "GitHub issues",
+    description: "Ready-to-file GitHub issues — one per work item, with title, body, and suggested labels.",
+    fileSuffix: "issues"
   },
   tasks: {
-    label: 'Agent tasks',
-    description:
-      'Self-contained task prompts, each individually copy-pasteable into a coding agent.',
-    fileSuffix: 'tasks',
-  },
+    label: "Agent tasks",
+    description: "Self-contained task prompts, each individually copy-pasteable into a coding agent.",
+    fileSuffix: "tasks"
+  }
 };
 
 /** Options threaded from the SpecPanel through {@link frameSpec} (#110). */
@@ -188,7 +181,7 @@ const SPEC_BODIES: Record<SpecFormat, (opts: SpecOptions) => string> = {
     `Turn the brainstorm board below into a set of self-contained task prompts for coding agents. ` +
     `Output one \`##\` section per task, each individually copy-pasteable on its own: the context ` +
     `the agent needs, the task itself, constraints, and acceptance criteria. Output only the task ` +
-    `prompts markdown, nothing else.`,
+    `prompts markdown, nothing else.`
 };
 
 /**
@@ -203,13 +196,9 @@ const SPEC_BODIES: Record<SpecFormat, (opts: SpecOptions) => string> = {
  * `'prd'` keeps the original contract); the shared {@link SPEC_RULES} apply to all.
  * Returns `''` for an empty board (nothing to hand off).
  */
-export function frameSpec(
-  board: string,
-  format: SpecFormat = 'prd',
-  opts: SpecOptions = {},
-): string {
+export function frameSpec(board: string, format: SpecFormat = "prd", opts: SpecOptions = {}): string {
   const trimmed = board.trim();
-  if (!trimmed) return '';
+  if (!trimmed) return "";
   return `${SPEC_BODIES[format](opts)} ${SPEC_RULES}\n\n${trimmed}\n`;
 }
 
@@ -234,9 +223,9 @@ export function frameSpec(
  * echoed. So a directive only ever supplies the *ref(s)*.
  */
 function refDirective(sourceRefs: readonly string[], intent: PromptIntent): string {
-  if (intent === 'combine') return combineDirective(sourceRefs);
+  if (intent === "combine") return combineDirective(sourceRefs);
   // The single-card verbs always carry exactly one ref; the first is the source.
-  if (intent === 'challenge') return supersedeDirective(sourceRefs[0]);
+  if (intent === "challenge") return supersedeDirective(sourceRefs[0]);
   return aboutDirective(sourceRefs[0]);
 }
 
@@ -277,8 +266,8 @@ function supersedeDirective(sourceRef: string): string {
  * No `«IDEA»` token — see {@link refDirective}.
  */
 function combineDirective(sourceRefs: readonly string[]): string {
-  const list = sourceRefs.map((r) => `@${r}`).join(', ');
-  const chain = sourceRefs.map((r) => `@${r}!`).join('');
+  const list = sourceRefs.map((r) => `@${r}`).join(", ");
+  const chain = sourceRefs.map((r) => `@${r}!`).join("");
   return (
     `(Combine cards ${list} into ONE stronger idea. Capture the merged result as a SINGLE idea — its ` +
     `description can run to a few sentences, since it synthesizes several cards, so don't force it into one ` +

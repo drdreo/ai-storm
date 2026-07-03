@@ -5,7 +5,24 @@ packages:
 
 allowBuilds:
   protobufjs: false
-  '@parcel/watcher': true
+  "@parcel/watcher": true
   esbuild: true
   lmdb: true
   msgpackr-extract: true
+
+minimumReleaseAgeExclude:
+  - "@opentelemetry/api-logs@0.220.0"
+  - "@opentelemetry/core@2.9.0"
+  - "@opentelemetry/exporter-trace-otlp-http@0.220.0"
+  - "@opentelemetry/instrumentation-document-load@0.65.0"
+  - "@opentelemetry/instrumentation-fetch@0.220.0"
+  - "@opentelemetry/instrumentation@0.220.0"
+  - "@opentelemetry/otlp-exporter-base@0.220.0"
+  - "@opentelemetry/otlp-transformer@0.220.0"
+  - "@opentelemetry/resources@2.9.0"
+  - "@opentelemetry/sdk-logs@0.220.0"
+  - "@opentelemetry/sdk-metrics@2.9.0"
+  - "@opentelemetry/sdk-trace-base@2.9.0"
+  - "@opentelemetry/sdk-trace-web@2.9.0"
+  - "@opentelemetry/sdk-trace@2.9.0"
+  - "@opentelemetry/exporter-logs-otlp-http@0.220.0"

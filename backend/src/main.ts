@@ -43,7 +43,7 @@ const config = parseArgs();
 process.on("unhandledRejection", (reason) => {
   log.error("backend.unhandled_rejection", {
     message: reason instanceof Error ? reason.message : String(reason),
-    stack: reason instanceof Error ? reason.stack : undefined,
+    stack: reason instanceof Error ? reason.stack : undefined
   });
 });
 process.on("uncaughtException", (err) => {
@@ -56,7 +56,9 @@ const backend = getRuntime();
 try {
   await backend.preflight();
 } catch (err) {
-  log.error("backend.preflight_failed", { message: err instanceof Error ? err.message : String(err) });
+  log.error("backend.preflight_failed", {
+    message: err instanceof Error ? err.message : String(err)
+  });
   process.exit(1);
 }
 
@@ -73,7 +75,7 @@ const server = serve({ fetch: app.fetch, hostname: config.hostname, port: config
   log.info("backend.listening", {
     url: `ws://${config.hostname}:${config.port}/pty`,
     runtime: backend.runtime,
-    static: config.staticDir,
+    static: config.staticDir
   });
 });
 

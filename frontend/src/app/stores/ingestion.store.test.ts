@@ -10,81 +10,81 @@
  * maps isolated between cases.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-type Listener = (msg: unknown) => void
+type Listener = (msg: unknown) => void;
 
 /** The render scheduler flushes on a ~16ms setTimeout frame in Node. */
-const nextFrame = () => new Promise((r) => setTimeout(r, 25))
+const nextFrame = () => new Promise((r) => setTimeout(r, 25));
 
 async function makeStore() {
-  vi.resetModules()
-  const applyIdeas = vi.fn()
-  let listener: Listener | null = null
-  vi.doMock('./canvas.store', () => ({ canvas: { applyIdeas } }))
-  vi.doMock('./backend.store', () => ({
+  vi.resetModules();
+  const applyIdeas = vi.fn();
+  let listener: Listener | null = null;
+  vi.doMock("./canvas.store", () => ({ canvas: { applyIdeas } }));
+  vi.doMock("./backend.store", () => ({
     backend: {
       subscribe: (_id: string, cb: Listener) => {
-        listener = cb
-        return () => {}
+        listener = cb;
+        return () => {};
       },
       onOpen: () => () => {},
       connect: () => {},
-      send: () => {},
-    },
-  }))
-  vi.doMock('./workspace.store', () => ({ workspace: { setStatus: vi.fn() } }))
+      send: () => {}
+    }
+  }));
+  vi.doMock("./workspace.store", () => ({ workspace: { setStatus: vi.fn() } }));
 
-  const { ingestion } = await import('./ingestion.store')
-  ingestion.attach('ws1', { agentCommand: 'claude' } as never)
+  const { ingestion } = await import("./ingestion.store");
+  ingestion.attach("ws1", { agentCommand: "claude" } as never);
   const emitIdea = (idea: { title: string; body: string; kind?: string }) =>
-    listener?.({ type: 'idea', workspaceId: 'ws1', idea })
-  const emitData = (data: string) => listener?.({ type: 'data', workspaceId: 'ws1', data })
-  return { ingestion, applyIdeas, emitIdea, emitData }
+    listener?.({ type: "idea", workspaceId: "ws1", idea });
+  const emitData = (data: string) => listener?.({ type: "data", workspaceId: "ws1", data });
+  return { ingestion, applyIdeas, emitIdea, emitData };
 }
 
-describe('ingestion store — data/idea split', () => {
-  let h: Awaited<ReturnType<typeof makeStore>>
+describe("ingestion store — data/idea split", () => {
+  let h: Awaited<ReturnType<typeof makeStore>>;
   beforeEach(async () => {
-    h = await makeStore()
-  })
+    h = await makeStore();
+  });
 
-  it('routes an idea to the canvas (applyIdeas) and never to the terminal', async () => {
-    const write = vi.fn()
-    h.ingestion.registerTerminal('ws1', { write, clear: vi.fn() })
+  it("routes an idea to the canvas (applyIdeas) and never to the terminal", async () => {
+    const write = vi.fn();
+    h.ingestion.registerTerminal("ws1", { write, clear: vi.fn() });
 
-    const idea = { title: 'Offline-first canvas', body: 'cache CRDT ops' }
-    h.emitIdea(idea)
-    await nextFrame()
+    const idea = { title: "Offline-first canvas", body: "cache CRDT ops" };
+    h.emitIdea(idea);
+    await nextFrame();
 
-    expect(h.applyIdeas).toHaveBeenCalledTimes(1)
-    expect(h.applyIdeas).toHaveBeenCalledWith('ws1', [idea])
-    expect(write).not.toHaveBeenCalled()
-  })
+    expect(h.applyIdeas).toHaveBeenCalledTimes(1);
+    expect(h.applyIdeas).toHaveBeenCalledWith("ws1", [idea]);
+    expect(write).not.toHaveBeenCalled();
+  });
 
-  it('forwards raw data to a registered terminal sink and not to the canvas', () => {
-    const write = vi.fn()
-    h.ingestion.registerTerminal('ws1', { write, clear: vi.fn() })
+  it("forwards raw data to a registered terminal sink and not to the canvas", () => {
+    const write = vi.fn();
+    h.ingestion.registerTerminal("ws1", { write, clear: vi.fn() });
 
-    h.emitData('aGVsbG8=')
-    expect(write).toHaveBeenCalledWith('aGVsbG8=')
-    expect(h.applyIdeas).not.toHaveBeenCalled()
-  })
+    h.emitData("aGVsbG8=");
+    expect(write).toHaveBeenCalledWith("aGVsbG8=");
+    expect(h.applyIdeas).not.toHaveBeenCalled();
+  });
 
-  it('buffers data that arrives before the terminal mounts, then flushes on register', () => {
-    h.emitData('Zmlyc3Q=') // "first"
-    h.emitData('c2Vjb25k') // "second"
+  it("buffers data that arrives before the terminal mounts, then flushes on register", () => {
+    h.emitData("Zmlyc3Q="); // "first"
+    h.emitData("c2Vjb25k"); // "second"
 
-    const write = vi.fn()
-    h.ingestion.registerTerminal('ws1', { write, clear: vi.fn() })
+    const write = vi.fn();
+    h.ingestion.registerTerminal("ws1", { write, clear: vi.fn() });
 
-    expect(write.mock.calls.map((c) => c[0])).toEqual(['Zmlyc3Q=', 'c2Vjb25k'])
-  })
+    expect(write.mock.calls.map((c) => c[0])).toEqual(["Zmlyc3Q=", "c2Vjb25k"]);
+  });
 
-  it('clearTerminal delegates to the registered sink', () => {
-    const clear = vi.fn()
-    h.ingestion.registerTerminal('ws1', { write: vi.fn(), clear })
-    h.ingestion.clearTerminal('ws1')
-    expect(clear).toHaveBeenCalledTimes(1)
-  })
-})
+  it("clearTerminal delegates to the registered sink", () => {
+    const clear = vi.fn();
+    h.ingestion.registerTerminal("ws1", { write: vi.fn(), clear });
+    h.ingestion.clearTerminal("ws1");
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+});

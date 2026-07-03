@@ -17,29 +17,29 @@
  * "As close to native tldraw as possible": native arrows for edges, the native styles
  * system for color, native menu slots for chrome, and `persistenceKey` → IndexedDB.
  */
-import { Tldraw, type Editor, type TLComponents } from 'tldraw';
-import 'tldraw/tldraw.css';
-import { useMemo, useState, useEffect } from 'react';
-import { useThemeStore } from '../stores/theme.store';
-import { IdeaCardShapeUtil } from './canvas/idea-card';
-import { CardVerbBar, type CardVerbHandler } from './canvas/CardVerbBar';
-import { CanvasEmptyState, type EmptyStateActions } from './canvas/CanvasEmptyState';
-import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from './canvas/menus';
-import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from './canvas/idea-tool';
-import { copyTextOptions } from './canvas/copy-text';
-import type { BoardFilter } from './canvas/filter';
+import { Tldraw, type Editor, type TLComponents } from "tldraw";
+import "tldraw/tldraw.css";
+import { useMemo, useState, useEffect } from "react";
+import { useThemeStore } from "../stores/theme.store";
+import { IdeaCardShapeUtil } from "./canvas/idea-card";
+import { CardVerbBar, type CardVerbHandler } from "./canvas/CardVerbBar";
+import { CanvasEmptyState, type EmptyStateActions } from "./canvas/CanvasEmptyState";
+import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from "./canvas/menus";
+import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
+import { copyTextOptions } from "./canvas/copy-text";
+import type { BoardFilter } from "./canvas/filter";
 
 // Re-export the editor-driven ports the stores drive against the mounted workspace.
-export { applyIdeas } from './canvas/ingest';
+export { applyIdeas } from "./canvas/ingest";
 export {
   serializeEditor,
   serializeForTriage,
   serializeForHandoff,
   collectBoard,
-  selectedText,
-} from './canvas/serialize';
-export { applyScore } from './canvas/layout';
-export { exportBoard, importBoard } from './canvas/portable';
+  selectedText
+} from "./canvas/serialize";
+export { applyScore } from "./canvas/layout";
+export { exportBoard, importBoard } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];
 
@@ -57,7 +57,7 @@ export function CanvasIsland({
   workspaceId,
   bridge,
   emptyStateActions,
-  sessionAttached = false,
+  sessionAttached = false
 }: {
   workspaceId: string;
   bridge: CanvasBridge;
@@ -78,7 +78,7 @@ export function CanvasIsland({
   useEffect(() => {
     return bridge.onFilterMount?.({
       get: () => $filter.get(),
-      set: (filter) => $filter.set(filter),
+      set: (filter) => $filter.set(filter)
     });
   }, [$filter, bridge]);
 
@@ -103,12 +103,12 @@ export function CanvasIsland({
           <CardVerbBar onVerb={bridge.onCardVerb} disabled={!sessionAttached} />
           <FilterApplier $filter={$filter} />
         </>
-      ),
+      )
     }),
-    [$filter, bridge, emptyStateActions, sessionAttached],
+    [$filter, bridge, emptyStateActions, sessionAttached]
   );
   return (
-    <div style={{ position: 'absolute', inset: 0 }}>
+    <div style={{ position: "absolute", inset: 0 }}>
       <Tldraw
         key={workspaceId}
         persistenceKey={`ai-storm:ws:${workspaceId}`}

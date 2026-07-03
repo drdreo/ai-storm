@@ -1,13 +1,14 @@
 /**
- * Structured logging + tracing for the backend flow.
+ * Structured logging + tracing for the frontend flow.
  *
- *   1. `log.{debug,info,warn,error}` — structured records, level set in code via
- *      the `LOG_LEVEL` constant below (debug|info|warn|error). Printed as
- *      human-readable lines; also attached as events to the active OTel span.
+ *   1. `log.{debug,info,warn,error}` — thin, leveled `console.*` wrappers.
+ *      `otel.ts` registers the standard `ConsoleInstrumentation`
+ *      (https://github.com/open-telemetry/opentelemetry-browser), which turns
+ *      every one of these calls into an OTel log record automatically — no
+ *      manual span/log wiring needed here.
  *   2. `withSpan` / `addEvent` — real OTel spans via `@opentelemetry/api`. The
  *      API is a no-op unless a tracer provider is registered, so there is zero
- *      overhead when tracing is off. Run `pnpm trace` (or `node --import
- *      ./src/otel.ts ...`) to register the OTLP exporter (see otel.ts).
+ *      overhead until `initOtel()` (see `otel.ts`) turns tracing on.
  */
 
 import { type Span, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -18,11 +19,11 @@ type Level = "debug" | "info" | "warn" | "error";
 
 const LEVELS: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-/** Active log level — edit this to see/hide lower-severity records. */
-const LOG_LEVEL: Level = "debug";
+/** Active log level — 'debug' in dev builds, 'info' otherwise. */
+const LOG_LEVEL: Level = import.meta.env.DEV ? "debug" : "info";
 const THRESHOLD = LEVELS[LOG_LEVEL];
 
-const tracer = trace.getTracer("ai-storm-backend", "3.0.0");
+const tracer = trace.getTracer("ai-storm-frontend", "3.0.0");
 
 function clean(attrs?: Attrs): Record<string, AttrValue> {
   const out: Record<string, AttrValue> = {};
@@ -36,16 +37,11 @@ function clean(attrs?: Attrs): Record<string, AttrValue> {
 function emit(level: Level, event: string, attrs?: Attrs): void {
   if (LEVELS[level] < THRESHOLD) return;
   const a = clean(attrs);
-
-  const active = trace.getActiveSpan();
-  if (active) active.addEvent(event, a);
-
-  const ts = new Date().toISOString();
-  const tail = Object.keys(a).length ? " " + JSON.stringify(a) : "";
-  const line = `${ts} ${level.toUpperCase().padEnd(5)} ${event}${tail}`;
-  if (level === "error") console.error(line);
-  else if (level === "warn") console.warn(line);
-  else console.log(line);
+  const args = Object.keys(a).length ? [event, a] : [event];
+  if (level === "error") console.error(...args);
+  else if (level === "warn") console.warn(...args);
+  else if (level === "debug") console.debug(...args);
+  else console.log(...args);
 }
 
 export const log = {

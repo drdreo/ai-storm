@@ -45,7 +45,7 @@ export class TerminalScreen {
       allowProposedApi: true, // required to read `.buffer` in xterm 5.x
       // Tell xterm the stream is ConPTY-hosted so its line-wrapping heuristics
       // match the backend (modern ConPTY emits native wrap sequences).
-      windowsPty: { backend: "conpty", buildNumber: windowsBuildNumber() },
+      windowsPty: { backend: "conpty", buildNumber: windowsBuildNumber() }
     });
   }
 

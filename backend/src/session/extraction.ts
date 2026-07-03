@@ -21,13 +21,7 @@
  * Pure and runtime-free so it is unit-testable against recorded fixtures.
  */
 
-import {
-  ideaIdentityKey,
-  type Idea,
-  type IdeaLink,
-  type IdeaRelation,
-  type Score,
-} from "@ai-storm/shared";
+import { ideaIdentityKey, type Idea, type IdeaLink, type IdeaRelation, type Score } from "@ai-storm/shared";
 
 export type { Idea, Score };
 
@@ -97,7 +91,7 @@ export interface HarnessProfile {
 /** A generic harness understands no contract until proven otherwise. */
 export const DEFAULT_PROFILE: HarnessProfile = {
   name: "default",
-  supportsIdeaContract: false,
+  supportsIdeaContract: false
 };
 
 /**
@@ -118,8 +112,8 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     "--mcp-config",
     JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
     "--allowedTools",
-    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`,
-  ],
+    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`
+  ]
 };
 
 /**
@@ -131,7 +125,7 @@ export const PI_PROFILE: HarnessProfile = {
   name: "pi",
   supportsIdeaContract: true,
   systemPromptFlag: "--append-system-prompt",
-  modelFlag: "--model",
+  modelFlag: "--model"
   // No defaultModel: pi is multi-provider and already has user/project default
   // model settings. Forcing haiku here would break users authenticated through
   // OpenAI, Copilot, Gemini, etc.; explicit `--model` args still pass through.
@@ -154,7 +148,7 @@ export const CODEX_PROFILE: HarnessProfile = {
   // Keep the live brainstorming harness fast/cheap by default. Users can still
   // override with explicit `--model` / `-c model_reasoning_effort=...` args.
   defaultModel: "gpt-5.3-codex-spark",
-  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
+  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
 };
 
 const PROFILES: Record<string, HarnessProfile> = {
@@ -163,7 +157,7 @@ const PROFILES: Record<string, HarnessProfile> = {
   pi: PI_PROFILE,
   codex: CODEX_PROFILE,
   bash: { ...DEFAULT_PROFILE, name: "bash" },
-  python: { ...DEFAULT_PROFILE, name: "python" },
+  python: { ...DEFAULT_PROFILE, name: "python" }
 };
 
 /**
@@ -178,7 +172,7 @@ export function launchArgsForProfile(
   profile: HarnessProfile,
   baseArgs: string[],
   prime?: string,
-  mcp?: McpLaunchContext,
+  mcp?: McpLaunchContext
 ): string[] {
   const defaultArgs = (profile.defaultArgs ?? []).filter((arg) => !baseArgs.includes(arg));
   const modelArgs =
@@ -186,10 +180,9 @@ export function launchArgsForProfile(
       ? [profile.modelFlag, profile.defaultModel]
       : [];
   const configArgs = Object.entries(profile.defaultConfig ?? {}).flatMap(([key, value]) =>
-    hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`],
+    hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`]
   );
-  const mcpArgs =
-    profile.mcpArgs && mcp && !baseArgs.includes("--mcp-config") ? profile.mcpArgs(mcp) : [];
+  const mcpArgs = profile.mcpArgs && mcp && !baseArgs.includes("--mcp-config") ? profile.mcpArgs(mcp) : [];
   const primeArgs =
     profile.systemPromptFlag && prime ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime] : [];
   return [...baseArgs, ...defaultArgs, ...modelArgs, ...configArgs, ...mcpArgs, ...primeArgs];
@@ -273,8 +266,7 @@ const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
  * meaningless. ASCII alias `<<SCORE@ref>>` accepted like the idea marker.
  * Groups: 1/2 = ref (guillemet/ASCII), 3 = impact, 4 = effort, 5 = confidence.
  */
-const SCORE_MARKER =
-  /^\s*(?:«SCORE@([\w-]+)»|<<SCORE@([\w-]+)>>)\s*([1-5])\s*\/\s*([1-5])(?:\s*\/\s*([1-5]))?\s*$/u;
+const SCORE_MARKER = /^\s*(?:«SCORE@([\w-]+)»|<<SCORE@([\w-]+)>>)\s*([1-5])\s*\/\s*([1-5])(?:\s*\/\s*([1-5]))?\s*$/u;
 /**
  * Fenced-body recognised keys (case-insensitive): title / body / kind, plus the
  * idea-graph keys id / link (alias parent) / rel (idea-graph design §5.1).
@@ -322,11 +314,7 @@ function parseRelation(value: string): IdeaRelation | undefined {
  * supersede refs (`@a1!@a2!`) is the multi-select `combine` verb folding several
  * sources into one merged idea (#62).
  */
-function ideaFromLine(
-  kind: string | undefined,
-  refChain: string | undefined,
-  logical: string,
-): Idea {
+function ideaFromLine(kind: string | undefined, refChain: string | undefined, logical: string): Idea {
   const rest = logical.replace(IDEA_MARKER, "$5").trim(); // remainder after marker
   const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
@@ -608,7 +596,10 @@ export class ScoreScanner {
 
 /** Split a capture into lines and drop trailing blank lines (pane padding). */
 function toTrimmedLines(capture: string): string[] {
-  const lines = capture.replace(/\r\n/g, "\n").split("\n").map((l) => l.replace(/\s+$/, ""));
+  const lines = capture
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""));
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
@@ -666,7 +657,7 @@ export class IdeaScanner {
        * agent mangling the `«IDEA»` format) is visible rather than silently lost.
        */
       onDebug?: (event: string, data: Record<string, string | number>) => void;
-    } = {},
+    } = {}
   ) {
     this.#sink = opts.sink ?? new IdeaSink();
     this.#confirm = opts.confirm ?? false;
@@ -694,9 +685,7 @@ export class IdeaScanner {
     // confirm. An event-driven caller (the Windows gate) uses this to schedule
     // that follow-up — without it a candidate parsed from the LAST output burst
     // of a turn would stall unconfirmed until the next output arrives.
-    this.#pendingCount = this.#confirm
-      ? [...this.#prevFrameKeys].filter((key) => !this.#sink.hasKey(key)).length
-      : 0;
+    this.#pendingCount = this.#confirm ? [...this.#prevFrameKeys].filter((key) => !this.#sink.hasKey(key)).length : 0;
     this.#emitDiagnostics(lines, fresh);
     return fresh;
   }
@@ -736,13 +725,13 @@ export class IdeaScanner {
   #emitDiagnostics(lines: string[], fresh: Idea[]): void {
     if (!this.#onDebug) return;
     const freshNearMiss = lines.filter(
-      (l) => MARKER_NEAR_MISS.test(l) && !IDEA_MARKER.test(l) && !this.#seenNearMiss.has(l.trim()),
+      (l) => MARKER_NEAR_MISS.test(l) && !IDEA_MARKER.test(l) && !this.#seenNearMiss.has(l.trim())
     );
     for (const l of freshNearMiss) this.#seenNearMiss.add(l.trim());
     if (fresh.length === 0 && freshNearMiss.length === 0) return;
     const data: Record<string, string | number> = {
       ideas: fresh.length,
-      nearMisses: freshNearMiss.length,
+      nearMisses: freshNearMiss.length
     };
     if (freshNearMiss.length > 0) {
       data.nearMissSample = freshNearMiss
