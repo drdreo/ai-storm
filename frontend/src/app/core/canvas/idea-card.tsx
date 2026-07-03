@@ -24,18 +24,18 @@ import {
   type TLBaseShape,
   type TLDefaultColorStyle,
   type TLResizeInfo,
-  type TLShapeId,
-} from 'tldraw';
-import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from '../idea-descriptors';
-import { cardToText, type CardContent } from '../canvas-text';
-import { canvasRefIndex } from './refs';
+  type TLShapeId
+} from "tldraw";
+import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from "../idea-descriptors";
+import { cardToText, type CardContent } from "../canvas-text";
+import { canvasRefIndex } from "./refs";
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
-export type Origin = 'ai' | 'user';
+export type Origin = "ai" | "user";
 
 /** A spatial idea card: the tldraw analogue of an `affine:note` (idea-graph §2.1). */
 export type IdeaCardShape = TLBaseShape<
-  'idea-card',
+  "idea-card",
   {
     w: number;
     h: number;
@@ -93,9 +93,9 @@ export interface IdeaCardMeta {
  * one declaration makes `idea-card` a first-class shape type everywhere — the
  * typed equivalent of registering a BlockSuite block flavour in the schema.
  */
-declare module 'tldraw' {
+declare module "tldraw" {
   interface TLGlobalShapePropsMap {
-    'idea-card': IdeaCardShape['props'];
+    "idea-card": IdeaCardShape["props"];
   }
 }
 
@@ -109,10 +109,10 @@ export const CARD_H = 132;
  * chrome behind the canvas. Named here rather than inlined so the intent is
  * explicit and the values live in one place.
  */
-const CARD_INK_LIGHT = '#1c1c1c';
-const CARD_INK_DARK = '#e8e8e8';
+const CARD_INK_LIGHT = "#1c1c1c";
+const CARD_INK_DARK = "#e8e8e8";
 /** The gold of the "kept for later" star mark (#29). */
-const STAR_GOLD = '#f5b301';
+const STAR_GOLD = "#f5b301";
 
 /**
  * Shared style for the in-edit title/body fields (#72): a borderless, transparent
@@ -120,42 +120,42 @@ const STAR_GOLD = '#f5b301';
  * doesn't shift the card's layout. Font/size/color are applied per-field.
  */
 const EDIT_FIELD: React.CSSProperties = {
-  width: '100%',
-  border: 'none',
-  outline: 'none',
-  background: 'transparent',
+  width: "100%",
+  border: "none",
+  outline: "none",
+  background: "transparent",
   padding: 0,
   margin: 0,
-  resize: 'none',
-  fontFamily: 'inherit',
-  overflow: 'hidden',
+  resize: "none",
+  fontFamily: "inherit",
+  overflow: "hidden"
 };
 
 export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
-  static override type = 'idea-card' as const;
+  static override type = "idea-card" as const;
   static override props: RecordProps<IdeaCardShape> = {
     w: T.number,
     h: T.number,
     kind: T.string,
     title: T.string,
     body: T.string,
-    origin: T.literalEnum('ai', 'user'),
+    origin: T.literalEnum("ai", "user"),
     superseded: T.boolean,
     // A real shared style — this is what wires the card into the style panel and
     // the theme's light/dark color resolution (tldraw styles system).
-    color: DefaultColorStyle,
+    color: DefaultColorStyle
   };
 
-  override getDefaultProps(): IdeaCardShape['props'] {
+  override getDefaultProps(): IdeaCardShape["props"] {
     return {
       w: CARD_W,
       h: CARD_H,
-      kind: '',
-      title: 'Untitled idea',
-      body: '',
-      origin: 'user',
+      kind: "",
+      title: "Untitled idea",
+      body: "",
+      origin: "user",
       superseded: false,
-      color: 'blue',
+      color: "blue"
     };
   }
 
@@ -203,17 +203,15 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const isEditing = useIsEditing(shape.id);
   const { kind, title, body, origin, superseded, color } = shape.props;
   const colors = editor.getCurrentTheme().colors[colorMode];
-  const swatch = superseded ? 'grey' : color;
-  const tint = getColorValue(colors, swatch, 'semi');
-  const accent = getColorValue(colors, swatch, 'solid');
-  const text = superseded ? accent : colorMode === 'dark' ? CARD_INK_DARK : CARD_INK_LIGHT;
+  const swatch = superseded ? "grey" : color;
+  const tint = getColorValue(colors, swatch, "semi");
+  const accent = getColorValue(colors, swatch, "solid");
+  const text = superseded ? accent : colorMode === "dark" ? CARD_INK_DARK : CARD_INK_LIGHT;
 
   const normalized = normalizeKind(kind);
   // Mirrors `decorateProvenance(decorateTitle(...))`: a 🤖 for AI cards, then the
   // registry's kind label (or `#tag` for an unknown kind).
-  const badge = `${origin === 'ai' ? `${AI_PROVENANCE_BADGE} ` : ''}${
-    normalized ? kindLabel(normalized) : ''
-  }`.trim();
+  const badge = `${origin === "ai" ? `${AI_PROVENANCE_BADGE} ` : ""}${normalized ? kindLabel(normalized) : ""}`.trim();
 
   // User mark (#29): "keep this one for later". Stored in meta (no schema
   // migration), persists with the card, toggled by the ★ in the corner.
@@ -224,8 +222,8 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
     stopEventPropagation(e);
     editor.updateShape({
       id: shape.id,
-      type: 'idea-card',
-      meta: { ...shape.meta, starred: !starred },
+      type: "idea-card",
+      meta: { ...shape.meta, starred: !starred }
     });
   };
 
@@ -233,13 +231,13 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   // Enter (canEdit === true); we then swap the read-only title/body for inputs.
   // The first user keystroke on an AI card stamps `editedByUser` — provenance
   // stays `ai` (the 🤖 endures) but a `· edited` mark records the human take-over.
-  const edit = (patch: Partial<Pick<IdeaCardShape['props'], 'title' | 'body'>>) => {
-    const stampEdited = origin === 'ai' && !editedByUser;
+  const edit = (patch: Partial<Pick<IdeaCardShape["props"], "title" | "body">>) => {
+    const stampEdited = origin === "ai" && !editedByUser;
     editor.updateShape({
       id: shape.id,
-      type: 'idea-card',
+      type: "idea-card",
       props: patch,
-      ...(stampEdited ? { meta: { ...shape.meta, editedByUser: true } } : {}),
+      ...(stampEdited ? { meta: { ...shape.meta, editedByUser: true } } : {})
     });
   };
 
@@ -248,49 +246,49 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
       style={{
         width: shape.props.w,
         height: shape.props.h,
-        boxSizing: 'border-box',
-        padding: '10px 12px',
+        boxSizing: "border-box",
+        padding: "10px 12px",
         borderRadius: 10,
         background: tint,
         border: superseded ? `2px dashed ${accent}` : `1px solid ${accent}`,
-        boxShadow: superseded ? 'none' : '0 1px 4px rgba(0,0,0,0.12)',
+        boxShadow: superseded ? "none" : "0 1px 4px rgba(0,0,0,0.12)",
         color: text,
-        fontFamily: 'var(--tl-font-sans, system-ui, sans-serif)',
-        display: 'flex',
-        flexDirection: 'column',
+        fontFamily: "var(--tl-font-sans, system-ui, sans-serif)",
+        display: "flex",
+        flexDirection: "column",
         gap: 5,
-        overflow: 'hidden',
-        pointerEvents: 'all',
-        opacity: superseded ? 0.85 : 1,
+        overflow: "hidden",
+        pointerEvents: "all",
+        opacity: superseded ? 0.85 : 1
       }}
     >
       <button
         type="button"
-        title={starred ? 'Marked — keep for later (click to unmark)' : 'Mark this idea for later'}
+        title={starred ? "Marked — keep for later (click to unmark)" : "Mark this idea for later"}
         aria-pressed={starred}
         onPointerDown={stopEventPropagation}
         onClick={toggleStar}
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 6,
           right: 8,
-          border: 'none',
-          background: 'transparent',
-          cursor: 'pointer',
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
           padding: 0,
           lineHeight: 1,
           fontSize: 15,
           color: starred ? STAR_GOLD : accent,
-          opacity: starred ? 1 : 0.35,
+          opacity: starred ? 1 : 0.35
         }}
       >
-        {starred ? '★' : '☆'}
+        {starred ? "★" : "☆"}
       </button>
       {badge ? (
-        <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: '0.02em' }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: "0.02em" }}>
           {badge}
-          {superseded ? ' · superseded' : ''}
-          {editedByUser ? ' · edited' : ''}
+          {superseded ? " · superseded" : ""}
+          {editedByUser ? " · edited" : ""}
         </div>
       ) : null}
       {isEditing ? (
@@ -306,7 +304,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
               color: text,
               fontSize: 14,
               fontWeight: 600,
-              lineHeight: 1.25,
+              lineHeight: 1.25
             }}
           />
           <textarea
@@ -320,7 +318,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
               fontSize: 12,
               lineHeight: 1.35,
               opacity: 0.85,
-              flex: 1,
+              flex: 1
             }}
           />
         </>
@@ -335,17 +333,17 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         // bottom so it reads as a stat strip below the idea.
         <div
           title={`Impact ${score.impact} · Effort ${score.effort}${
-            score.confidence != null ? ` · Confidence ${score.confidence}` : ''
+            score.confidence != null ? ` · Confidence ${score.confidence}` : ""
           } (AI triage)`}
           style={{
-            marginTop: 'auto',
-            display: 'flex',
+            marginTop: "auto",
+            display: "flex",
             gap: 10,
             fontSize: 10,
             fontWeight: 700,
-            letterSpacing: '0.02em',
+            letterSpacing: "0.02em",
             color: accent,
-            opacity: 0.9,
+            opacity: 0.9
           }}
         >
           <span>▲ {score.impact}</span>
@@ -359,9 +357,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
 
 /** Every idea-card shape on the editor's current page. */
 export function ideaCards(editor: Editor): IdeaCardShape[] {
-  return editor
-    .getCurrentPageShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  return editor.getCurrentPageShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
 }
 
 /**
@@ -395,11 +391,11 @@ export function cardsInOrder(editor: Editor): IdeaCardShape[] {
  */
 export function cardRef(editor: Editor, shapeId: TLShapeId): string | undefined {
   const shape = editor.getShape(shapeId);
-  if (!shape || shape.type !== 'idea-card') return undefined;
+  if (!shape || shape.type !== "idea-card") return undefined;
   const existing = (shape.meta as IdeaCardMeta).ref;
   if (existing) return existing;
   const ref = `a${maxRefIndex(editor) + 1}`;
-  editor.updateShape({ id: shapeId, type: 'idea-card', meta: { ...shape.meta, ref } });
+  editor.updateShape({ id: shapeId, type: "idea-card", meta: { ...shape.meta, ref } });
   return ref;
 }
 

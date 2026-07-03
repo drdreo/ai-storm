@@ -20,8 +20,8 @@ This works in the steady state, but the rendered screen is **width-dependent and
 and terminal resizing exercises both weaknesses at once. Observed failure modes:
 
 1. **Mid-repaint captures.** On resize, the harness TUI clears and repaints the whole conversation at
-   the new width. The Windows backend scans after *every* PTY chunk; a chunk boundary mid-line leaves
-   a marker row holding half a title while rows *below* it (input box, status area) are already
+   the new width. The Windows backend scans after _every_ PTY chunk; a chunk boundary mid-line leaves
+   a marker row holding half a title while rows _below_ it (input box, status area) are already
    painted — so the growing-tail hold-back (`extraction.ts` `scanIdeas`) does not protect it. The
    truncated title parses "successfully", gets a different identity key, and lands as a bogus card;
    the completed line then lands as a second card. The tmux poller has the same race at 400 ms
@@ -29,12 +29,12 @@ and terminal resizing exercises both weaknesses at once. Observed failure modes:
 2. **Hard wraps join differently than soft wraps.** The TUIs word-wrap their own output with real
    newlines, invisible to `capture-pane -J` and `isWrapped`. The scanner rejoins those continuation
    rows with a **space**; a long token split mid-word reads differently at different widths, and if
-   the split lands in the *title*, the identity key changes across a resize → duplicate card.
+   the split lands in the _title_, the identity key changes across a resize → duplicate card.
 3. **Stale scrollback (Windows).** `snapshotAll()` keeps scanning the pre-resize copy of the
-   conversation in scrollback *and* the re-wrapped repaint below it; any reconstruction divergence
+   conversation in scrollback _and_ the re-wrapped repaint below it; any reconstruction divergence
    between the two duplicates the idea.
 4. **Width-sensitive rejoin boundaries.** Continuation absorption stops at blank lines / markers /
-   `CHROME_BOUNDARY`. Where those fall depends on the wrap width, so the *same* logical idea can
+   `CHROME_BOUNDARY`. Where those fall depends on the wrap width, so the _same_ logical idea can
    reconstruct differently before and after a resize.
 
 Each of these can be (and has been) patched heuristically — identity excludes the body (#38), `-J`
@@ -83,7 +83,7 @@ channel with **schema validation and retry** — which is precisely what tool ca
   contract-aware harnesses without MCP.
 - Scanner hardening (quiescence gating, two-frame confirmation, resize settle window). Those are
   complementary, cheap, and worth doing for the fallback path — tracked separately; this doc removes
-  the *primary* path's dependence on them.
+  the _primary_ path's dependence on them.
 
 ---
 
@@ -118,14 +118,14 @@ serialized to JSON Schema in the MCP `tools/list` response).
 
 Semantics map 1:1 onto today's `Idea`:
 
-| Marker form | Tool form |
-|---|---|
-| `«IDEA» T :: B` | `{title: "T", body: "B"}` |
-| `«IDEA:risk» …` | `{kind: "risk", …}` |
-| `«IDEA:risk@a1» …` | `{links: [{to: "a1"}], …}` (relation defaults to `about`) |
-| `«IDEA@a1!» …` (supersede, PD-012) | `{links: [{to: "a1", relation: "supersedes"}]}` |
+| Marker form                              | Tool form                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `«IDEA» T :: B`                          | `{title: "T", body: "B"}`                                                     |
+| `«IDEA:risk» …`                          | `{kind: "risk", …}`                                                           |
+| `«IDEA:risk@a1» …`                       | `{links: [{to: "a1"}], …}` (relation defaults to `about`)                     |
+| `«IDEA@a1!» …` (supersede, PD-012)       | `{links: [{to: "a1", relation: "supersedes"}]}`                               |
 | `«IDEA@a1!@a2!» …` (combine, #62/PD-019) | `{links: [{to:"a1",relation:"supersedes"}, {to:"a2",relation:"supersedes"}]}` |
-| ` ```idea ` fenced multi-line body | `body` with embedded `\n` — no special form needed |
+| ` ```idea ` fenced multi-line body       | `body` with embedded `\n` — no special form needed                            |
 
 ### 3.2 `capture_score`
 
@@ -207,8 +207,8 @@ gains an optional MCP context so tmux and node-pty launch paths stay byte-for-by
 
 ```ts
 interface McpLaunchContext {
-  url: string;          // http://127.0.0.1:<port>/mcp/<workspaceId>/<token>
-  serverName: string;   // "ai-storm" — fixed; tool ids derive from it
+  url: string; // http://127.0.0.1:<port>/mcp/<workspaceId>/<token>
+  serverName: string; // "ai-storm" — fixed; tool ids derive from it
 }
 
 interface HarnessProfile {
@@ -259,13 +259,13 @@ base contract + facilitation mode + background). Only the **base segment** chang
 profile has MCP wired:
 
 - **MCP prime (new, used when `mcpArgs` present):** teach the tools, not the grammar —
-  *"Whenever you produce a brainstorming idea worth capturing on the canvas, call the
+  _"Whenever you produce a brainstorming idea worth capturing on the canvas, call the
   `capture_idea` tool — title, short description, optional kind (risk/feature/question/decision),
   and links to existing cards by their @ref (relation `supersedes` when your idea replaces that
   card; when combining several cards, one call with a `supersedes` link per source). When asked to
   TRIAGE, call `capture_score` once per card. Do NOT also write the idea as a special marker line —
   the tool call is the capture. Mention the returned @ref in your reply so the user can follow
-  along."*
+  along."_
 - **Marker prime (existing `PRIME_INSTRUCTION`):** unchanged, used when the profile lacks `mcpArgs`.
 - **Facilitation modes (#61):** mode primes currently say "emit `«IDEA»` lines". Reword to
   capability-neutral phrasing ("capture each idea") so one mode catalog serves both primes; the base
@@ -301,15 +301,15 @@ backends), fed by **both** producers:
 - the MCP handler (primary), and
 - the `IdeaScanner` (fallback, still scanning every capture).
 
-So if a primed agent lapses and emits a marker line *instead of* calling the tool, the scanner still
-catches it (floor); and if it redundantly does *both*, identity dedupe delivers it once. The sink
+So if a primed agent lapses and emits a marker line _instead of_ calling the tool, the scanner still
+catches it (floor); and if it redundantly does _both_, identity dedupe delivers it once. The sink
 also serializes emission ordering (tool calls and scan ticks interleave) — last writer wins is fine
 because dedupe is by identity, not position. `ScoreScanner`'s tuple-keyed set gets the same
 treatment (`ScoreSink`), with one deliberate carry-over: a **re-triage** that changes a card's
 rating is a new tuple and passes through, matching today's semantics.
 
 **Diagnostics.** `idea.captured` (info) logs the tool path with `{workspace, ref, kind}`. A scanner
-hit on a session that *has* MCP wired logs `idea.fallback_scan` (warn) — a primed agent ignored the
+hit on a session that _has_ MCP wired logs `idea.fallback_scan` (warn) — a primed agent ignored the
 tool, the tool-lapse analog of today's near-miss telemetry. Near-miss logging itself is unchanged.
 
 ---
@@ -318,15 +318,15 @@ tool, the tool-lapse analog of today's near-miss telemetry. Near-miss logging it
 
 Unchanged in code, demoted in role:
 
-| Session type | Primary path | Floor |
-|---|---|---|
-| Harness with `mcpArgs` (claude; codex/pi once verified) | MCP tools | marker scan (logged when it fires) |
-| Contract-aware harness without MCP | marker scan (today's behaviour) | near-miss telemetry |
-| Bare shell / non-AI | — (no priming, no scan emission) | — |
+| Session type                                            | Primary path                     | Floor                              |
+| ------------------------------------------------------- | -------------------------------- | ---------------------------------- |
+| Harness with `mcpArgs` (claude; codex/pi once verified) | MCP tools                        | marker scan (logged when it fires) |
+| Contract-aware harness without MCP                      | marker scan (today's behaviour)  | near-miss telemetry                |
+| Bare shell / non-AI                                     | — (no priming, no scan emission) | —                                  |
 
 This is the same defence-in-depth posture as the original extraction contract: explicit contract
 primary, heuristic floor secondary, every fallback observable. The §1 resize failure modes still
-exist *for the floor* — which is why the separate scanner-hardening work (quiescence gating,
+exist _for the floor_ — which is why the separate scanner-hardening work (quiescence gating,
 two-frame confirmation) remains worthwhile, just no longer load-bearing for the primary product
 path.
 
@@ -430,8 +430,8 @@ opts in).
 3. **Permission prompts.** If `--allowedTools` doesn't cover the tool ids (naming drift in
    `mcp__<server>__<tool>`), Claude Code interrupts the brainstorm with an approval dialog —
    worse UX than markers. The §9.8 live smoke gates each pinned-version bump.
-4. **Double capture.** An agent that both calls the tool *and* emits a marker produces two
-   producers for one idea; identity dedupe collapses exact duplicates, but a *paraphrased* title
+4. **Double capture.** An agent that both calls the tool _and_ emits a marker produces two
+   producers for one idea; identity dedupe collapses exact duplicates, but a _paraphrased_ title
    slips both through. Accepted: same residual risk as today's re-render dedupe, lower frequency
    (the prime explicitly forbids the marker when the tool succeeds).
 5. **Ref namespace forever.** Backend-minted `i<n>` refs interleave with canvas-minted `a<n>` ones;
@@ -448,14 +448,14 @@ opts in).
 
 ## Appendix A — quick reference
 
-| Agent intent | Marker contract (fallback) | MCP contract (primary) |
-|---|---|---|
-| Plain idea | `«IDEA» T :: B` | `capture_idea {title, body}` |
-| Typed idea | `«IDEA:risk» T :: B` | `capture_idea {kind: "risk", …}` |
-| Linked idea | `«IDEA@a1» …` | `capture_idea {links: [{to: "a1"}]}` |
-| Supersede (PD-012) | `«IDEA@a1!» …` | `…{links: [{to: "a1", relation: "supersedes"}]}` |
-| Combine (#62) | `«IDEA@a1!@a2!» …` | one call, one `supersedes` link per source |
-| Multi-line body | ` ```idea ` fence (fragile, PD-008) | `body` with `\n` |
-| Triage (#60) | `«SCORE@a1» 4/2/3` | `capture_score {ref: "a1", impact: 4, effort: 2, confidence: 3}` |
-| Learn own card's ref | — (impossible) | tool result `{ ref: "i3" }` |
-| Malformed attempt | near-miss log, idea lost | MCP validation error → model retries |
+| Agent intent         | Marker contract (fallback)          | MCP contract (primary)                                           |
+| -------------------- | ----------------------------------- | ---------------------------------------------------------------- |
+| Plain idea           | `«IDEA» T :: B`                     | `capture_idea {title, body}`                                     |
+| Typed idea           | `«IDEA:risk» T :: B`                | `capture_idea {kind: "risk", …}`                                 |
+| Linked idea          | `«IDEA@a1» …`                       | `capture_idea {links: [{to: "a1"}]}`                             |
+| Supersede (PD-012)   | `«IDEA@a1!» …`                      | `…{links: [{to: "a1", relation: "supersedes"}]}`                 |
+| Combine (#62)        | `«IDEA@a1!@a2!» …`                  | one call, one `supersedes` link per source                       |
+| Multi-line body      | ` ```idea ` fence (fragile, PD-008) | `body` with `\n`                                                 |
+| Triage (#60)         | `«SCORE@a1» 4/2/3`                  | `capture_score {ref: "a1", impact: 4, effort: 2, confidence: 3}` |
+| Learn own card's ref | — (impossible)                      | tool result `{ ref: "i3" }`                                      |
+| Malformed attempt    | near-miss log, idea lost            | MCP validation error → model retries                             |

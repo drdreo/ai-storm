@@ -30,7 +30,7 @@ import {
   getProfile,
   commandProfileName,
   launchArgsForProfile,
-  type HarnessProfile,
+  type HarnessProfile
 } from "./extraction.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
 import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
@@ -122,7 +122,7 @@ export class NodePtySessionBackend implements SessionBackend {
     // Select the harness profile (extraction-contract §7.2): explicit spec wins,
     // else derive from the command basename ("claude" → CLAUDE_PROFILE).
     const profile = getProfile(spec.harnessProfile ?? commandProfileName(requested), (m) =>
-      log.warn("extract.profile", { workspace: workspaceId, message: m }),
+      log.warn("extract.profile", { workspace: workspaceId, message: m })
     );
 
     // MCP wiring (mcp-idea-capture §4): mint the per-session token + URL so the
@@ -134,7 +134,7 @@ export class NodePtySessionBackend implements SessionBackend {
       profile,
       baseArgs,
       spec.prime,
-      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined,
+      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined
     );
 
     let launch;
@@ -157,7 +157,7 @@ export class NodePtySessionBackend implements SessionBackend {
     Object.assign(env, spec.env, {
       TERM: spec.env?.TERM ?? "xterm-256color",
       COLORTERM: "truecolor",
-      FORCE_COLOR: spec.env?.FORCE_COLOR ?? "1",
+      FORCE_COLOR: spec.env?.FORCE_COLOR ?? "1"
     });
 
     const term = pty.spawn(launch.cmd, launch.args, {
@@ -165,7 +165,7 @@ export class NodePtySessionBackend implements SessionBackend {
       cols,
       rows,
       cwd: spec.cwd ?? process.cwd(),
-      env,
+      env
     });
 
     const ideaSink = new IdeaSink();
@@ -187,7 +187,7 @@ export class NodePtySessionBackend implements SessionBackend {
         onDebug: (event, data) => {
           const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
           log[level](event, { workspace: workspaceId, ...data });
-        },
+        }
       }),
       scoreScanner: new ScoreScanner(scoreSink),
       // Push-mode gate: the scan runs once output has been quiet (~175 ms),
@@ -203,7 +203,7 @@ export class NodePtySessionBackend implements SessionBackend {
       onError: null,
       closed: false,
       cols,
-      rows,
+      rows
     };
     this.#sessions.set(workspaceId, session);
 
@@ -211,8 +211,8 @@ export class NodePtySessionBackend implements SessionBackend {
       this.#onData(workspaceId, chunk).catch((err) =>
         log.warn("pty.ondata_error", {
           workspace: workspaceId,
-          message: err instanceof Error ? err.message : String(err),
-        }),
+          message: err instanceof Error ? err.message : String(err)
+        })
       );
     });
     term.onExit(({ exitCode }) => {
@@ -244,7 +244,7 @@ export class NodePtySessionBackend implements SessionBackend {
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
-    onError: (message: string) => void,
+    onError: (message: string) => void
   ): Promise<void> {
     const session = this.#sessions.get(workspaceId);
     if (!session) {
@@ -261,7 +261,7 @@ export class NodePtySessionBackend implements SessionBackend {
       ideaSink: session.ideaSink,
       scoreSink: session.scoreSink,
       onIdea,
-      onScore,
+      onScore
     });
     log.info("session.attached", { workspace: workspaceId });
   }
@@ -317,7 +317,7 @@ export class NodePtySessionBackend implements SessionBackend {
         workspace: workspaceId,
         kind: idea.kind ?? "",
         title: idea.title,
-        body: idea.body.slice(0, 120),
+        body: idea.body.slice(0, 120)
       });
       session.onIdea?.(idea);
     }
@@ -327,7 +327,7 @@ export class NodePtySessionBackend implements SessionBackend {
         workspace: workspaceId,
         ref: score.ref,
         impact: score.impact,
-        effort: score.effort,
+        effort: score.effort
       });
       session.onScore?.(score);
     }

@@ -21,7 +21,7 @@ export class LaunchNotFoundError extends Error {
   constructor(command: string) {
     super(
       `Could not find "${command}" on PATH. Is your AI harness installed and ` +
-        `on PATH? You can change the harness command in the workspace settings.`,
+        `on PATH? You can change the harness command in the workspace settings.`
     );
     this.name = "LaunchNotFoundError";
     this.command = command;
@@ -74,7 +74,7 @@ export function resolveLaunch(command: string, args: string[]): ResolvedLaunch {
   log.debug("resolve.chosen", {
     command,
     chosen,
-    launch: `${wrapped.cmd} ${wrapped.args.join(" ")}`,
+    launch: `${wrapped.cmd} ${wrapped.args.join(" ")}`
   });
   return wrapped;
 }
@@ -112,7 +112,7 @@ function wrapByExtension(target: string, args: string[]): ResolvedLaunch {
   if (lower.endsWith(".ps1")) {
     return {
       cmd: "powershell.exe",
-      args: ["-NoLogo", "-ExecutionPolicy", "Bypass", "-File", target, ...args],
+      args: ["-NoLogo", "-ExecutionPolicy", "Bypass", "-File", target, ...args]
     };
   }
   return { cmd: target, args };

@@ -1,7 +1,7 @@
-import { create } from 'zustand'
-import type { Editor } from 'tldraw'
-import type { Idea, Score } from '@ai-storm/shared'
-import type { PromptIntent } from '../core/prompt-framing'
+import { create } from "zustand";
+import type { Editor } from "tldraw";
+import type { Idea, Score } from "@ai-storm/shared";
+import type { PromptIntent } from "../core/prompt-framing";
 import {
   type CanvasBridge,
   applyIdeas as islandApplyIdeas,
@@ -12,17 +12,17 @@ import {
   selectedText,
   collectBoard,
   exportBoard as islandExportBoard,
-  importBoard as islandImportBoard,
-} from '../core/canvas-island'
-import type { PortableBoard } from '../core/workspace-portable'
-import { synthesizeBoard, type ConvergentSummary } from '../core/synthesis'
-import { createUserIdea } from '../core/canvas/idea-tool'
+  importBoard as islandImportBoard
+} from "../core/canvas-island";
+import type { PortableBoard } from "../core/workspace-portable";
+import { synthesizeBoard, type ConvergentSummary } from "../core/synthesis";
+import { createUserIdea } from "../core/canvas/idea-tool";
 import {
   arrangeMindMap as layoutArrangeMindMap,
-  arrangePriorityGrid as layoutArrangePriorityGrid,
-} from '../core/canvas/layout'
-import { boardFacets, EMPTY_FILTER, type BoardFacets, type BoardFilter } from '../core/canvas/filter'
-import { ideaCards } from '../core/canvas/idea-card'
+  arrangePriorityGrid as layoutArrangePriorityGrid
+} from "../core/canvas/layout";
+import { boardFacets, EMPTY_FILTER, type BoardFacets, type BoardFilter } from "../core/canvas/filter";
+import { ideaCards } from "../core/canvas/idea-card";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -45,61 +45,57 @@ import { ideaCards } from '../core/canvas/idea-card'
 
 interface CanvasState {
   /** True once the canvas is initialized (parity with the old CRDT-boot flag). */
-  ready: boolean
+  ready: boolean;
   /**
    * Monotonic counter bumped whenever the mounted canvas gains cards (a fresh
    * `applyIdeas`, or a workspace mounting with persisted cards). The toolbar's
    * kind-filter chips recompute against it (#21).
    */
-  ideasTick: number
+  ideasTick: number;
 }
 
 export const useCanvasStore = create<CanvasState>(() => ({
   ready: false,
-  ideasTick: 0,
-}))
+  ideasTick: 0
+}));
 
 // ---- Imperative singleton state (lives outside React) ----------------------
 
-let editor: Editor | null = null
+let editor: Editor | null = null;
 /** Workspace id the mounted editor currently shows (guards background applies). */
-let activeId: string | null = null
+let activeId: string | null = null;
 /** Ideas streamed to a non-mounted workspace, drained on its next mount. */
-const pending = new Map<string, Idea[]>()
+const pending = new Map<string, Idea[]>();
 /** Resolvers waiting on a given workspace's editor to mount (export/import #105). */
-const mountWaiters = new Map<string, Array<() => void>>()
+const mountWaiters = new Map<string, Array<() => void>>();
 /** Fired when a card verb (#13 Discuss / #15 expand/challenge/find-risks) is picked. */
-let cardVerbHandler:
-  | ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void)
-  | null = null
-let filterController:
-  | {
-      get(): BoardFilter
-      set(filter: BoardFilter): void
-    }
-  | null = null
+let cardVerbHandler: ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void) | null = null;
+let filterController: {
+  get(): BoardFilter;
+  set(filter: BoardFilter): void;
+} | null = null;
 
 function bumpIdeasTick(): void {
-  useCanvasStore.setState((s) => ({ ideasTick: s.ideasTick + 1 }))
+  useCanvasStore.setState((s) => ({ ideasTick: s.ideasTick + 1 }));
 }
 
 function onEditorMount(ed: Editor): void {
-  editor = ed
+  editor = ed;
   // Drain any ideas that streamed in while this workspace was unmounted.
-  const queued = activeId ? pending.get(activeId) : undefined
+  const queued = activeId ? pending.get(activeId) : undefined;
   if (queued?.length) {
-    pending.delete(activeId!)
-    islandApplyIdeas(ed, queued)
+    pending.delete(activeId!);
+    islandApplyIdeas(ed, queued);
   }
   // Recompute the kind-filter chips against the now-loaded store (covers a
   // reload restoring persisted cards, not just freshly-drained ones).
-  bumpIdeasTick()
+  bumpIdeasTick();
 
   // Wake anyone waiting on this workspace's editor (export/import #105).
-  const waiters = activeId ? mountWaiters.get(activeId) : undefined
+  const waiters = activeId ? mountWaiters.get(activeId) : undefined;
   if (waiters?.length) {
-    mountWaiters.delete(activeId!)
-    waiters.forEach((resolve) => resolve())
+    mountWaiters.delete(activeId!);
+    waiters.forEach((resolve) => resolve());
   }
 }
 
@@ -113,16 +109,16 @@ export const canvas = {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
     onFilterMount: (controller) => {
-      filterController = controller
+      filterController = controller;
       return () => {
-        if (filterController === controller) filterController = null
-      }
-    },
+        if (filterController === controller) filterController = null;
+      };
+    }
   } as CanvasBridge,
 
   /** No CRDT collection to stand up — just flip ready (parity with old boot). */
   async init(): Promise<void> {
-    useCanvasStore.setState({ ready: true })
+    useCanvasStore.setState({ ready: true });
   },
 
   /** tldraw owns store loading; nothing to pre-rehydrate (parity shim). */
@@ -137,9 +133,9 @@ export const canvas = {
    * switch to the already-active workspace is a no-op (keeps the live editor).
    */
   switchTo(workspaceId: string): void {
-    if (workspaceId === activeId) return
-    activeId = workspaceId
-    editor = null
+    if (workspaceId === activeId) return;
+    activeId = workspaceId;
+    editor = null;
   },
 
   /**
@@ -148,14 +144,14 @@ export const canvas = {
    * queued and drained when that workspace next mounts.
    */
   applyIdeas(workspaceId: string, ideas: Idea[]): void {
-    if (ideas.length === 0) return
+    if (ideas.length === 0) return;
     if (editor && workspaceId === activeId) {
-      islandApplyIdeas(editor, ideas)
-      bumpIdeasTick()
+      islandApplyIdeas(editor, ideas);
+      bumpIdeasTick();
     } else {
-      const q = pending.get(workspaceId) ?? []
-      q.push(...ideas)
-      pending.set(workspaceId, q)
+      const q = pending.get(workspaceId) ?? [];
+      q.push(...ideas);
+      pending.set(workspaceId, q);
     }
   },
 
@@ -165,8 +161,8 @@ export const canvas = {
    * replies with `«SCORE@ref»` lines that flow back through {@link applyScore}.
    */
   serializeForTriage(workspaceId: string): string {
-    if (!editor || workspaceId !== activeId) return ''
-    return serializeForTriage(editor)
+    if (!editor || workspaceId !== activeId) return "";
+    return serializeForTriage(editor);
   },
 
   /**
@@ -176,13 +172,13 @@ export const canvas = {
    * agent turns this into a generated spec artifact via {@link agent.generateSpec}.
    */
   serializeForHandoff(workspaceId: string): string {
-    if (!editor || workspaceId !== activeId) return ''
-    return serializeForHandoff(editor)
+    if (!editor || workspaceId !== activeId) return "";
+    return serializeForHandoff(editor);
   },
 
   /** Apply an extracted triage score to its target card's meta (#60). */
   applyScore(workspaceId: string, score: Score): void {
-    if (editor && workspaceId === activeId) islandApplyScore(editor, score)
+    if (editor && workspaceId === activeId) islandApplyScore(editor, score);
   },
 
   /**
@@ -192,49 +188,49 @@ export const canvas = {
    * (no live editor to read). No canvas mutation, no agent round-trip.
    */
   synthesize(workspaceId: string): ConvergentSummary | null {
-    if (!editor || workspaceId !== activeId) return null
-    return synthesizeBoard(collectBoard(editor))
+    if (!editor || workspaceId !== activeId) return null;
+    return synthesizeBoard(collectBoard(editor));
   },
 
   /** Serialize the workspace canvas to normalized markdown (PRD §3.2). */
   serializeToText(workspaceId: string): string {
-    if (!editor || workspaceId !== activeId) return ''
-    return serializeEditor(editor)
+    if (!editor || workspaceId !== activeId) return "";
+    return serializeEditor(editor);
   },
 
   /** Plain text of the current selection — or the whole canvas (PRD §3.6). */
   getSelectedText(): string {
-    return editor ? selectedText(editor) : ''
+    return editor ? selectedText(editor) : "";
   },
 
   /** Create a user-origin idea card at the visible board center (#31/#96). */
   createIdea(workspaceId: string): boolean {
-    if (!editor || workspaceId !== activeId) return false
-    createUserIdea(editor, editor.getViewportPageBounds().center)
-    bumpIdeasTick()
-    return true
+    if (!editor || workspaceId !== activeId) return false;
+    createUserIdea(editor, editor.getViewportPageBounds().center);
+    bumpIdeasTick();
+    return true;
   },
 
   /** Run the existing organic mind-map arrangement from the command palette (#16/#96). */
   arrangeMindMap(workspaceId: string): boolean {
-    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false
-    layoutArrangeMindMap(editor)
-    return true
+    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false;
+    layoutArrangeMindMap(editor);
+    return true;
   },
 
   /** Run the existing impact/effort grid arrangement from the command palette (#60/#96). */
   arrangePriorityGrid(workspaceId: string): boolean {
-    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false
-    layoutArrangePriorityGrid(editor)
-    return true
+    if (!editor || workspaceId !== activeId || ideaCards(editor).length === 0) return false;
+    layoutArrangePriorityGrid(editor);
+    return true;
   },
 
   /** Live board facts used to explain disabled palette actions (#96). */
   boardCommandState(workspaceId: string): {
-    mounted: boolean
-    cardCount: number
-    facets: BoardFacets
-    filter: BoardFilter
+    mounted: boolean;
+    cardCount: number;
+    facets: BoardFacets;
+    filter: BoardFilter;
   } {
     if (!editor || workspaceId !== activeId) {
       return {
@@ -246,17 +242,17 @@ export const canvas = {
           hasUser: false,
           hasMarked: false,
           hasSuperseded: false,
-          hasTriaged: false,
+          hasTriaged: false
         },
-        filter: EMPTY_FILTER,
-      }
+        filter: EMPTY_FILTER
+      };
     }
     return {
       mounted: true,
       cardCount: ideaCards(editor).length,
       facets: boardFacets(editor),
-      filter: filterController?.get() ?? EMPTY_FILTER,
-    }
+      filter: filterController?.get() ?? EMPTY_FILTER
+    };
   },
 
   /**
@@ -264,50 +260,50 @@ export const canvas = {
    * used to await a `setActive` + `switchTo` before reading/writing its board.
    */
   waitForMount(workspaceId: string): Promise<void> {
-    if (editor && workspaceId === activeId) return Promise.resolve()
+    if (editor && workspaceId === activeId) return Promise.resolve();
     return new Promise((resolve) => {
-      const waiters = mountWaiters.get(workspaceId) ?? []
-      waiters.push(resolve)
-      mountWaiters.set(workspaceId, waiters)
-    })
+      const waiters = mountWaiters.get(workspaceId) ?? [];
+      waiters.push(resolve);
+      mountWaiters.set(workspaceId, waiters);
+    });
   },
 
   /** Snapshot the mounted board into its portable JSON form (#105), or `null` if unmounted. */
   exportBoard(workspaceId: string): PortableBoard | null {
-    if (!editor || workspaceId !== activeId) return null
-    return islandExportBoard(editor)
+    if (!editor || workspaceId !== activeId) return null;
+    return islandExportBoard(editor);
   },
 
   /** Render an imported board onto the mounted (normally empty) canvas (#105). */
   importBoard(workspaceId: string, board: PortableBoard): boolean {
-    if (!editor || workspaceId !== activeId) return false
-    islandImportBoard(editor, board)
-    bumpIdeasTick()
-    return true
+    if (!editor || workspaceId !== activeId) return false;
+    islandImportBoard(editor, board);
+    bumpIdeasTick();
+    return true;
   },
 
   /** Update the active board filter through the same atom used by the tldraw menu (#21/#96). */
   patchFilter(workspaceId: string, patch: Partial<BoardFilter>): boolean {
-    if (!editor || workspaceId !== activeId || !filterController) return false
-    filterController.set({ ...filterController.get(), ...patch })
-    return true
+    if (!editor || workspaceId !== activeId || !filterController) return false;
+    filterController.set({ ...filterController.get(), ...patch });
+    return true;
   },
 
   /** Register the card-verb sink (#13/#15/#62) — see {@link CanvasIsland}'s verb bar. */
   onCardVerb(cb: (text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void): void {
-    cardVerbHandler = cb
+    cardVerbHandler = cb;
   },
 
   /** Tear down a deleted workspace's canvas state and its persisted store. */
   removeWorkspace(workspaceId: string): void {
-    pending.delete(workspaceId)
+    pending.delete(workspaceId);
     // tldraw's local sync names the IndexedDB database
     // `TLDRAW_DOCUMENT_v2<persistenceKey>` (LocalIndexedDb, pinned to tldraw 5.x);
     // deleting it discards the board for good. Best-effort: never block deletion.
     try {
-      indexedDB.deleteDatabase(`TLDRAW_DOCUMENT_v2ai-storm:ws:${workspaceId}`)
+      indexedDB.deleteDatabase(`TLDRAW_DOCUMENT_v2ai-storm:ws:${workspaceId}`);
     } catch {
       /* ignore */
     }
-  },
-}
+  }
+};

@@ -18,7 +18,7 @@
  * the {@link ConvergentSummary} read-only while {@link summaryToMarkdown} feeds
  * copy/export — a markdown reading, never an editable document (PD-011 holds).
  */
-import { decorateTitle, normalizeKind } from './idea-descriptors';
+import { decorateTitle, normalizeKind } from "./idea-descriptors";
 
 /** One idea card, flattened off the live editor for synthesis (see `collectBoard`). */
 export interface BoardCard {
@@ -31,7 +31,7 @@ export interface BoardCard {
   starred: boolean;
   /** Lifecycle (#20/PD-012): replaced by a refined card via a `supersedes` edge. */
   superseded: boolean;
-  origin: 'ai' | 'user';
+  origin: "ai" | "user";
 }
 
 /** A typed edge between two cards (the bound arrows behind the graph, #42). */
@@ -40,7 +40,7 @@ export interface BoardEdge {
   from: string;
   /** For `about`: the idea it is about; for `supersedes`: the replaced original. */
   to: string;
-  relation: 'about' | 'supersedes';
+  relation: "about" | "supersedes";
 }
 
 /** The whole board, flattened — the input to {@link synthesizeBoard}. */
@@ -86,7 +86,7 @@ export interface ConvergentSummary {
 }
 
 /** Title of the catch-all theme gathering cards that belong to no cluster. */
-export const STANDALONE_THEME = 'Standalone ideas';
+export const STANDALONE_THEME = "Standalone ideas";
 
 /* -------------------------------------------------------------------------- */
 /* Union-find over the edges — same clustering the layout uses, kept local.   */
@@ -126,7 +126,7 @@ function components(snapshot: BoardSnapshot): Map<string, string> {
 function mainIdea(cluster: BoardCard[], edges: readonly BoardEdge[]): BoardCard {
   const aboutTargets = new Map<string, number>();
   for (const e of edges) {
-    if (e.relation !== 'about') continue;
+    if (e.relation !== "about") continue;
     aboutTargets.set(e.to, (aboutTargets.get(e.to) ?? 0) + 1);
   }
   return cluster.reduce((best, card) => {
@@ -160,7 +160,7 @@ export function synthesizeBoard(snapshot: BoardSnapshot): ConvergentSummary {
       resolutions: [],
       openQuestions: [],
       highlights: [],
-      isEmpty: true,
+      isEmpty: true
     };
   }
 
@@ -196,7 +196,7 @@ export function synthesizeBoard(snapshot: BoardSnapshot): ConvergentSummary {
   const byId = new Map(cards.map((c) => [c.id, c]));
   const resolutions: SupersedeResolution[] = [];
   for (const e of edges) {
-    if (e.relation !== 'supersedes') continue;
+    if (e.relation !== "supersedes") continue;
     const winner = byId.get(e.from);
     const replaced = byId.get(e.to);
     if (winner && replaced) resolutions.push({ winner, replaced });
@@ -205,11 +205,11 @@ export function synthesizeBoard(snapshot: BoardSnapshot): ConvergentSummary {
   return {
     cardCount: cards.length,
     themes,
-    decisions: byKind('decision'),
+    decisions: byKind("decision"),
     resolutions,
-    openQuestions: byKind('question'),
+    openQuestions: byKind("question"),
     highlights: cards.filter((c) => c.starred),
-    isEmpty: false,
+    isEmpty: false
   };
 }
 
@@ -232,50 +232,45 @@ function cardLine(card: BoardCard): string {
  */
 export function summaryToMarkdown(summary: ConvergentSummary): string {
   if (summary.isEmpty) {
-    return '# Board synthesis\n\n_No ideas on the board yet — nothing to synthesize._';
+    return "# Board synthesis\n\n_No ideas on the board yet — nothing to synthesize._";
   }
 
-  const out: string[] = ['# Board synthesis'];
+  const out: string[] = ["# Board synthesis"];
   const themeCount = summary.themes.filter((t) => t.title !== STANDALONE_THEME).length;
-  const themeNote = themeCount
-    ? ` across ${themeCount} ${themeCount === 1 ? 'theme' : 'themes'}`
-    : '';
-  out.push(`_${summary.cardCount} ${summary.cardCount === 1 ? 'idea' : 'ideas'}${themeNote}._`);
+  const themeNote = themeCount ? ` across ${themeCount} ${themeCount === 1 ? "theme" : "themes"}` : "";
+  out.push(`_${summary.cardCount} ${summary.cardCount === 1 ? "idea" : "ideas"}${themeNote}._`);
 
   if (summary.themes.length) {
-    out.push('## Themes');
+    out.push("## Themes");
     for (const theme of summary.themes) {
       out.push(`### ${theme.title.trim()}`);
-      out.push(theme.cards.map(cardLine).join('\n'));
+      out.push(theme.cards.map(cardLine).join("\n"));
     }
   }
 
   if (summary.decisions.length) {
-    out.push('## Decisions');
-    out.push(summary.decisions.map(cardLine).join('\n'));
+    out.push("## Decisions");
+    out.push(summary.decisions.map(cardLine).join("\n"));
   }
 
   if (summary.resolutions.length) {
-    out.push('## Resolved');
+    out.push("## Resolved");
     out.push(
       summary.resolutions
-        .map(
-          (r) =>
-            `- **${r.winner.title.trim()}** replaces ~~${r.replaced.title.trim()}~~`,
-        )
-        .join('\n'),
+        .map((r) => `- **${r.winner.title.trim()}** replaces ~~${r.replaced.title.trim()}~~`)
+        .join("\n")
     );
   }
 
   if (summary.openQuestions.length) {
-    out.push('## Open questions');
-    out.push(summary.openQuestions.map(cardLine).join('\n'));
+    out.push("## Open questions");
+    out.push(summary.openQuestions.map(cardLine).join("\n"));
   }
 
   if (summary.highlights.length) {
-    out.push('## Highlights (marked to keep)');
-    out.push(summary.highlights.map(cardLine).join('\n'));
+    out.push("## Highlights (marked to keep)");
+    out.push(summary.highlights.map(cardLine).join("\n"));
   }
 
-  return out.join('\n\n');
+  return out.join("\n\n");
 }

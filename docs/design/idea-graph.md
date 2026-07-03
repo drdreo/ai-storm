@@ -12,7 +12,7 @@ issues #40 (source-linked responses), #19 (parent refs + connectors), #20 (lifec
 
 ## 1. Why this exists
 
-Today a brainstorm board is a *pile* of cards, not a *graph*. The card verbs (#13
+Today a brainstorm board is a _pile_ of cards, not a _graph_. The card verbs (#13
 Discuss, #15 Expand/Challenge/Find-risks, #14 reply-to-card) feed an editable prompt
 into the live terminal; the agent's reply streams back as terminal text, and the
 backend independently extracts `«IDEA»` markers into `Idea {title, body, kind?}` →
@@ -37,47 +37,47 @@ and is invisible until the consumer features (a separate epic) turn it on.
 The core realization (see the dialogue captured in PD-010) is that three different
 questions were being conflated into one `kind` field. They are independent:
 
-| Axis | Question it answers | Lives on | Example values |
-| --- | --- | --- | --- |
-| **Kind** | *What is this card?* | the **node** | `idea`, `risk`, `question`, `feature`, `decision` (not `challenge` — PD-012) |
-| **Link** | *What is it about?* | an **edge** | → points at another card |
-| **Provenance** | *Who made it?* | the node (existing #31) | `user`, `ai` |
+| Axis           | Question it answers  | Lives on                | Example values                                                               |
+| -------------- | -------------------- | ----------------------- | ---------------------------------------------------------------------------- |
+| **Kind**       | _What is this card?_ | the **node**            | `idea`, `risk`, `question`, `feature`, `decision` (not `challenge` — PD-012) |
+| **Link**       | _What is it about?_  | an **edge**             | → points at another card                                                     |
+| **Provenance** | _Who made it?_       | the node (existing #31) | `user`, `ai`                                                                 |
 
 ### 2.1 Nodes, not nesting
 
 An idea is a **node**. Relationships are **edges**, never containment. Nesting (a risk
-living *inside* an idea) assumes a tree — single owner, clean containment — but the real
+living _inside_ an idea) assumes a tree — single owner, clean containment — but the real
 usage breaks the tree:
 
 - a concern can be a risk of **two** ideas (shared child — trees can't share),
 - a fanned-out idea is **itself an idea** that grows its own risks (recursion),
 - "challenge the challenge", "risk of the mitigation" — same-type children.
 
-The moment children recurse or are shared, nesting *is* a graph wearing a costume. A
+The moment children recurse or are shared, nesting _is_ a graph wearing a costume. A
 flat node set + typed edges handles sharing, re-parenting, and recursion natively.
 
-### 2.2 Kind is what it *is*; the edge is what it's *about*
+### 2.2 Kind is what it _is_; the edge is what it's _about_
 
 We deliberately do **not** carry a parallel relation taxonomy (`risk-of`, `challenge-of`,
 `expands`) on the edge. That would store the flavor twice — `kind: risk` on the card
-*and* `relation: risk-of` on its link say the same thing. Instead:
+_and_ `relation: risk-of` on its link say the same thing. Instead:
 
 - The **node's `kind`** carries the flavor. A risk card is `kind: risk`. A feature is
   `kind: feature`.
-- The **edge is generic** — "this card is *about* that card" (`relation: 'about'`). You
-  read "it's a risk *of* X" by following an `about` edge from a `risk`-kind card to X.
+- The **edge is generic** — "this card is _about_ that card" (`relation: 'about'`). You
+  read "it's a risk _of_ X" by following an `about` edge from a `risk`-kind card to X.
 
 Test for whether a label is a kind or a relation: **does it need a target to make sense?**
 "risk **of**" only means something pointed at a target — but that target is already supplied
-by the edge, and the *flavor* (risk vs feature) is the source card's kind. So the flavor is a
+by the edge, and the _flavor_ (risk vs feature) is the source card's kind. So the flavor is a
 node property, and the edge stays generic.
 
-> **Note (PD-012): `challenge` is not a kind.** A challenge is an *operation* that produces a
+> **Note (PD-012): `challenge` is not a kind.** A challenge is an _operation_ that produces a
 > refined idea **superseding** the one it contests (§2.3), not a parallel `challenge`-kind card.
 > It is therefore absent from the kind set below.
 
 A node has **one kind** (a card is one thing) but **many edges**, to **many targets**.
-The genuinely common multiplicity is *one card → several targets* (a cross-cutting
+The genuinely common multiplicity is _one card → several targets_ (a cross-cutting
 concern that's a risk of several ideas), which generic edges handle directly.
 
 ### 2.3 The one edge type that carries its own meaning: `supersedes`
@@ -91,13 +91,13 @@ the source, so it lives on the edge:
 IdeaRelation = 'about' | 'supersedes'    // extensible; 'about' is the default
 ```
 
-Start with exactly these two. New *flavors* are new `kind` values (data); new *structural
-effects* are new `IdeaRelation` values (rare). We resist a large relation enum on purpose.
+Start with exactly these two. New _flavors_ are new `kind` values (data); new _structural
+effects_ are new `IdeaRelation` values (rare). We resist a large relation enum on purpose.
 
 ### 2.4 Provenance is a third, independent axis
 
 "The AI challenged my note" vs. "I added a risk to an AI note myself" is **not** a
-relationship distinction — it's *who authored the node*, which already exists as
+relationship distinction — it's _who authored the node_, which already exists as
 `origin: 'ai' | 'user'` (#31, PD-009). It is orthogonal: a `kind: risk` card linked to
 target X can be either AI- or user-made, and that changes neither its kind nor its link.
 
@@ -109,7 +109,7 @@ target X can be either AI- or user-made, and that changes neither its kind nor i
 nothing that produces today's `{title, body, kind}` breaks:
 
 ```ts
-export type IdeaRelation = 'about' | 'supersedes';
+export type IdeaRelation = "about" | "supersedes";
 
 export interface IdeaLink {
   /** Short ref of the target card this idea is about (see §4 identity). */
@@ -121,9 +121,9 @@ export interface IdeaLink {
 export interface Idea {
   title: string;
   body: string;
-  kind?: string;          // what it IS — drives presentation + lifecycle via the registry
-  id?: string;            // this idea's own short ref (usually backend/canvas-minted)
-  links?: IdeaLink[];     // 0..n edges to other cards; usually 0 or 1 from a verb
+  kind?: string; // what it IS — drives presentation + lifecycle via the registry
+  id?: string; // this idea's own short ref (usually backend/canvas-minted)
+  links?: IdeaLink[]; // 0..n edges to other cards; usually 0 or 1 from a verb
 }
 ```
 
@@ -139,30 +139,30 @@ replaced the three parallel maps that used to live in `idea-descriptors.ts` (`KI
 
 ```ts
 interface KindSpec {
-  label: string;                 // e.g. '⚠ Risk'
-  color: string;                 // tldraw palette color-style name (a shared StyleProp)
-  shape?: 'note' | 'diamond';    // #40 — per-kind shape; 'note' for now
-  lifecycle?: LifecycleSpec;     // #20 — states + transitions; absent for now
+  label: string; // e.g. '⚠ Risk'
+  color: string; // tldraw palette color-style name (a shared StyleProp)
+  shape?: "note" | "diamond"; // #40 — per-kind shape; 'note' for now
+  lifecycle?: LifecycleSpec; // #20 — states + transitions; absent for now
 }
 
 const KIND_REGISTRY: Record<string, KindSpec> = {
-  risk:      { label: '⚠ Risk',      color: 'red' },
-  feature:   { label: '✨ Feature',   color: 'green' },
-  question:  { label: '❓ Question',  color: 'yellow' },
-  decision:  { label: '✅ Decision',  color: 'blue' },
+  risk: { label: "⚠ Risk", color: "red" },
+  feature: { label: "✨ Feature", color: "green" },
+  question: { label: "❓ Question", color: "yellow" },
+  decision: { label: "✅ Decision", color: "blue" }
   // …unknown kinds fall back to a plain '#tag' + default color, exactly as today.
 };
 ```
 
 **Adding an ideation concept = one registry entry.** No wire change, no parser branch,
-no new marker. That is the whole point of the uniform node: new concepts are *data*, not
-*code*.
+no new marker. That is the whole point of the uniform node: new concepts are _data_, not
+_code_.
 
 ### 3.3 Discussion is **not** a node
 
-One concept deliberately stays outside this model: a *discussion* is a **thread** (the
+One concept deliberately stays outside this model: a _discussion_ is a **thread** (the
 ordered terminal conversation), not a titled card. Don't force it into `{title, body}`.
-A card links to *a moment in the conversation* (that's #23, "jump to the terminal
+A card links to _a moment in the conversation_ (that's #23, "jump to the terminal
 moment") — a reference, not an idea-node. Knowing this boundary keeps the node shape from
 over-fitting.
 
@@ -177,7 +177,7 @@ reproduce. So every card gets a **short ref** — `a1`, `a2`, … — that is:
 - stored on the card itself in its shape `meta.ref` (persisted with the shape; survives reload),
 - the value used for `Idea.id` and `IdeaLink.to`.
 
-The ref space *is* the identity layer; the shape id stays tldraw's internal concern.
+The ref space _is_ the identity layer; the shape id stays tldraw's internal concern.
 
 ## 5. The crux: prompt ↔ response correlation
 
@@ -197,7 +197,7 @@ verb fires from card a1
 ### 5.1 Contract extension (reflow-safe, mirrors `kind`)
 
 The extraction contract is a deliberately constrained, **reflow-resilient single line**
-(read off a fixed-width `tmux capture-pane` grid), and it *already* encodes a tag inside
+(read off a fixed-width `tmux capture-pane` grid), and it _already_ encodes a tag inside
 the marker (`«IDEA:risk»`). The target ref slots into the same pattern:
 
 ```
@@ -211,7 +211,7 @@ Grammar delta (see `ai-response-extraction-contract.md` §3.2): the in-marker ta
 `[:kind][@ref[!]…]`. A **trailing `!`** on a ref makes that link `supersedes` instead of
 the default `about` (PD-012) — keeping the one structural relation on the robust single-line
 marker. **Refs may be chained** (`@a1!@a2!`) so one idea supersedes several sources at once —
-the multi-select combine/merge verb (#62, PD-019); each ref carries its own optional `!`. The fenced form *also* expresses it via `rel: supersedes`, but the agent's TUI
+the multi-select combine/merge verb (#62, PD-019); each ref carries its own optional `!`. The fenced form _also_ expresses it via `rel: supersedes`, but the agent's TUI
 renders the code fence away before the backend captures the screen (PD-008), so in practice
 the inline `!` is the form that reaches the parser; the Challenge verb emits `!`, not a
 fence. The fenced form additionally has keys `id:`, `link:` (alias `parent:`), and `rel:`.
@@ -234,9 +234,9 @@ No server-side graph store. The tldraw canvas store (persisted per workspace via
 `persistenceKey` → IndexedDB, PD-005/PD-013) is the source of truth. Identity and edges live on
 the canvas itself, not in side-maps:
 
-| Where | Shape | Purpose |
-| --- | --- | --- |
-| a card's `shape.meta.ref` | `a1`, `a2`, … | identity (§4) |
+| Where                                               | Shape                   | Purpose         |
+| --------------------------------------------------- | ----------------------- | --------------- |
+| a card's `shape.meta.ref`                           | `a1`, `a2`, …           | identity (§4)   |
 | a native arrow bound to both cards, `meta.relation` | `about` \| `supersedes` | the graph edges |
 
 Edges are native tldraw **arrows bound to both endpoints** (so they track the cards as they
@@ -265,7 +265,7 @@ context-injection path (PRD §3.2).
 `supersedes` / replace-on-challenge (#20, #22), semantic layout/clustering near targets
 (#16, #17). They consume the registry + edges; they don't reinvent them.
 
-## 8. What this is explicitly *not*
+## 8. What this is explicitly _not_
 
 - Not a server-side store, and not multiplayer (PD-001 stands).
 - Not a relation taxonomy — `kind` carries flavor; edges stay generic bar `supersedes`.

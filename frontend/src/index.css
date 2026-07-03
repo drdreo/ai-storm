@@ -1,8 +1,8 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
+@import "tailwindcss";
+@import "tw-animate-css";
 
 /* xterm.js terminal styles (the conversation surface renders the raw PTY). */
-@import '@xterm/xterm/css/xterm.css';
+@import "@xterm/xterm/css/xterm.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -91,7 +91,7 @@
 }
 
 /* ── Signal Ember · LIGHT ────────────────────────────────────────────────── */
-[data-theme='ember'] {
+[data-theme="ember"] {
   --background: oklch(0.991 0.0015 60);
   --foreground: oklch(0.235 0.006 40);
   --card: oklch(1 0.001 60);
@@ -121,7 +121,7 @@
 }
 
 /* ── Signal Ember · DARK ─────────────────────────────────────────────────── */
-[data-theme='ember'].dark {
+[data-theme="ember"].dark {
   --background: oklch(0.17 0.006 40);
   --foreground: oklch(0.93 0.005 60);
   --card: oklch(0.21 0.007 40);
@@ -162,46 +162,46 @@
    Fonts arrive via Google Fonts (<link> in index.html); offline they fall back to
    the system stack in each var. ----------------------------------------------- */
 
-[data-font='grotesque'] {
-  --app-font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+[data-font="grotesque"] {
+  --app-font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
 }
-[data-font='humanist'] {
-  --app-font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+[data-font="humanist"] {
+  --app-font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 }
-[data-font='mono'] {
-  --app-font-sans: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+[data-font="mono"] {
+  --app-font-sans: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-[data-radius='sharp'] {
+[data-radius="sharp"] {
   --radius: 0.25rem;
 }
-[data-radius='default'] {
+[data-radius="default"] {
   --radius: 0.625rem;
 }
-[data-radius='round'] {
+[data-radius="round"] {
   --radius: 1rem;
 }
 
 /* Tailwind v4 derives every spacing AND size utility from --spacing, so this one
    override rescales the whole chrome's density without touching any component. */
-[data-density='compact'] {
+[data-density="compact"] {
   --spacing: 0.215rem;
 }
-[data-density='comfortable'] {
+[data-density="comfortable"] {
   --spacing: 0.26rem;
 }
 
 /* High-contrast (WCAG-friendly): near-neutral overrides of the text/line tokens.
    Compound selectors (attr + mode) reach specificity (0,2,0) so they beat even
    [data-theme='ember'].dark; placed after all palette blocks to win on order. */
-[data-contrast='high']:not(.dark) {
+[data-contrast="high"]:not(.dark) {
   --foreground: oklch(0.16 0.01 265);
   --muted-foreground: oklch(0.4 0.012 265);
   --border: oklch(0.82 0.008 265);
   --card-foreground: oklch(0.16 0.01 265);
   --popover-foreground: oklch(0.16 0.01 265);
 }
-[data-contrast='high'].dark {
+[data-contrast="high"].dark {
   --foreground: oklch(0.985 0.004 255);
   --muted-foreground: oklch(0.82 0.012 255);
   --border: oklch(0.46 0.014 255);

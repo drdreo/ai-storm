@@ -14,13 +14,13 @@ describe("TerminalScreen — reflow-stable logical lines (#38)", () => {
     const scanner = new IdeaScanner();
     await screen.write("● Sure, here are some ideas:\r\n\r\n");
     await screen.write(
-      "  «IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB and replay them on reconnect for resilience\r\n",
+      "  «IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB and replay them on reconnect for resilience\r\n"
     );
     await screen.write("\r\n❯ \r\n");
 
     const expected = {
       title: "Offline-first canvas",
-      body: "cache CRDT ops in IndexedDB and replay them on reconnect for resilience",
+      body: "cache CRDT ops in IndexedDB and replay them on reconnect for resilience"
     };
     expect(scanner.scan(screen.snapshotAll())).toEqual([expected]);
 
@@ -38,10 +38,13 @@ describe("TerminalScreen — reflow-stable logical lines (#38)", () => {
     // would inject a spurious space (e.g. "transparent ly").
     const screen = new TerminalScreen(40, 20);
     await screen.write(
-      "  «IDEA» Resilience :: reconnect gracefully and transparently across long sessions everywhere\r\n\r\n❯ \r\n",
+      "  «IDEA» Resilience :: reconnect gracefully and transparently across long sessions everywhere\r\n\r\n❯ \r\n"
     );
     expect(new IdeaScanner().scan(screen.snapshotAll())).toEqual([
-      { title: "Resilience", body: "reconnect gracefully and transparently across long sessions everywhere" },
+      {
+        title: "Resilience",
+        body: "reconnect gracefully and transparently across long sessions everywhere"
+      }
     ]);
   });
 });

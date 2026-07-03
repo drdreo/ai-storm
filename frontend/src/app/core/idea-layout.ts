@@ -24,9 +24,9 @@
  * island; relationships are never mutated here.
  */
 
-import { KNOWN_KINDS, normalizeKind } from './idea-descriptors';
+import { KNOWN_KINDS, normalizeKind } from "./idea-descriptors";
 
-export type LayoutRelation = 'about' | 'supersedes';
+export type LayoutRelation = "about" | "supersedes";
 
 /** The minimal card shape Arrange needs: identity, kind, current pos, size. */
 export interface LayoutCard {
@@ -84,7 +84,7 @@ export const DEFAULT_MINDMAP: MindMapOptions = {
   cardGap: 70,
   supGap: 80,
   clusterGap: 300,
-  maxRowWidth: 3400,
+  maxRowWidth: 3400
 };
 
 /** Rightward fan arc (rad) for a main idea that also has history on its left. */
@@ -152,11 +152,7 @@ function components(cards: readonly LayoutCard[], edges: readonly LayoutEdge[]):
  * returning each card's center. `about` children fan outward from their parent;
  * a `supersedes` target is pinned to the parent's left as a history breadcrumb.
  */
-function placeCluster(
-  nodes: readonly LayoutCard[],
-  edges: readonly LayoutEdge[],
-  opt: MindMapOptions,
-): Center[] {
+function placeCluster(nodes: readonly LayoutCard[], edges: readonly LayoutEdge[], opt: MindMapOptions): Center[] {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const children = new Map<string, { id: string; rel: LayoutRelation }[]>();
   const hasParent = new Set<string>();
@@ -169,8 +165,8 @@ function placeCluster(
   for (const e of edges) {
     // about: child → idea ⇒ idea owns the child branch.
     // supersedes: new → original ⇒ the new card owns the (greyed) original, left.
-    if (e.relation === 'about') push(e.to, e.from, 'about');
-    else push(e.from, e.to, 'supersedes');
+    if (e.relation === "about") push(e.to, e.from, "about");
+    else push(e.from, e.to, "supersedes");
   }
 
   const childCount = (id: string) => children.get(id)?.length ?? 0;
@@ -180,7 +176,7 @@ function placeCluster(
   const pool = rootless.length ? rootless : [...nodes];
   const primary = pool.reduce((a, b) => (childCount(b.id) > childCount(a.id) ? b : a));
   // Any other rootless nodes become extra branches of the primary so all land.
-  for (const r of rootless) if (r.id !== primary.id) push(primary.id, r.id, 'about');
+  for (const r of rootless) if (r.id !== primary.id) push(primary.id, r.id, "about");
 
   // Group siblings by kind so same-kind cards sit together in the fan.
   for (const list of children.values()) {
@@ -201,8 +197,8 @@ function placeCluster(
     centers.set(id, { id, cx, cy, w: card.w, h: card.h });
 
     const kids = (children.get(id) ?? []).filter((c) => !visited.has(c.id) && byId.has(c.id));
-    const about = kids.filter((c) => c.rel === 'about');
-    const sup = kids.filter((c) => c.rel === 'supersedes');
+    const about = kids.filter((c) => c.rel === "about");
+    const sup = kids.filter((c) => c.rel === "supersedes");
 
     if (about.length) {
       const span = Math.max(...about.map((c) => cardSpan(byId.get(c.id)!, opt.cardGap)));
@@ -214,11 +210,7 @@ function placeCluster(
       const arc = fullCircle ? TAU : depth === 0 ? RIGHT_ARC : CHILD_CONE;
       const dist = Math.max(baseDist, n > 1 ? (n * span) / arc : baseDist);
       about.forEach((c, i) => {
-        const angle = fullCircle
-          ? (TAU * i) / n
-          : n === 1
-            ? outward
-            : outward - arc / 2 + (arc * (i + 0.5)) / n;
+        const angle = fullCircle ? (TAU * i) / n : n === 1 ? outward : outward - arc / 2 + (arc * (i + 0.5)) / n;
         place(c.id, cx + dist * Math.cos(angle), cy + dist * Math.sin(angle), angle, depth + 1);
       });
     }
@@ -227,8 +219,7 @@ function placeCluster(
     sup.forEach((c, k) => {
       const old = byId.get(c.id)!;
       const dist = card.w / 2 + old.w / 2 + opt.supGap;
-      const oy =
-        sup.length > 1 ? cy + (k - (sup.length - 1) / 2) * (old.h + opt.cardGap) : cy;
+      const oy = sup.length > 1 ? cy + (k - (sup.length - 1) / 2) * (old.h + opt.cardGap) : cy;
       place(c.id, cx - dist, oy, Math.PI, depth + 1);
     });
   };
@@ -258,7 +249,10 @@ function placeSingletons(cards: readonly LayoutCard[], opt: MindMapOptions): Cen
   const out: Center[] = [];
   let laneX = 0;
   for (const rank of [...lanes.keys()].sort((a, b) => a - b)) {
-    const lane = lanes.get(rank)!.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+    const lane = lanes
+      .get(rank)!
+      .slice()
+      .sort((a, b) => a.y - b.y || a.x - b.x);
     const laneW = Math.max(...lane.map((c) => c.w));
     let cy = 0;
     for (const c of lane) {
@@ -307,7 +301,7 @@ function toBlock(centers: Center[]): Block {
 export function layoutMindMap(
   cards: readonly LayoutCard[],
   edges: readonly LayoutEdge[],
-  options: Partial<MindMapOptions> = {},
+  options: Partial<MindMapOptions> = {}
 ): LayoutPosition[] {
   const opt = { ...DEFAULT_MINDMAP, ...options };
   if (cards.length === 0) return [];
@@ -408,7 +402,7 @@ export const DEFAULT_PRIORITY_GRID: PriorityGridOptions = {
   quadGap: 120,
   cardGap: 28,
   parkGap: 160,
-  mid: 3,
+  mid: 3
 };
 
 /**
@@ -417,34 +411,24 @@ export const DEFAULT_PRIORITY_GRID: PriorityGridOptions = {
  * -left). Quick wins (high impact, low effort) sit top-left — where the eye lands.
  */
 export const PRIORITY_QUADRANTS = [
-  { key: 'quick-wins', label: 'Quick wins', col: 0, row: 0 },
-  { key: 'big-bets', label: 'Big bets', col: 1, row: 0 },
-  { key: 'fill-ins', label: 'Fill-ins', col: 0, row: 1 },
-  { key: 'time-sinks', label: 'Time sinks', col: 1, row: 1 },
+  { key: "quick-wins", label: "Quick wins", col: 0, row: 0 },
+  { key: "big-bets", label: "Big bets", col: 1, row: 0 },
+  { key: "fill-ins", label: "Fill-ins", col: 0, row: 1 },
+  { key: "time-sinks", label: "Time sinks", col: 1, row: 1 }
 ] as const;
 
-export type PriorityQuadrant = (typeof PRIORITY_QUADRANTS)[number]['key'];
+export type PriorityQuadrant = (typeof PRIORITY_QUADRANTS)[number]["key"];
 
 /** Which quadrant a scored card falls in (high impact = top, low effort = left). */
-export function quadrantOf(
-  impact: number,
-  effort: number,
-  mid = DEFAULT_PRIORITY_GRID.mid,
-): PriorityQuadrant {
+export function quadrantOf(impact: number, effort: number, mid = DEFAULT_PRIORITY_GRID.mid): PriorityQuadrant {
   const highImpact = impact >= mid;
   const lowEffort = effort < mid;
-  if (highImpact) return lowEffort ? 'quick-wins' : 'big-bets';
-  return lowEffort ? 'fill-ins' : 'time-sinks';
+  if (highImpact) return lowEffort ? "quick-wins" : "big-bets";
+  return lowEffort ? "fill-ins" : "time-sinks";
 }
 
 /** Tile a set of cards left-to-right, top-to-bottom inside a box at (x0,y0). */
-function tile(
-  cards: readonly ScoredCard[],
-  x0: number,
-  y0: number,
-  boxW: number,
-  gap: number,
-): LayoutPosition[] {
+function tile(cards: readonly ScoredCard[], x0: number, y0: number, boxW: number, gap: number): LayoutPosition[] {
   const out: LayoutPosition[] = [];
   let cx = x0;
   let cy = y0;
@@ -475,7 +459,7 @@ function tile(
  */
 export function layoutPriorityGrid(
   cards: readonly ScoredCard[],
-  options: Partial<PriorityGridOptions> = {},
+  options: Partial<PriorityGridOptions> = {}
 ): LayoutPosition[] {
   const opt = { ...DEFAULT_PRIORITY_GRID, ...options };
   if (cards.length === 0) return [];
@@ -483,7 +467,7 @@ export function layoutPriorityGrid(
   const buckets = new Map<PriorityQuadrant, ScoredCard[]>();
   const unscored: ScoredCard[] = [];
   for (const c of cards) {
-    if (typeof c.impact !== 'number' || typeof c.effort !== 'number') {
+    if (typeof c.impact !== "number" || typeof c.effort !== "number") {
       unscored.push(c);
       continue;
     }

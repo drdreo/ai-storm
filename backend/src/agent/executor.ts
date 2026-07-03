@@ -39,7 +39,7 @@ export function runAgent(
   workspaceId: string,
   spec: AgentSpec,
   emit: AgentEmitter,
-  emitArtifacts?: ArtifactEmitter,
+  emitArtifacts?: ArtifactEmitter
 ): ChildProcess | null {
   // Only the static, trusted args reach the command line; the untrusted payload
   // is piped to stdin below (see module header). Requested capabilities append
@@ -47,11 +47,15 @@ export function runAgent(
   const caps = resolveCapabilities(spec.command, spec.capabilities);
   const requestedArgs = [...(spec.args ?? []), ...caps.args];
   for (const cap of caps.rejected) {
-    log.warn("agent.capability_rejected", { workspace: workspaceId, command: spec.command, capability: cap });
+    log.warn("agent.capability_rejected", {
+      workspace: workspaceId,
+      command: spec.command,
+      capability: cap
+    });
     emit({
       workspaceId,
       status: "stderr",
-      data: `[ai-storm] Ignored requested capability "${cap}": no vetted permission mapping for command "${spec.command}".\n`,
+      data: `[ai-storm] Ignored requested capability "${cap}": no vetted permission mapping for command "${spec.command}".\n`
     });
   }
   const grantedCreateIssues = spec.capabilities?.includes("create-issues") === true && caps.rejected.length === 0;
@@ -63,21 +67,29 @@ export function runAgent(
     log.error("agent.resolve_failed", {
       workspace: workspaceId,
       command: spec.command,
-      error: err instanceof Error ? err.message : String(err),
+      error: err instanceof Error ? err.message : String(err)
     });
-    emit({ workspaceId, status: "error", data: (err instanceof Error ? err.message : String(err)) });
+    emit({ workspaceId, status: "error", data: err instanceof Error ? err.message : String(err) });
     return null;
   }
 
   const child = spawn(launch.cmd, launch.args, {
     cwd: spec.cwd,
     stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
+    windowsHide: true
   });
 
   child.on("error", (err) => {
-    log.error("agent.spawn_failed", { workspace: workspaceId, command: spec.command, error: err.message });
-    emit({ workspaceId, status: "error", data: `Failed to spawn "${spec.command}": ${err.message}` });
+    log.error("agent.spawn_failed", {
+      workspace: workspaceId,
+      command: spec.command,
+      error: err.message
+    });
+    emit({
+      workspaceId,
+      status: "error",
+      data: `Failed to spawn "${spec.command}": ${err.message}`
+    });
   });
 
   // Deliver the untrusted payload on stdin, then close it so the one-shot
@@ -94,7 +106,7 @@ export function runAgent(
       workspace: workspaceId,
       command: spec.command,
       pid: child.pid ?? -1,
-      format: spec.format ?? "",
+      format: spec.format ?? ""
     });
     emit({ workspaceId, status: "spawned", pid: child.pid ?? -1, format: spec.format });
   });

@@ -1,4 +1,4 @@
-import { test as base, expect, type Locator, type Page } from '@playwright/test'
+import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Page object for the ai-storm shell (#84). Keeps specs readable by naming the
@@ -18,16 +18,16 @@ export class Shell {
   get workspaceRows(): Locator {
     return this.page
       .locator('[data-sidebar="menu-item"]')
-      .filter({ has: this.page.getByRole('button', { name: /^Manage / }) })
+      .filter({ has: this.page.getByRole("button", { name: /^Manage / }) });
   }
 
   /** The tldraw spatial surface (left pane). */
   get canvas(): Locator {
-    return this.page.locator('.tl-container').first()
+    return this.page.locator(".tl-container").first();
   }
 
   get newWorkspaceButton(): Locator {
-    return this.page.getByRole('button', { name: 'New workspace' })
+    return this.page.getByRole("button", { name: "New workspace" });
   }
 
   /**
@@ -36,9 +36,7 @@ export class Shell {
    * "Start session" button, so a bare name match is ambiguous.
    */
   get startSessionButton(): Locator {
-    return this.page
-      .getByRole('toolbar', { name: 'Session controls' })
-      .getByRole('button', { name: 'Start session' })
+    return this.page.getByRole("toolbar", { name: "Session controls" }).getByRole("button", { name: "Start session" });
   }
 
   /**
@@ -46,50 +44,48 @@ export class Shell {
    * canvas empty-state's "Open settings" button (#106).
    */
   get settingsButton(): Locator {
-    return this.page.getByRole('button', { name: 'Settings', exact: true })
+    return this.page.getByRole("button", { name: "Settings", exact: true });
   }
 
   /** Navigate to the app and wait for the shell to boot past crash-recovery. */
   async goto(): Promise<void> {
-    await this.page.goto('/', { waitUntil: 'domcontentloaded' })
-    await expect(this.page.getByText('ai-storm', { exact: true })).toBeVisible({ timeout: 20_000 })
-    await expect(this.workspaceRows.first()).toBeVisible({ timeout: 10_000 })
-    await expect(this.canvas).toBeVisible({ timeout: 15_000 })
+    await this.page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(this.page.getByText("ai-storm", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(this.workspaceRows.first()).toBeVisible({ timeout: 10_000 });
+    await expect(this.canvas).toBeVisible({ timeout: 15_000 });
   }
 
   /** Create a workspace via the (+) action; resolves once the row count grows. */
   async createWorkspace(): Promise<void> {
-    const before = await this.workspaceRows.count()
-    await this.newWorkspaceButton.click()
-    await expect(this.workspaceRows).toHaveCount(before + 1)
+    const before = await this.workspaceRows.count();
+    await this.newWorkspaceButton.click();
+    await expect(this.workspaceRows).toHaveCount(before + 1);
   }
 
   /** Inline-rename a workspace row by double-clicking its label and committing. */
   async renameWorkspace(row: Locator, from: string, to: string): Promise<void> {
-    await row.getByText(from).dblclick()
+    await row.getByText(from).dblclick();
     // The editing row swaps its content for an input (and drops its "Manage"
     // kebab, so a row-scoped, kebab-filtered locator would stop matching it).
     // Only one rename input exists at a time — target it at the page level.
-    const input = this.page.getByRole('textbox', { name: 'Rename workspace' })
-    await input.waitFor()
-    await input.fill(to)
-    await input.press('Enter')
-    await expect(this.workspaceRows.getByText(to)).toBeVisible()
+    const input = this.page.getByRole("textbox", { name: "Rename workspace" });
+    await input.waitFor();
+    await input.fill(to);
+    await input.press("Enter");
+    await expect(this.workspaceRows.getByText(to)).toBeVisible();
   }
 
   /** Open the appearance Settings dialog from the sidebar footer. */
   async openSettings(): Promise<Locator> {
-    await this.settingsButton.click()
-    const dialog = this.page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: 'Settings' })).toBeVisible()
-    return dialog
+    await this.settingsButton.click();
+    const dialog = this.page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
+    return dialog;
   }
 
   /** Names of the IndexedDB databases the app has opened in this page. */
   async indexedDbNames(): Promise<string[]> {
-    return this.page.evaluate(async () =>
-      (await indexedDB.databases()).map((d) => d.name ?? '').filter(Boolean),
-    )
+    return this.page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name ?? "").filter(Boolean));
   }
 }
 
@@ -98,22 +94,22 @@ export class Shell {
  * browser logs `WebSocket` connection noise. Filter it so a genuine app error
  * still trips `expectNoConsoleErrors`.
  */
-const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health/i
+const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health/i;
 
 export const test = base.extend<{ shell: Shell; consoleErrors: string[] }>({
   consoleErrors: async ({ page }, use) => {
-    const errors: string[] = []
-    page.on('console', (m) => {
-      if (m.type() === 'error' && !BACKEND_OFFLINE_NOISE.test(m.text())) errors.push(m.text())
-    })
-    page.on('pageerror', (e) => {
-      if (!BACKEND_OFFLINE_NOISE.test(String(e))) errors.push(String(e))
-    })
-    await use(errors)
+    const errors: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "error" && !BACKEND_OFFLINE_NOISE.test(m.text())) errors.push(m.text());
+    });
+    page.on("pageerror", (e) => {
+      if (!BACKEND_OFFLINE_NOISE.test(String(e))) errors.push(String(e));
+    });
+    await use(errors);
   },
   shell: async ({ page }, use) => {
-    await use(new Shell(page))
-  },
-})
+    await use(new Shell(page));
+  }
+});
 
-export { expect }
+export { expect };

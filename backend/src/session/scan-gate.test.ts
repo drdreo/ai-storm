@@ -13,8 +13,7 @@ describe("ScanGate — push mode (Windows debounce)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  const make = (onScan: () => void) =>
-    new ScanGate({ onScan, quietMs: 175, maxIntervalMs: 500, resizeSettleMs: 500 });
+  const make = (onScan: () => void) => new ScanGate({ onScan, quietMs: 175, maxIntervalMs: 500, resizeSettleMs: 500 });
 
   it("debounces: one scan fires quietMs after the LAST activity of a burst", () => {
     const onScan = vi.fn();

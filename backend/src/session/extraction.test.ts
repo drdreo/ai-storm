@@ -25,7 +25,7 @@ import {
   PI_PROFILE,
   CODEX_PROFILE,
   type Idea,
-  type McpLaunchContext,
+  type McpLaunchContext
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
@@ -67,9 +67,7 @@ describe("profiles", () => {
     expect(getProfile("codex")).toBe(CODEX_PROFILE);
     expect(CODEX_PROFILE.supportsIdeaContract).toBe(true);
     expect(CODEX_PROFILE.systemPromptFlag).toBe("-c");
-    expect(CODEX_PROFILE.systemPromptValue?.("Emit «IDEA» lines")).toBe(
-      'developer_instructions="Emit «IDEA» lines"',
-    );
+    expect(CODEX_PROFILE.systemPromptValue?.("Emit «IDEA» lines")).toBe('developer_instructions="Emit «IDEA» lines"');
     expect(CODEX_PROFILE.defaultArgs).toContain("--no-alt-screen");
   });
 
@@ -117,16 +115,16 @@ describe("scanIdeas — single-line markers", () => {
     expect(ideasOf(claudeFixture("marked-ideas.txt"))).toEqual([
       {
         title: "Contextual Edge Ad Selection",
-        body: "Pick ads at the CDN edge based on page content + request signals, cutting round-trips and latency to sub-50ms.",
+        body: "Pick ads at the CDN edge based on page content + request signals, cutting round-trips and latency to sub-50ms."
       },
       { title: "Token rotation", body: "may break long-lived sessions", kind: "risk" },
-      { title: "Offline-first canvas", body: "" },
+      { title: "Offline-first canvas", body: "" }
     ]);
   });
 
   it("accepts the ASCII <<IDEA>> alias", () => {
     expect(ideasOf(cap("  <<IDEA:feature>> Edgeless cards :: one note per idea"))).toEqual([
-      { title: "Edgeless cards", body: "one note per idea", kind: "feature" },
+      { title: "Edgeless cards", body: "one note per idea", kind: "feature" }
     ]);
   });
 
@@ -143,14 +141,14 @@ describe("scanIdeas — single-line markers", () => {
           "  «IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB and replay",
           "  them on reconnect for full resilience.",
           "",
-          "  Thoughts?",
-        ),
-      ),
+          "  Thoughts?"
+        )
+      )
     ).toEqual([
       {
         title: "Offline-first canvas",
-        body: "cache CRDT ops in IndexedDB and replay them on reconnect for full resilience.",
-      },
+        body: "cache CRDT ops in IndexedDB and replay them on reconnect for full resilience."
+      }
     ]);
   });
 });
@@ -164,8 +162,8 @@ describe("scanIdeas — fenced ideas", () => {
           "Persist every CRDT op as an append-only log.\n" +
           "Enables time-travel scrub and per-idea provenance.\n" +
           "Cost: storage growth; mitigate with periodic snapshots.",
-        kind: "decision",
-      },
+        kind: "decision"
+      }
     ]);
   });
 
@@ -184,40 +182,44 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         title: "Token leak",
         body: "refresh races the reattach",
         kind: "risk",
-        links: [{ to: "a1", relation: "about" }],
-      },
+        links: [{ to: "a1", relation: "about" }]
+      }
     ]);
   });
 
   it("parses @ref with no kind", () => {
     expect(ideasOf(cap("  «IDEA@a1» Offline-first canvas :: cache CRDT ops"))).toEqual([
-      { title: "Offline-first canvas", body: "cache CRDT ops", links: [{ to: "a1", relation: "about" }] },
+      {
+        title: "Offline-first canvas",
+        body: "cache CRDT ops",
+        links: [{ to: "a1", relation: "about" }]
+      }
     ]);
   });
 
   it("parses a trailing `!` on the ref into a 'supersedes' link (PD-012)", () => {
-    expect(
-      ideasOf(cap("  «IDEA:feature@a1!» Rotate token on attach :: survives the reconnect race")),
-    ).toEqual([
+    expect(ideasOf(cap("  «IDEA:feature@a1!» Rotate token on attach :: survives the reconnect race"))).toEqual([
       {
         title: "Rotate token on attach",
         body: "survives the reconnect race",
         kind: "feature",
-        links: [{ to: "a1", relation: "supersedes" }],
-      },
+        links: [{ to: "a1", relation: "supersedes" }]
+      }
     ]);
   });
 
   it("parses `@ref!` supersedes with no kind", () => {
     expect(ideasOf(cap("  «IDEA@a1!» Stronger plan :: addresses the objection"))).toEqual([
-      { title: "Stronger plan", body: "addresses the objection", links: [{ to: "a1", relation: "supersedes" }] },
+      {
+        title: "Stronger plan",
+        body: "addresses the objection",
+        links: [{ to: "a1", relation: "supersedes" }]
+      }
     ]);
   });
 
   it("parses a chained `@a1!@a2!` marker into one idea superseding every source (#62)", () => {
-    expect(
-      ideasOf(cap("  «IDEA:feature@a1!@a2!@a3!» Unified store :: one CRDT-backed canvas")),
-    ).toEqual([
+    expect(ideasOf(cap("  «IDEA:feature@a1!@a2!@a3!» Unified store :: one CRDT-backed canvas"))).toEqual([
       {
         title: "Unified store",
         body: "one CRDT-backed canvas",
@@ -225,9 +227,9 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         links: [
           { to: "a1", relation: "supersedes" },
           { to: "a2", relation: "supersedes" },
-          { to: "a3", relation: "supersedes" },
-        ],
-      },
+          { to: "a3", relation: "supersedes" }
+        ]
+      }
     ]);
   });
 
@@ -238,9 +240,9 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         body: "keep a1, replace a2",
         links: [
           { to: "a1", relation: "about" },
-          { to: "a2", relation: "supersedes" },
-        ],
-      },
+          { to: "a2", relation: "supersedes" }
+        ]
+      }
     ]);
   });
 
@@ -249,17 +251,17 @@ describe("scanIdeas — idea-graph links (#42)", () => {
     // "• "); later rows only carry a margin. An idea emitted as the very first
     // line must still parse.
     expect(
-      ideasOf(cap("● «IDEA:feature@a5!» Carb + protein pairing :: Toast with any spread", "  90s, no cooking")),
+      ideasOf(cap("● «IDEA:feature@a5!» Carb + protein pairing :: Toast with any spread", "  90s, no cooking"))
     ).toEqual([
       {
         title: "Carb + protein pairing",
         body: "Toast with any spread 90s, no cooking",
         kind: "feature",
-        links: [{ to: "a5", relation: "supersedes" }],
-      },
+        links: [{ to: "a5", relation: "supersedes" }]
+      }
     ]);
     expect(ideasOf(cap("• «IDEA:feature» Browser Codex Harness :: captures browser state"))).toEqual([
-      { title: "Browser Codex Harness", body: "captures browser state", kind: "feature" },
+      { title: "Browser Codex Harness", body: "captures browser state", kind: "feature" }
     ]);
   });
 
@@ -269,8 +271,8 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         title: "Edgeless cards",
         body: "one note per idea",
         kind: "feature",
-        links: [{ to: "b2", relation: "about" }],
-      },
+        links: [{ to: "b2", relation: "about" }]
+      }
     ]);
   });
 
@@ -288,24 +290,24 @@ describe("scanIdeas — idea-graph links (#42)", () => {
           "  rel: supersedes",
           "  title: Adopt event sourcing",
           "  body: replaces the snapshot approach",
-          "  ```",
-        ),
-      ),
+          "  ```"
+        )
+      )
     ).toEqual([
       {
         title: "Adopt event sourcing",
         body: "replaces the snapshot approach",
         kind: "decision",
         id: "c3",
-        links: [{ to: "a1", relation: "supersedes" }],
-      },
+        links: [{ to: "a1", relation: "supersedes" }]
+      }
     ]);
   });
 
   it("treats fenced `parent:` as an alias for `link:` (defaults to about)", () => {
-    expect(
-      ideasOf(cap("  ```idea", "  title: Child", "  parent: a1", "  body: branches off a1", "  ```")),
-    ).toEqual([{ title: "Child", body: "branches off a1", links: [{ to: "a1", relation: "about" }] }]);
+    expect(ideasOf(cap("  ```idea", "  title: Child", "  parent: a1", "  body: branches off a1", "  ```"))).toEqual([
+      { title: "Child", body: "branches off a1", links: [{ to: "a1", relation: "about" }] }
+    ]);
   });
 });
 
@@ -325,13 +327,13 @@ describe("scanIdeas — pi fixtures", () => {
     expect(ideasOf(piFixture("marked-ideas.txt"))).toEqual([
       {
         title: "Local model handoff",
-        body: "Let pi route cheap brainstorm turns locally and escalate synthesis to the configured cloud model.",
+        body: "Let pi route cheap brainstorm turns locally and escalate synthesis to the configured cloud model."
       },
       {
         title: "Provider drift",
         body: "multi-provider defaults can make test sessions non-deterministic unless args pin the model",
-        kind: "risk",
-      },
+        kind: "risk"
+      }
     ]);
   });
 });
@@ -342,13 +344,13 @@ describe("scanIdeas — codex fixtures", () => {
       {
         title: "Spec-first harness adapter",
         body: "Describe each CLI's launch-time priming seam and keep extraction contract tests shared.",
-        kind: "feature",
+        kind: "feature"
       },
       {
         title: "Alt-screen capture gap",
         body: "Codex must run with --no-alt-screen so tmux capture-pane sees normal scrollback markers.",
-        kind: "risk",
-      },
+        kind: "risk"
+      }
     ]);
   });
 
@@ -363,7 +365,7 @@ describe("scanIdeas — streaming hold-back", () => {
     expect(scanIdeas(["● Thinking.", "", "  «IDEA» Half a titl"], false)).toEqual([]);
     // Next capture: a returned prompt sits below it → the idea is terminated.
     expect(scanIdeas(["● Thinking.", "", "  «IDEA» Half a title :: with a body", "❯"], false)).toEqual([
-      { title: "Half a title", body: "with a body" },
+      { title: "Half a title", body: "with a body" }
     ]);
   });
 });
@@ -382,7 +384,7 @@ describe("IdeaScanner — session-scoped dedupe", () => {
   it("dedupes an idea whose interior spacing drifts after a reflow (#38)", () => {
     const scanner = new IdeaScanner();
     expect(scanner.scan(cap("  «IDEA» Edge cache :: serve from the CDN", "❯"))).toEqual([
-      { title: "Edge cache", body: "serve from the CDN" },
+      { title: "Edge cache", body: "serve from the CDN" }
     ]);
     // A pane resize re-wraps the line, so the next capture carries the same idea
     // with extra interior spaces. Identity is whitespace-normalized, so it is NOT
@@ -392,22 +394,25 @@ describe("IdeaScanner — session-scoped dedupe", () => {
 
   it("dedupes a re-rendered linked idea but keeps distinct link targets apart (#42)", () => {
     const scanner = new IdeaScanner();
-    const linked = { title: "Leak", body: "races", kind: "risk", links: [{ to: "a1", relation: "about" }] };
+    const linked = {
+      title: "Leak",
+      body: "races",
+      kind: "risk",
+      links: [{ to: "a1", relation: "about" }]
+    };
     expect(scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "❯"))).toEqual([linked]);
     // Same content AND same target re-rendered → not delivered twice.
     expect(scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "❯"))).toEqual([]);
     // Same content, DIFFERENT target → a distinct edge → emitted.
-    expect(
-      scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "  «IDEA:risk@b2» Leak :: races", "❯")),
-    ).toEqual([{ title: "Leak", body: "races", kind: "risk", links: [{ to: "b2", relation: "about" }] }]);
+    expect(scanner.scan(cap("  «IDEA:risk@a1» Leak :: races", "  «IDEA:risk@b2» Leak :: races", "❯"))).toEqual([
+      { title: "Leak", body: "races", kind: "risk", links: [{ to: "b2", relation: "about" }] }
+    ]);
   });
 
   it("treats a different title/body/kind as a distinct idea", () => {
     const scanner = new IdeaScanner();
     expect(scanner.scan(cap("  «IDEA» A :: one", "❯"))).toEqual([{ title: "A", body: "one" }]);
-    expect(scanner.scan(cap("  «IDEA» A :: one", "  «IDEA» B :: two", "❯"))).toEqual([
-      { title: "B", body: "two" },
-    ]);
+    expect(scanner.scan(cap("  «IDEA» A :: one", "  «IDEA» B :: two", "❯"))).toEqual([{ title: "B", body: "two" }]);
   });
 
   it("a pre-seed scan (final, discarded) suppresses ideas already on screen", () => {
@@ -416,7 +421,7 @@ describe("IdeaScanner — session-scoped dedupe", () => {
     scanner.scan("  «IDEA» <short title> :: <one-line description>", true);
     expect(scanner.scan(cap("  «IDEA» <short title> :: <one-line description>", "❯"))).toEqual([]);
     expect(scanner.scan(cap("  «IDEA» Real one :: with substance", "❯"))).toEqual([
-      { title: "Real one", body: "with substance" },
+      { title: "Real one", body: "with substance" }
     ]);
   });
 });
@@ -486,9 +491,7 @@ describe("IdeaScanner — two-frame confirmation (opt-in resize hardening)", () 
     const scanner = new IdeaScanner({ confirm: true });
     const frame = cap("  «IDEA:risk» Token leak :: refresh races the reattach", "❯");
     expect(scanner.scan(frame)).toEqual([]);
-    expect(scanner.scan(frame)).toEqual([
-      { title: "Token leak", body: "refresh races the reattach", kind: "risk" },
-    ]);
+    expect(scanner.scan(frame)).toEqual([{ title: "Token leak", body: "refresh races the reattach", kind: "risk" }]);
   });
 
   it("drops a candidate not re-seen in the very next scan (no stale confirmation)", () => {
@@ -555,26 +558,24 @@ describe("ideaIdentityKey — title-anchored identity (#38)", () => {
     // The body is volatile (terminal reflow / re-streaming); anchoring on the
     // title is what stops a resize resurfacing the same idea as "new".
     expect(ideaIdentityKey({ title: "Edge cache", body: "serve from the CDN" })).toBe(
-      ideaIdentityKey({ title: "Edge cache", body: "totally different wording here" }),
+      ideaIdentityKey({ title: "Edge cache", body: "totally different wording here" })
     );
   });
 
   it("normalizes title whitespace", () => {
     expect(ideaIdentityKey({ title: "Edge cache", body: "" })).toBe(
-      ideaIdentityKey({ title: "  Edge   cache ", body: "" }),
+      ideaIdentityKey({ title: "  Edge   cache ", body: "" })
     );
   });
 
   it("separates title from kind so they can't blur across the boundary", () => {
     // title "ab" (no kind) must not collide with title "a" + kind "b".
-    expect(ideaIdentityKey({ title: "ab", body: "" })).not.toBe(
-      ideaIdentityKey({ title: "a", body: "", kind: "b" }),
-    );
+    expect(ideaIdentityKey({ title: "ab", body: "" })).not.toBe(ideaIdentityKey({ title: "a", body: "", kind: "b" }));
   });
 
   it("distinguishes kind: a same-titled risk vs. feature are different ideas", () => {
     expect(ideaIdentityKey({ title: "Caching", body: "x", kind: "risk" })).not.toBe(
-      ideaIdentityKey({ title: "Caching", body: "x", kind: "feature" }),
+      ideaIdentityKey({ title: "Caching", body: "x", kind: "feature" })
     );
   });
 
@@ -587,9 +588,7 @@ describe("ideaIdentityKey — title-anchored identity (#38)", () => {
   });
 
   it("ignores the idea's own id (identity is what it's about, not the minted ref)", () => {
-    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(
-      ideaIdentityKey({ title: "X", body: "y" }),
-    );
+    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(ideaIdentityKey({ title: "X", body: "y" }));
   });
 });
 
@@ -636,7 +635,9 @@ function fakeTmux() {
         {
           const launch = args[args.length - 1];
           const script = launch.match(/^bash '(.+)'$/)?.[1];
-          sessions.set(argAfter(args, "-s")!, { launch: script ? readFileSync(script, "utf8") : launch });
+          sessions.set(argAfter(args, "-s")!, {
+            launch: script ? readFileSync(script, "utf8") : launch
+          });
         }
         return "";
       case "kill-session":
@@ -682,7 +683,12 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
   it("does not override an explicit pi model selection", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws2", command: "pi", args: ["--model", "openai/gpt-4o"], prime: PRIME });
+    await backend.create({
+      workspaceId: "ws2",
+      command: "pi",
+      args: ["--model", "openai/gpt-4o"],
+      prime: PRIME
+    });
 
     const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
     expect(launch).toContain("--model");
@@ -713,7 +719,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
       workspaceId: "ws5",
       command: "codex",
       args: ["--no-alt-screen", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="high"'],
-      prime: PRIME,
+      prime: PRIME
     });
 
     const launch = fake.sessions.get("ai-storm-ws5")?.launch ?? "";
@@ -764,7 +770,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
         () => {},
         (idea) => ideas.push(idea),
         () => {},
-        () => {},
+        () => {}
       );
 
       // Steady state: an idea appears; with two-frame confirmation it emits on
@@ -790,7 +796,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
       await vi.advanceTimersByTimeAsync(400); // confirmed
       expect(ideas).toEqual([
         { title: "First", body: "steady state" },
-        { title: "Second half", body: "painted in full" },
+        { title: "Second half", body: "painted in full" }
       ]);
       // The half-painted "Second half-pa" never became a card.
       expect(ideas.some((i) => i.title.includes("half-pa"))).toBe(false);
@@ -807,7 +813,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
 describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)", () => {
   const ctx: McpLaunchContext = {
     url: "http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef",
-    serverName: "ai-storm",
+    serverName: "ai-storm"
   };
 
   it("wires the claude profile with --mcp-config + --allowedTools exactly once", () => {
@@ -815,11 +821,9 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     const mcpIdx = args.indexOf("--mcp-config");
     expect(mcpIdx).toBeGreaterThanOrEqual(0);
     expect(JSON.parse(args[mcpIdx + 1])).toEqual({
-      mcpServers: { "ai-storm": { type: "http", url: ctx.url } },
+      mcpServers: { "ai-storm": { type: "http", url: ctx.url } }
     });
-    expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      "mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score",
-    );
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score");
     expect(args.filter((a) => a === "--mcp-config")).toHaveLength(1);
     expect(args.filter((a) => a === "--allowedTools")).toHaveLength(1);
     // The prime stays last on the seam (PD-020 segment ordering unchanged).
@@ -835,7 +839,7 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
 
   it("without an MCP context the argv is byte-identical to before", () => {
     expect(launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME)).toEqual(
-      launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME, undefined),
+      launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME, undefined)
     );
     expect(launchArgsForProfile(CLAUDE_PROFILE, [], PRIME)).not.toContain("--mcp-config");
   });
@@ -843,7 +847,7 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
   it("profiles without mcpArgs (codex, pi, default) ignore the context entirely", () => {
     for (const profile of [CODEX_PROFILE, PI_PROFILE, DEFAULT_PROFILE]) {
       expect(launchArgsForProfile(profile, ["--flag"], PRIME, ctx)).toEqual(
-        launchArgsForProfile(profile, ["--flag"], PRIME),
+        launchArgsForProfile(profile, ["--flag"], PRIME)
       );
     }
   });
@@ -853,9 +857,7 @@ describe("scanScores (#60 triage)", () => {
   const scoresOf = (...lines: string[]) => scanScores(lines);
 
   it("parses impact/effort/confidence from a «SCORE@ref» line", () => {
-    expect(scoresOf("«SCORE@a1» 4/2/3")).toEqual([
-      { ref: "a1", impact: 4, effort: 2, confidence: 3 },
-    ]);
+    expect(scoresOf("«SCORE@a1» 4/2/3")).toEqual([{ ref: "a1", impact: 4, effort: 2, confidence: 3 }]);
   });
 
   it("treats confidence as optional", () => {
@@ -863,18 +865,12 @@ describe("scanScores (#60 triage)", () => {
   });
 
   it("accepts the ASCII alias and tolerant spacing", () => {
-    expect(scoresOf("<<SCORE@b3>>  3 / 4 / 2")).toEqual([
-      { ref: "b3", impact: 3, effort: 4, confidence: 2 },
-    ]);
+    expect(scoresOf("<<SCORE@b3>>  3 / 4 / 2")).toEqual([{ ref: "b3", impact: 3, effort: 4, confidence: 2 }]);
   });
 
   it("strips a leading harness turn bullet", () => {
-    expect(scoresOf("● «SCORE@a1» 2/2/2")).toEqual([
-      { ref: "a1", impact: 2, effort: 2, confidence: 2 },
-    ]);
-    expect(scoresOf("• «SCORE@a1» 2/2/2")).toEqual([
-      { ref: "a1", impact: 2, effort: 2, confidence: 2 },
-    ]);
+    expect(scoresOf("● «SCORE@a1» 2/2/2")).toEqual([{ ref: "a1", impact: 2, effort: 2, confidence: 2 }]);
+    expect(scoresOf("• «SCORE@a1» 2/2/2")).toEqual([{ ref: "a1", impact: 2, effort: 2, confidence: 2 }]);
   });
 
   it("ignores out-of-range values and mid-sentence mentions", () => {
@@ -886,7 +882,7 @@ describe("scanScores (#60 triage)", () => {
   it("scans many score lines in one capture", () => {
     expect(scoresOf("«SCORE@a1» 4/2", "chatter", "«SCORE@a2» 1/5/3")).toEqual([
       { ref: "a1", impact: 4, effort: 2 },
-      { ref: "a2", impact: 1, effort: 5, confidence: 3 },
+      { ref: "a2", impact: 1, effort: 5, confidence: 3 }
     ]);
   });
 });

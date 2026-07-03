@@ -4,11 +4,11 @@
  * and the multi-select mark toggle (#29). All take the live `Editor`; all are
  * user-triggered (never auto-rewrite a manual placement).
  */
-import type { Editor, TLShapeId } from 'tldraw';
-import type { Score } from '@ai-storm/shared';
-import { layoutMindMap, layoutPriorityGrid, type ScoredCard } from '../idea-layout';
-import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
-import { ideaEdges } from './edges';
+import type { Editor, TLShapeId } from "tldraw";
+import type { Score } from "@ai-storm/shared";
+import { layoutMindMap, layoutPriorityGrid, type ScoredCard } from "../idea-layout";
+import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import { ideaEdges } from "./edges";
 
 /**
  * Re-flow the idea cards into an organic mind map (#16, PD-014) — the canvas
@@ -25,13 +25,18 @@ export function arrangeMindMap(editor: Editor): void {
   if (cards.length === 0) return;
   const cardIds = new Set(cards.map((c) => c.id));
   const positions = layoutMindMap(
-    cards.map((c) => ({ id: c.id, kind: c.props.kind, x: c.x, y: c.y, w: c.props.w, h: c.props.h })),
-    ideaEdges(editor, cardIds),
+    cards.map((c) => ({
+      id: c.id,
+      kind: c.props.kind,
+      x: c.x,
+      y: c.y,
+      w: c.props.w,
+      h: c.props.h
+    })),
+    ideaEdges(editor, cardIds)
   );
   editor.run(() => {
-    editor.updateShapes(
-      positions.map((p) => ({ id: p.id as TLShapeId, type: 'idea-card' as const, x: p.x, y: p.y })),
-    );
+    editor.updateShapes(positions.map((p) => ({ id: p.id as TLShapeId, type: "idea-card" as const, x: p.x, y: p.y })));
   });
   // Frame the freshly-tidied board so the new grouping is visible at a glance.
   editor.zoomToFit({ animation: { duration: 200 } });
@@ -48,10 +53,10 @@ export function applyScore(editor: Editor, score: Score): void {
   const id = resolveRef(editor, score.ref);
   if (!id) return;
   const shape = editor.getShape(id);
-  if (!shape || shape.type !== 'idea-card') return;
-  const value: NonNullable<IdeaCardMeta['score']> = { impact: score.impact, effort: score.effort };
-  if (typeof score.confidence === 'number') value.confidence = score.confidence;
-  editor.updateShape({ id, type: 'idea-card', meta: { ...shape.meta, score: value } });
+  if (!shape || shape.type !== "idea-card") return;
+  const value: NonNullable<IdeaCardMeta["score"]> = { impact: score.impact, effort: score.effort };
+  if (typeof score.confidence === "number") value.confidence = score.confidence;
+  editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, score: value } });
 }
 
 /**
@@ -72,9 +77,7 @@ export function arrangePriorityGrid(editor: Editor): void {
   });
   const positions = layoutPriorityGrid(scored);
   editor.run(() => {
-    editor.updateShapes(
-      positions.map((p) => ({ id: p.id as TLShapeId, type: 'idea-card' as const, x: p.x, y: p.y })),
-    );
+    editor.updateShapes(positions.map((p) => ({ id: p.id as TLShapeId, type: "idea-card" as const, x: p.x, y: p.y })));
   });
   editor.zoomToFit({ animation: { duration: 200 } });
 }
@@ -85,18 +88,16 @@ export function arrangePriorityGrid(editor: Editor): void {
  * otherwise it marks them all. No-op when no idea card is selected.
  */
 export function markSelected(editor: Editor): void {
-  const sel = editor
-    .getSelectedShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const sel = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   if (sel.length === 0) return;
   const allStarred = sel.every((s) => (s.meta as IdeaCardMeta).starred);
   editor.run(() =>
     editor.updateShapes(
       sel.map((s) => ({
         id: s.id,
-        type: 'idea-card' as const,
-        meta: { ...s.meta, starred: !allStarred },
-      })),
-    ),
+        type: "idea-card" as const,
+        meta: { ...s.meta, starred: !allStarred }
+      }))
+    )
   );
 }

@@ -3,17 +3,10 @@
  * extracted {@link Idea}s as AI-origin cards + typed edges. The one write-path the
  * ingestion pipeline drives; everything else on the canvas is user-or-agent action.
  */
-import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from 'tldraw';
-import type { Idea, IdeaRelation } from '@ai-storm/shared';
-import { normalizeKind, kindColor } from '../idea-descriptors';
-import {
-  CARD_W,
-  CARD_H,
-  ideaCards,
-  maxRefIndex,
-  resolveRef,
-  type IdeaCardShape,
-} from './idea-card';
+import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
+import type { Idea, IdeaRelation } from "@ai-storm/shared";
+import { normalizeKind, kindColor } from "../idea-descriptors";
+import { CARD_W, CARD_H, ideaCards, maxRefIndex, resolveRef, type IdeaCardShape } from "./idea-card";
 
 /**
  * Draw a native arrow bound to both cards and tag it with its relation. The
@@ -26,22 +19,25 @@ function connect(editor: Editor, fromId: TLShapeId, toId: TLShapeId, relation: I
   const arrowId = createShapeId();
   editor.createShape({
     id: arrowId,
-    type: 'arrow',
+    type: "arrow",
     meta: { relation },
     props: {
-      color: relation === 'supersedes' ? 'red' : 'grey',
-      dash: relation === 'supersedes' ? 'dashed' : 'solid',
+      color: relation === "supersedes" ? "red" : "grey",
+      dash: relation === "supersedes" ? "dashed" : "solid",
       // Placeholder endpoints; the bindings below drive the real geometry.
       start: { x: 0, y: 0 },
-      end: { x: 0, y: 0 },
-    },
+      end: { x: 0, y: 0 }
+    }
   });
-  for (const [terminal, target] of [['start', fromId], ['end', toId]] as const) {
+  for (const [terminal, target] of [
+    ["start", fromId],
+    ["end", toId]
+  ] as const) {
     editor.createBinding({
-      type: 'arrow',
+      type: "arrow",
       fromId: arrowId,
       toId: target,
-      props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false },
+      props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false }
     });
   }
 }
@@ -92,7 +88,7 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         y = 140 + row * 200;
       }
 
-      const kind = normalizeKind(idea.kind) ?? '';
+      const kind = normalizeKind(idea.kind) ?? "";
       // Honour a producer-stamped ref (mcp-idea-capture §3.3): the backend MCP
       // tool path mints `i<n>` and already returned it to the agent, so the
       // card MUST carry it for follow-up links/scores to resolve. The `i<n>`
@@ -102,7 +98,7 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
       const id = createShapeId();
       editor.createShape<IdeaCardShape>({
         id,
-        type: 'idea-card',
+        type: "idea-card",
         x,
         y,
         meta: { ref },
@@ -112,23 +108,23 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
           kind,
           title: idea.title,
           body: idea.body,
-          origin: 'ai', // applyIdeas is the AI producer (#31, PD-009)
+          origin: "ai", // applyIdeas is the AI producer (#31, PD-009)
           superseded: false,
           // Kind sets the default tint (#21); a kindless AI card defaults to blue.
-          color: (kindColor(kind) as TLDefaultColorStyle) ?? 'blue',
-        },
+          color: (kindColor(kind) as TLDefaultColorStyle) ?? "blue"
+        }
       });
       refToShape.set(ref, id);
 
       for (const { link, id: tId } of links) {
-        const relation = link.relation ?? 'about';
+        const relation = link.relation ?? "about";
         connect(editor, id, tId, relation);
-        if (relation === 'supersedes') toGhost.add(tId);
+        if (relation === "supersedes") toGhost.add(tId);
       }
     }
 
     for (const id of toGhost) {
-      editor.updateShape<IdeaCardShape>({ id, type: 'idea-card', props: { superseded: true } });
+      editor.updateShape<IdeaCardShape>({ id, type: "idea-card", props: { superseded: true } });
     }
   });
 }

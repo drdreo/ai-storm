@@ -34,22 +34,23 @@ already running on your machine.
 The frontend is React (Vite + `@vitejs/plugin-react`). State is **Zustand**: the
 WebSocket multiplexer, the Yjs workspace registry, the per-workspace ingestion
 pipelines and the tldraw `Editor` are imperative module singletons whose reactive
-surface is exposed through small stores (see PD-016/PD-017). UI is **Tailwind v4
-+ shadcn/ui** (Radix primitives; PD-018). The conversation surface is a real
-**xterm.js** terminal fed the raw PTY stream — no server-side chat extraction.
+surface is exposed through small stores (see PD-016/PD-017). UI is \*\*Tailwind v4
+
+- shadcn/ui** (Radix primitives; PD-018). The conversation surface is a real
+  **xterm.js\*\* terminal fed the raw PTY stream — no server-side chat extraction.
 
 ### The framework-agnostic core — `frontend/src/app/core/`
 
 Pure TypeScript with unit coverage (`pnpm test`, run by [Vitest](https://vitest.dev)):
 
-| Module | Responsibility | PRD |
-| --- | --- | --- |
-| `render-scheduler.ts` | rAF double-buffer, throttled batched idea mutations | §5.1 framerate throttling |
-| `markdown-block-parser.ts` | Markdown → structural block descriptors for idea cards | §3.3 |
-| `idea-descriptors.ts` | Idea kind registry + provenance decoration (#21/#31) | §3.3 |
-| `idea-layout.ts` | Graph-driven mind-map "Arrange" layout (#16) | §3.1 |
-| `prompt-framing.ts` | Card-verb prompt framing (#13/#15) | §3.6 |
-| `canvas-text.ts` | Serialize the canvas to normalized markdown | §3.2 |
+| Module                     | Responsibility                                         | PRD                       |
+| -------------------------- | ------------------------------------------------------ | ------------------------- |
+| `render-scheduler.ts`      | rAF double-buffer, throttled batched idea mutations    | §5.1 framerate throttling |
+| `markdown-block-parser.ts` | Markdown → structural block descriptors for idea cards | §3.3                      |
+| `idea-descriptors.ts`      | Idea kind registry + provenance decoration (#21/#31)   | §3.3                      |
+| `idea-layout.ts`           | Graph-driven mind-map "Arrange" layout (#16)           | §3.1                      |
+| `prompt-framing.ts`        | Card-verb prompt framing (#13/#15)                     | §3.6                      |
+| `canvas-text.ts`           | Serialize the canvas to normalized markdown            | §3.2                      |
 
 The tldraw island (`canvas-island.tsx`) owns the `idea-card` shape, the typed-edge
 graph, `applyIdeas`, the card-verb bar and the kind filter; it persists each
@@ -174,6 +175,26 @@ the launch command), `pty.spawned` (pid), `attach.ready`, `input`
 `pty.exit`, `agent.dispatch/spawned/exit`, and `attach.error`. The `pty.attach`
 flow is also emitted as an OTel span (via `@opentelemetry/api`); `pnpm trace`
 registers the exporter, otherwise the spans are no-ops.
+
+The frontend mirrors the same shape (`frontend/src/lib/log.ts`), built on the
+standard shipped browser instrumentations
+([opentelemetry-browser](https://github.com/open-telemetry/opentelemetry-browser)):
+`ConsoleInstrumentation` and `ErrorsInstrumentation` are always registered, so
+every `log.*`/`console.*` call and every uncaught error or unhandled rejection
+becomes an OTel log record. Setting `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in
+a git-ignored `frontend/.env.local`) turns on a `LoggerProvider` + a
+`WebTracerProvider` with matching OTLP/HTTP exporters, so those records (and
+`withSpan` traces) actually get sent:
+
+```sh
+# frontend/.env.local
+VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+Point both at the same collector to see a workspace flow end-to-end. See
+[`docs/design/observability.md`](docs/design/observability.md) for what's
+instrumented on each side and the evaluated local-first trace visualizers
+(Jaeger all-in-one is the current recommendation).
 
 ## Security model (PRD §4.2)
 

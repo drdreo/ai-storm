@@ -131,15 +131,13 @@ function formatBackground(background?: string): string {
 function harnessSetup(
   command: string,
   mode?: string,
-  background?: string,
+  background?: string
 ): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
   const profile = getProfile(harnessProfile);
   if (!profile.supportsIdeaContract) return { harnessProfile, prime: undefined };
   const base = profile.mcpArgs ? MCP_PRIME_INSTRUCTION : PRIME_INSTRUCTION;
-  const prime = [base, getFacilitationMode(mode).prime, formatBackground(background)]
-    .filter(Boolean)
-    .join("\n\n");
+  const prime = [base, getFacilitationMode(mode).prime, formatBackground(background)].filter(Boolean).join("\n\n");
   return { harnessProfile, prime };
 }
 
@@ -171,7 +169,7 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
-  ".wasm": "application/wasm",
+  ".wasm": "application/wasm"
 };
 
 export interface ServerConfig {
@@ -192,9 +190,7 @@ export function buildApp(config: ServerConfig) {
   // server's reachable origin here — before any attach can mint a launch URL —
   // and the session backends feed it tokens/attachments per session. The bind
   // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
-  mcpRegistry.configure(
-    `http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`,
-  );
+  mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
   app.route("/mcp", mcpRoutes(mcpRegistry));
 
   app.get(
@@ -265,9 +261,9 @@ export function buildApp(config: ServerConfig) {
         onError() {
           log.warn("ws.error", { conn });
           cleanup();
-        },
+        }
       };
-    }),
+    })
   );
 
   if (config.staticDir) {
@@ -289,7 +285,7 @@ async function dispatch(
   conn: string,
   send: (msg: ServerMessage) => void,
   attached: Set<string>,
-  agents: Set<ChildProcess>,
+  agents: Set<ChildProcess>
 ): Promise<void> {
   switch (msg.type) {
     case "attach": {
@@ -301,7 +297,7 @@ async function dispatch(
         args: (msg.args ?? []).join(" "),
         cwd: msg.cwd,
         mode: msg.mode,
-        background: msg.background,
+        background: msg.background
       });
       try {
         // Idempotent: create the named session if absent (else reuse), then
@@ -313,7 +309,7 @@ async function dispatch(
           harnessProfile,
           mode: msg.mode,
           background: msg.background,
-          prime,
+          prime
         });
         await backend.create({
           workspaceId,
@@ -323,7 +319,7 @@ async function dispatch(
           cols: msg.cols,
           rows: msg.rows,
           harnessProfile,
-          prime,
+          prime
         });
         send({ type: "session-status", workspaceId, status: "created" });
         await backend.attach(
@@ -341,7 +337,7 @@ async function dispatch(
               workspace: workspaceId,
               kind: idea.kind ?? "",
               title: idea.title,
-              body: idea.body.slice(0, 80),
+              body: idea.body.slice(0, 80)
             });
             send({ type: "idea", workspaceId, idea });
           },
@@ -351,14 +347,14 @@ async function dispatch(
               workspace: workspaceId,
               ref: score.ref,
               impact: score.impact,
-              effort: score.effort,
+              effort: score.effort
             });
             send({ type: "score", workspaceId, score });
           },
           (message) => {
             log.warn("session.error", { workspace: workspaceId, message });
             send({ type: "error", workspaceId, message });
-          },
+          }
         );
         attached.add(workspaceId);
         send({ type: "session-status", workspaceId, status: "attached" });
@@ -380,13 +376,17 @@ async function dispatch(
         log.info("ai.input.sent", {
           workspace: msg.workspaceId,
           bytes: msg.data.length,
-          preview: msg.data.replace(/\s+/g, " ").trim().slice(0, 80),
+          preview: msg.data.replace(/\s+/g, " ").trim().slice(0, 80)
         });
       }
       try {
         await backend.sendInput(msg.workspaceId, msg.data);
       } catch (err) {
-        send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
+        send({
+          type: "error",
+          workspaceId: msg.workspaceId,
+          message: err instanceof Error ? err.message : String(err)
+        });
       }
       break;
     }
@@ -412,7 +412,11 @@ async function dispatch(
       try {
         await backend.submitPrompt(msg.workspaceId, msg.document);
       } catch (err) {
-        send({ type: "error", workspaceId: msg.workspaceId, message: err instanceof Error ? err.message : String(err) });
+        send({
+          type: "error",
+          workspaceId: msg.workspaceId,
+          message: err instanceof Error ? err.message : String(err)
+        });
       }
       break;
     case "agent":
@@ -422,7 +426,7 @@ async function dispatch(
         args: (msg.args ?? []).join(" "),
         payloadBytes: msg.payload.length,
         format: msg.format ?? "",
-        capabilities: (msg.capabilities ?? []).join(","),
+        capabilities: (msg.capabilities ?? []).join(",")
       });
       {
         const child = runAgent(
@@ -433,10 +437,10 @@ async function dispatch(
             payload: msg.payload,
             cwd: msg.cwd,
             format: msg.format,
-            capabilities: msg.capabilities,
+            capabilities: msg.capabilities
           },
           (status) => send({ type: "agent-status", ...status }),
-          (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts }),
+          (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts })
         );
         // Track for connection-scoped teardown; drop once it exits on its own.
         if (child) {
@@ -464,7 +468,7 @@ async function serveStatic(pathname: string, staticDir: string): Promise<Respons
     const file = await readFile(filePath);
     const ext = extname(filePath).toLowerCase();
     return new Response(new Uint8Array(file), {
-      headers: { "content-type": MIME[ext] ?? "application/octet-stream" },
+      headers: { "content-type": MIME[ext] ?? "application/octet-stream" }
     });
   } catch {
     // SPA fallback — let the Angular router resolve client-side routes.

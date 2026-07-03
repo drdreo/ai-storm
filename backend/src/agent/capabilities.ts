@@ -23,8 +23,8 @@ import type { AgentCapability } from "@ai-storm/shared";
  */
 const CAPABILITY_TABLE: Record<AgentCapability, Record<string, readonly string[]>> = {
   "create-issues": {
-    claude: ["--allowedTools", "Bash(gh issue create:*)"],
-  },
+    claude: ["--allowedTools", "Bash(gh issue create:*)"]
+  }
 };
 
 /**
@@ -53,7 +53,7 @@ export interface ResolvedCapabilities {
  */
 export function resolveCapabilities(
   command: string,
-  capabilities: readonly AgentCapability[] | undefined,
+  capabilities: readonly AgentCapability[] | undefined
 ): ResolvedCapabilities {
   const args: string[] = [];
   const rejected: AgentCapability[] = [];

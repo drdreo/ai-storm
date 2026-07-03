@@ -27,9 +27,9 @@ import {
   type Editor,
   type TLComponents,
   type TLUiOverrides,
-  type VecLike,
-} from 'tldraw';
-import { CARD_W, CARD_H, type IdeaCardShape } from './idea-card';
+  type VecLike
+} from "tldraw";
+import { CARD_W, CARD_H, type IdeaCardShape } from "./idea-card";
 
 /**
  * Create a user-origin idea card centred on `at`, select it, and drop straight
@@ -42,9 +42,9 @@ export function createUserIdea(editor: Editor, at: VecLike): void {
   editor.run(() => {
     editor.createShape<IdeaCardShape>({
       id,
-      type: 'idea-card',
+      type: "idea-card",
       x: at.x - CARD_W / 2,
-      y: at.y - CARD_H / 2,
+      y: at.y - CARD_H / 2
       // No props → the shape's getDefaultProps wins: origin: 'user'.
     });
     editor.select(id);
@@ -61,17 +61,17 @@ export function createUserIdea(editor: Editor, at: VecLike): void {
  * tool. Registered under the `idea-card` tool id by {@link ideaToolOverrides}.
  */
 export class IdeaCardTool extends StateNode {
-  static override id = 'idea-card';
+  static override id = "idea-card";
 
   override onEnter(): void {
-    this.editor.setCursor({ type: 'cross', rotation: 0 });
+    this.editor.setCursor({ type: "cross", rotation: 0 });
   }
 
   override onPointerDown(): void {
     createUserIdea(this.editor, this.editor.inputs.currentPagePoint);
     // Drop back to select so the freshly-created card is immediately editable
     // and movable — the same one-shot feel as placing a native note.
-    this.editor.setCurrentTool('select');
+    this.editor.setCurrentTool("select");
   }
 }
 
@@ -86,14 +86,14 @@ export const IDEA_TOOLS = [IdeaCardTool];
 export const ideaToolOverrides: TLUiOverrides = {
   tools(editor, tools) {
     tools.idea = {
-      id: 'idea-card',
-      icon: 'tool-note',
-      label: 'Idea',
-      kbd: 'i',
-      onSelect: () => editor.setCurrentTool('idea-card'),
+      id: "idea-card",
+      icon: "tool-note",
+      label: "Idea",
+      kbd: "i",
+      onSelect: () => editor.setCurrentTool("idea-card")
     };
     return tools;
-  },
+  }
 };
 
 /**
@@ -103,16 +103,16 @@ export const ideaToolOverrides: TLUiOverrides = {
  */
 export function IdeaToolbar(props: React.ComponentProps<typeof DefaultToolbar>): React.JSX.Element {
   const tools = useTools();
-  const isSelected = useIsToolSelected(tools['idea']);
+  const isSelected = useIsToolSelected(tools["idea"]);
   return (
     <DefaultToolbar {...props}>
-      <TldrawUiMenuItem {...tools['idea']} isSelected={isSelected} />
+      <TldrawUiMenuItem {...tools["idea"]} isSelected={isSelected} />
       <DefaultToolbarContent />
     </DefaultToolbar>
   );
 }
 
 /** The `components` slice this module owns, merged into the island's components. */
-export const ideaToolComponents: Pick<TLComponents, 'Toolbar'> = {
-  Toolbar: IdeaToolbar,
+export const ideaToolComponents: Pick<TLComponents, "Toolbar"> = {
+  Toolbar: IdeaToolbar
 };
