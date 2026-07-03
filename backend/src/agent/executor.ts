@@ -42,9 +42,24 @@ export interface AgentSpec {
   capabilities?: AgentCapability[];
 }
 
+/** Per-run behaviour owned by SERVER configuration (never the client). */
+export interface AgentRunOptions {
+  /** Wall-clock ceiling per run; the process tree is killed when it expires.
+   *  Server config (`--agent-timeout-ms`, PD-022) — a knob the user may
+   *  legitimately raise for long side-effecting runs, unlike the byte caps. */
+  timeoutMs?: number;
+}
+
+export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Byte caps are CIRCUIT BREAKERS, not exact quotas (PD-022): accounting is in
+ * UTF-16 code units as chunks arrive (multi-byte output undercounts), the chunk
+ * that crosses a cap still streams, and a few already-buffered chunks can land
+ * after the kill signal. Every overshoot is bounded by pipe-buffer size; for a
+ * local single-user tool, byte-exactness would buy nothing.
+ */
 export interface AgentLimits {
-  /** Wall-clock ceiling per run; the tree is killed when it expires. */
-  timeoutMs: number;
   /** Max stdin payload accepted from the client; larger runs are refused. */
   maxPayloadBytes: number;
   /** Max stdout retained for post-exit artifact parsing (#120). */
@@ -66,7 +81,6 @@ function envInt(name: string, fallback: number): number {
 /** Read per run (not at module load) so ops/tests can tune via env. */
 export function agentLimits(): AgentLimits {
   return {
-    timeoutMs: envInt("AI_STORM_AGENT_TIMEOUT_MS", 10 * 60_000),
     maxPayloadBytes: envInt("AI_STORM_AGENT_MAX_PAYLOAD_BYTES", 2 * 1024 * 1024),
     maxCaptureBytes: envInt("AI_STORM_AGENT_MAX_CAPTURE_BYTES", 2 * 1024 * 1024),
     maxOutputBytes: envInt("AI_STORM_AGENT_MAX_OUTPUT_BYTES", 16 * 1024 * 1024),
@@ -131,8 +145,10 @@ export function runAgent(
   spec: AgentSpec,
   emit: AgentEmitter,
   emitArtifacts?: ArtifactEmitter,
+  opts?: AgentRunOptions,
 ): ChildProcess | null {
   const limits = agentLimits();
+  const timeoutMs = opts?.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_AGENT_TIMEOUT_MS;
 
   // The payload is buffered into the child's stdin pipe in one piece; refuse
   // pathological sizes before allocating anything (#142).
@@ -212,14 +228,16 @@ export function runAgent(
   let killedFor: "timeout" | "output-cap" | null = null;
   const timer = setTimeout(() => {
     killedFor = "timeout";
-    log.warn("agent.timeout", { workspace: workspaceId, command: spec.command, timeoutMs: limits.timeoutMs });
+    log.warn("agent.timeout", { workspace: workspaceId, command: spec.command, timeoutMs });
     emit({
       workspaceId,
       status: "stderr",
-      data: `[ai-storm] Agent run exceeded the ${Math.round(limits.timeoutMs / 1000)}s time limit; killing it.\n`,
+      data:
+        `[ai-storm] Agent run exceeded the ${Math.round(timeoutMs / 1000)}s time limit; killing it. ` +
+        `(Raise it with --agent-timeout-ms.)\n`,
     });
     killAgentTree(child);
-  }, limits.timeoutMs);
+  }, timeoutMs);
   timer.unref();
 
   // Captured stdout for post-exit artifact parsing (#120) — only buffered when
@@ -249,7 +267,9 @@ export function runAgent(
   child.stdout?.on("data", (d: string) => {
     // Cap the artifact buffer independently of streaming: parsing works on a
     // truncated head, while an unbounded string would mirror the whole run.
-    if (captureArtifacts && captured.length < limits.maxCaptureBytes) captured += d;
+    if (captureArtifacts && captured.length < limits.maxCaptureBytes) {
+      captured += d.slice(0, limits.maxCaptureBytes - captured.length);
+    }
     emit({ workspaceId, status: "stdout", data: d });
     noteOutput(d);
   });

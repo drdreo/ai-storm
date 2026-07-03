@@ -194,6 +194,35 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-022 — Subprocess safeguards are sized for local-first, not hosted
+
+`(2026-07-03, accepted, extends PD-003/PD-007; #142)`
+
+- **Decision:** The agent-executor hardening (#142) is deliberately scoped to what a *local,
+  single-user* deployment needs, and stops there. Three concrete calls: (1) **Injection checks
+  are hygiene, not a wall** — the client legitimately chooses `command`/`cwd` (that IS the
+  product, PD-003/PD-007), so cmd-metachar/control-char rejection in `resolveLaunch` exists to
+  keep future refactors from routing untrusted text into argv and to fail loudly instead of
+  letting cmd.exe mis-parse — the real security boundary stays the loopback bind + Origin gate.
+  (2) **Byte caps are circuit breakers, not quotas** — output/capture/payload caps may overshoot
+  by a pipe-buffer chunk and count UTF-16 code units, and that is fine; their job is "a runaway
+  harness cannot take the machine down", not accounting precision. Precision hardening (exact
+  UTF-8 byte counts, truncating the crossing chunk, global-plus-per-connection cap matrices) is
+  explicitly declined as hosted-grade over-engineering. (3) **The wall-clock timeout is the one
+  knob a user may legitimately need** — a long side-effecting hand-off can honestly exceed 10
+  minutes — so it is real server configuration (`--agent-timeout-ms` on the backend CLI,
+  threaded through `ServerConfig`), while the circuit-breaker caps stay env-only escape hatches.
+- **Why:** ai-storm is never hosted (PD-003): the "attacker" who hits a resource limit is
+  usually the user themselves, so limits must favor recoverability and clear messaging over
+  strictness, and every extra knob is permanent doc/test surface. Recording this spares future
+  reviews from re-litigating cap-precision findings — the caps being approximate is a decision,
+  not an oversight.
+- **Affects:** `backend/src/agent/executor.ts` (limits + `AgentRunOptions`),
+  `backend/src/pty/resolve.ts` (launch-token validation), `ServerConfig.agentTimeoutMs`;
+  documented in [`docs/security/agent-executor-hardening.md`](../security/agent-executor-hardening.md).
+  Sets the bar for future subprocess-security findings: hosted-threat-model fixes need a
+  deployment-model change first.
+
 ### PD-021 — Spec export is backend-aware: run metadata on the wire, capabilities by name
 
 `(2026-07-02, accepted, extends PD-007/PD-015; #110/#120)`

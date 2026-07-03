@@ -1,11 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import type { AgentStatusMessage } from "@ai-storm/shared";
-import { runAgent, agentLimits } from "./executor.ts";
+import { runAgent, agentLimits, type AgentRunOptions } from "./executor.ts";
 
 type Status = Omit<AgentStatusMessage, "type">;
 
 /** Run `node -e script` through the executor and collect emits until exit. */
-function collectRun(script: string, payload = ""): Promise<Status[]> {
+function collectRun(script: string, payload = "", opts?: AgentRunOptions): Promise<Status[]> {
   return new Promise((resolve, reject) => {
     const emits: Status[] = [];
     const child = runAgent(
@@ -15,6 +15,8 @@ function collectRun(script: string, payload = ""): Promise<Status[]> {
         emits.push(msg);
         if (msg.status === "exit") resolve(emits);
       },
+      undefined,
+      opts,
     );
     // A refused run (payload cap, resolve failure) never spawns: the error
     // emit has already happened synchronously.
@@ -28,11 +30,7 @@ const stdout = (emits: Status[]) =>
 const stderr = (emits: Status[]) =>
   emits.filter((e) => e.status === "stderr").map((e) => e.data).join("");
 
-const ENV_KEYS = [
-  "AI_STORM_AGENT_TIMEOUT_MS",
-  "AI_STORM_AGENT_MAX_PAYLOAD_BYTES",
-  "AI_STORM_AGENT_MAX_OUTPUT_BYTES",
-] as const;
+const ENV_KEYS = ["AI_STORM_AGENT_MAX_PAYLOAD_BYTES", "AI_STORM_AGENT_MAX_OUTPUT_BYTES"] as const;
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
 
@@ -45,14 +43,14 @@ afterEach(() => {
 
 describe("agentLimits", () => {
   it("has sane defaults and honors env overrides", () => {
-    expect(agentLimits().timeoutMs).toBe(600_000);
-    process.env.AI_STORM_AGENT_TIMEOUT_MS = "1234";
-    expect(agentLimits().timeoutMs).toBe(1234);
+    expect(agentLimits().maxOutputBytes).toBe(16 * 1024 * 1024);
+    process.env.AI_STORM_AGENT_MAX_OUTPUT_BYTES = "1234";
+    expect(agentLimits().maxOutputBytes).toBe(1234);
   });
 
   it("falls back on a non-numeric override", () => {
-    process.env.AI_STORM_AGENT_TIMEOUT_MS = "soon";
-    expect(agentLimits().timeoutMs).toBe(600_000);
+    process.env.AI_STORM_AGENT_MAX_OUTPUT_BYTES = "lots";
+    expect(agentLimits().maxOutputBytes).toBe(16 * 1024 * 1024);
   });
 });
 
@@ -72,9 +70,8 @@ describe("runAgent", () => {
     expect(emits[0].data).toMatch(/payload too large/i);
   });
 
-  it("kills a run that exceeds the wall-clock timeout", async () => {
-    process.env.AI_STORM_AGENT_TIMEOUT_MS = "400";
-    const emits = await collectRun("setInterval(() => {}, 1000)");
+  it("kills a run that exceeds the wall-clock timeout (server-config knob)", async () => {
+    const emits = await collectRun("setInterval(() => {}, 1000)", "", { timeoutMs: 400 });
     expect(stderr(emits)).toMatch(/time limit/);
     expect(emits.at(-1)?.status).toBe("exit");
     expect(emits.at(-1)?.code).not.toBe(0);

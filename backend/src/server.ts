@@ -182,6 +182,9 @@ export interface ServerConfig {
   port: number;
   /** Absolute path to the built Angular client (dist/browser). */
   staticDir?: string;
+  /** Wall-clock ceiling per agent run (`--agent-timeout-ms`, PD-022).
+   *  Defaults to 10 minutes; raise it for long side-effecting hand-offs. */
+  agentTimeoutMs?: number;
 }
 
 export function buildApp(config: ServerConfig) {
@@ -253,7 +256,7 @@ export function buildApp(config: ServerConfig) {
             send({ type: "error", message: m });
             return;
           }
-          void dispatch(msg, backend, conn, send, attached, agents);
+          void dispatch(msg, backend, conn, send, attached, agents, config);
         },
         onClose() {
           log.info("ws.close", { conn, attached: attached.size, liveAgents: agents.size });
@@ -287,6 +290,7 @@ async function dispatch(
   send: (msg: ServerMessage) => void,
   attached: Set<string>,
   agents: Set<ChildProcess>,
+  config: ServerConfig,
 ): Promise<void> {
   switch (msg.type) {
     case "attach": {
@@ -446,6 +450,7 @@ async function dispatch(
           },
           (status) => send({ type: "agent-status", ...status }),
           (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts }),
+          { timeoutMs: config.agentTimeoutMs },
         );
         // Track for connection-scoped teardown; drop once it exits on its own.
         if (child) {

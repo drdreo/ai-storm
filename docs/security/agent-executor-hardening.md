@@ -54,16 +54,29 @@ and bounded resources — never smuggle extra commands through argument parsing.
 
 ### Resource-limit knobs
 
-All read per run from the environment (`0` disables where noted):
+The **timeout** is the one limit a user may legitimately need to raise (a
+long side-effecting hand-off can honestly exceed 10 minutes), so it is real
+server configuration — `--agent-timeout-ms` on the backend CLI
+(`ServerConfig`, PD-022). The byte caps are circuit breakers and stay env-only
+escape hatches, read per run (`0` disables where noted):
 
-| Env var | Default | Meaning |
+| Knob | Default | Meaning |
 |---------|---------|---------|
-| `AI_STORM_AGENT_TIMEOUT_MS` | 600 000 | Wall-clock ceiling per run |
+| `--agent-timeout-ms` (server CLI) | 600 000 | Wall-clock ceiling per run |
 | `AI_STORM_AGENT_MAX_PAYLOAD_BYTES` | 2 MiB | Max stdin payload accepted |
 | `AI_STORM_AGENT_MAX_CAPTURE_BYTES` | 2 MiB | Max stdout retained for artifact parsing |
 | `AI_STORM_AGENT_MAX_OUTPUT_BYTES` | 16 MiB | Max streamed stdout+stderr before kill |
 | `AI_STORM_AGENT_MAX_CPU_SECONDS` | 900 | Linux `prlimit --cpu`; 0 disables |
 | `AI_STORM_AGENT_MAX_MEMORY_MB` | 0 (off) | Linux `prlimit --as`; **opt-in** — V8-based harnesses (claude, codex) reserve tens of GB of *virtual* address space, so a naive cap breaks them at startup |
+
+**Byte caps are approximate by design (PD-022).** Accounting is per chunk in
+UTF-16 code units (multi-byte output undercounts real bytes), the chunk that
+crosses a cap is still streamed, and a few already-buffered chunks can arrive
+between the kill signal and process death; every overshoot is bounded by
+pipe-buffer size. ai-storm is local-first and never hosted (PD-003), so the
+caps' job is "a runaway harness cannot take the machine down" — byte-exact
+UTF-8 accounting, truncating the crossing chunk, and per-connection-plus-global
+cap matrices are deliberately declined as hosted-grade over-engineering.
 
 ### Deferred / accepted risk
 
