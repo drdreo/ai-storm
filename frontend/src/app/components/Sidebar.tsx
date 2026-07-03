@@ -37,7 +37,6 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore, workspace } from "../stores/workspace.store";
 import { ingestion } from "../stores/ingestion.store";
@@ -207,7 +206,7 @@ export function Sidebar() {
                           isActive={isActive}
                           onClick={() => workspace.setActive(ws.id)}
                           onDoubleClick={() => setEditingId(ws.id)}
-                          tooltip={`${ws.title} · ${ws.status}`}
+                          tooltip={`${ws.title} · ${STATUS_HINT[ws.status]}`}
                         >
                           {/* Accent swatch (#111) doubling as the status badge:
                               idle is the bare dot, a live session rings it in
@@ -217,24 +216,19 @@ export function Sidebar() {
                               hues are close; each state keeps a non-color channel
                               — structure / motion / shape (WCAG 1.4.1) — and the
                               sr-only status suffix below reads it out. */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-                                <span
-                                  className={cn(
-                                    "size-2.5",
-                                    ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
-                                    ws.status === "active" &&
-                                      "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
-                                    ws.status === "streaming" &&
-                                      "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
-                                  )}
-                                  style={ws.status === "error" ? undefined : { backgroundColor: accent }}
-                                />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">{STATUS_HINT[ws.status]}</TooltipContent>
-                          </Tooltip>
+                          <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+                            <span
+                              className={cn(
+                                "size-2.5",
+                                ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
+                                ws.status === "active" &&
+                                  "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
+                                ws.status === "streaming" &&
+                                  "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
+                              )}
+                              style={ws.status === "error" ? undefined : { backgroundColor: accent }}
+                            />
+                          </span>
                           <span className="truncate">{ws.title}</span>
                           <span className="sr-only">— {ws.status}</span>
                         </SidebarMenuButton>
