@@ -111,12 +111,20 @@ export function CanvasPane() {
         return;
       }
       if (event.key === "Escape" && useUiStore.getState().focusMode) {
+        // Let a more specific Escape win instead of also exiting focus mode:
+        // the palette closing itself, or tldraw canceling a tool / text edit /
+        // shape selection (all of which land on an editable element or inside
+        // the canvas, never on the bare document body).
+        if (paletteOpen) return;
+        const target = event.target as HTMLElement | null;
+        const editing = target?.closest("input, textarea, [contenteditable='true']");
+        if (editing) return;
         ui.setFocusMode(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [paletteOpen]);
 
   // React to workspace switches — rebind the tldraw island (PRD §3.4). Done at
   // render time (idempotent) so the controller's active id is set BEFORE the

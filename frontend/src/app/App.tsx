@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, PanelRightOpen } from "lucide-react";
-import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore, workspace } from "./stores/workspace.store";
@@ -24,21 +24,6 @@ function restoreHubWidth(): number {
 
 function restoreHubCollapsed(): boolean {
   return localStorage.getItem(HUB_COLLAPSED_KEY) === "1";
-}
-
-/**
- * Auto-collapses the left sidebar when focus mode (#131) turns on, reusing its
- * existing offcanvas collapse (and Ctrl/⌘ B shortcut) rather than a second
- * hiding mechanism. Must live inside {@link SidebarProvider} to reach the
- * context; doesn't force it back open on exit, so a manual reopen during focus
- * mode is remembered.
- */
-function FocusSidebarSync({ focusMode }: { focusMode: boolean }) {
-  const { setOpen } = useSidebar();
-  useEffect(() => {
-    if (focusMode) setOpen(false);
-  }, [focusMode, setOpen]);
-  return null;
 }
 
 /**
@@ -112,20 +97,32 @@ export function App() {
     );
   }
 
+  // One derived state instead of four independent `focusMode`/`hubCollapsed`
+  // branches below (review #131) — a future edit to the hub's visuals only has
+  // one place to touch, not four that can silently drift out of sync.
+  const hubVisual = focusMode ? "hidden" : hubCollapsed ? "collapsed" : "expanded";
+
   return (
     <SidebarProvider className="h-full">
-      <FocusSidebarSync focusMode={focusMode} />
-      <Sidebar />
+      {/* Unmounted rather than told to close (#131): the sidebar's own state
+          (and its global Ctrl/⌘ B shortcut) is left completely alone, so
+          whatever the user had before focus mode is exactly what they get
+          back on exit — no separate "remember and restore" bookkeeping, and
+          no window where Ctrl/⌘ B could reopen it over the fullscreen canvas. */}
+      {!focusMode && <Sidebar />}
       <SidebarInset className="min-w-0 overflow-hidden">
         <div className="flex h-full min-h-0">
           <main className="relative min-w-0 flex-1 overflow-hidden bg-card">
             <CanvasPane />
           </main>
           <aside
-            className="relative flex min-w-0 flex-col border-l bg-background transition-[width] duration-150 ease-out"
-            style={{ width: focusMode ? 0 : hubCollapsed ? HUB_COLLAPSED_WIDTH : hubWidth }}
+            className={cn(
+              "relative flex min-w-0 flex-col bg-background transition-[width] duration-150 ease-out",
+              hubVisual === "hidden" ? "border-l-0" : "border-l"
+            )}
+            style={{ width: hubVisual === "hidden" ? 0 : hubVisual === "collapsed" ? HUB_COLLAPSED_WIDTH : hubWidth }}
           >
-            {!focusMode && !hubCollapsed && (
+            {hubVisual === "expanded" && (
               <div
                 className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
                 role="separator"
@@ -134,7 +131,7 @@ export function App() {
                 onPointerDown={startResize}
               />
             )}
-            {!focusMode && hubCollapsed && (
+            {hubVisual === "collapsed" && (
               <div className="flex h-full flex-col items-center gap-3 py-2">
                 <Button
                   size="icon"
@@ -153,7 +150,7 @@ export function App() {
             {/* Kept mounted while collapsed/focus-hidden (just visually hidden) so
                 the live terminal/PTY session isn't torn down and reattached (#109,
                 #131). */}
-            <div className={cn("min-h-0 flex-1", (hubCollapsed || focusMode) && "invisible absolute inset-0 -z-10")}>
+            <div className={cn("min-h-0 flex-1", hubVisual !== "expanded" && "invisible absolute inset-0 -z-10")}>
               <ControlHub onCollapse={toggleHubCollapsed} />
             </div>
           </aside>

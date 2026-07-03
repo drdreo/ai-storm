@@ -13,13 +13,14 @@
  * island (see {@link useFilterAtom}) and passed in, so it's per-workspace and resets
  * on board switch with no shared global.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   atom,
   track,
   useEditor,
   type Atom,
   type Editor,
+  type TLShapeId,
   DefaultMainMenu,
   DefaultMainMenuContent,
   DefaultContextMenu,
@@ -86,12 +87,26 @@ function filterCount(f: BoardFilter): number {
  * mode is on means selecting a card doesn't re-render this when focus is off.
  * `cardsKey`/`focusKey` key the effect off identity (not opacity), so applying
  * the filter — which only touches opacity/lock — can't loop.
+ *
+ * Focus "sticks" to the last non-empty selection's cluster (`lastFocusIds`)
+ * rather than falling back to the whole board the instant the selection clears
+ * — e.g. clicking empty canvas to pan, or selecting a connecting arrow instead
+ * of a card, would otherwise silently un-focus while the chrome stays hidden.
+ * Reset when focus mode itself toggles off, so the next time it's turned on
+ * starts fresh from whatever (if anything) is selected then.
  */
 export const FilterApplier = track(function FilterApplier({ $filter }: { $filter: FilterAtom }): null {
   const editor = useEditor();
   const filter = $filter.get();
   const focusMode = useUiStore((s) => s.focusMode);
-  const focusIds = focusMode ? focusedCardIds(editor, new Set(editor.getSelectedShapeIds())) : null;
+  const lastFocusIds = useRef<Set<TLShapeId> | null>(null);
+  if (!focusMode) {
+    lastFocusIds.current = null;
+  } else {
+    const selected = focusedCardIds(editor, new Set(editor.getSelectedShapeIds()));
+    if (selected) lastFocusIds.current = selected;
+  }
+  const focusIds = focusMode ? lastFocusIds.current : null;
   const cardsKey = ideaCards(editor)
     .map((c) => c.id)
     .join(",");
