@@ -14,8 +14,7 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarRail,
-  useSidebar
+  SidebarRail
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -65,7 +64,6 @@ const STATUS_HINT: Record<WorkspaceStatus, string> = {
  * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  */
 export function Sidebar() {
-  const { state: sidebarState } = useSidebar();
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeId = useWorkspaceStore((s) => s.activeId);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
@@ -209,7 +207,6 @@ export function Sidebar() {
                           isActive={isActive}
                           onClick={() => workspace.setActive(ws.id)}
                           onDoubleClick={() => setEditingId(ws.id)}
-                          tooltip={`${ws.title} · ${STATUS_HINT[ws.status]}`}
                         >
                           {/* Accent swatch (#111) doubling as the status badge:
                               idle is the bare dot, a live session rings it in
@@ -218,49 +215,29 @@ export function Sidebar() {
                               so it reads as a bullseye even when accent and ring
                               hues are close; each state keeps a non-color channel
                               — structure / motion / shape (WCAG 1.4.1) — and the
-                              sr-only status suffix below reads it out. When the
-                              rail is collapsed the swatch fills the whole button,
-                              so its own tooltip would win over — and hide — the
-                              button's title tooltip (#143); only give it a
-                              tooltip while expanded, where the title is already
-                              visible as text alongside it. */}
-                          {sidebarState === "collapsed" ? (
-                            <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-                              <span
-                                className={cn(
-                                  "size-2.5",
-                                  ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
-                                  ws.status === "active" &&
-                                    "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
-                                  ws.status === "streaming" &&
-                                    "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
-                                )}
-                                style={ws.status === "error" ? undefined : { backgroundColor: accent }}
-                              />
-                            </span>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
+                              sr-only status suffix below reads it out. Its
+                              tooltip carries the workspace name too (not just
+                              the status), since when the rail is collapsed the
+                              swatch fills the whole button and is the only thing
+                              there is to hover (#143). */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
                                 <span
-                                  className="flex size-4 shrink-0 items-center justify-center"
-                                  aria-hidden="true"
-                                >
-                                  <span
-                                    className={cn(
-                                      "size-2.5",
-                                      ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
-                                      ws.status === "active" &&
-                                        "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
-                                      ws.status === "streaming" &&
-                                        "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
-                                    )}
-                                    style={ws.status === "error" ? undefined : { backgroundColor: accent }}
-                                  />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">{STATUS_HINT[ws.status]}</TooltipContent>
-                            </Tooltip>
-                          )}
+                                  className={cn(
+                                    "size-2.5",
+                                    ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
+                                    ws.status === "active" &&
+                                      "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
+                                    ws.status === "streaming" &&
+                                      "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
+                                  )}
+                                  style={ws.status === "error" ? undefined : { backgroundColor: accent }}
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">{`${ws.title} · ${STATUS_HINT[ws.status]}`}</TooltipContent>
+                          </Tooltip>
                           <span className="truncate">{ws.title}</span>
                           <span className="sr-only">— {ws.status}</span>
                         </SidebarMenuButton>
