@@ -13,17 +13,18 @@
  * (CVE-2024-27980-class injection) and could exceed the ~32 KB command-line
  * limit. Only the static, trusted `spec.args` reach argv.
  *
- * Resource limits (#142): every run is bounded by a wall-clock timeout, a
- * total-output cap, and (on Linux, via prlimit) CPU-seconds and optionally
- * address space. A kill always targets the process TREE — on Windows the
- * direct child is usually just the `cmd.exe` shim wrapper, and on POSIX the
- * child is spawned in its own process group so the group can be signalled.
+ * Bounds (#142, PD-022): a run is capped by a wall-clock timeout (server
+ * config, tree-killed on expiry) and an output circuit-breaker, and its whole
+ * process TREE is killed — on Windows the direct child is usually just the
+ * `cmd.exe` shim wrapper, on POSIX the child gets its own process group so the
+ * group can be signalled. Sized for a local single-user tool, not a host:
+ * hard CPU/memory caps (prlimit/Job Objects) are deliberately not attempted.
  * See docs/security/agent-executor-hardening.md for the threat model.
  */
 
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import type { AgentArtifact, AgentCapability, AgentStatusMessage, SpecFormat } from "@ai-storm/shared";
-import { resolveLaunch, type ResolvedLaunch } from "../pty/resolve.ts";
+import { resolveLaunch } from "../pty/resolve.ts";
 import { resolveCapabilities } from "./capabilities.ts";
 import { parseIssueArtifacts } from "./artifacts.ts";
 import { log } from "../log.ts";
@@ -42,75 +43,31 @@ export interface AgentSpec {
   capabilities?: AgentCapability[];
 }
 
-/** Per-run behaviour owned by SERVER configuration (never the client). */
-export interface AgentRunOptions {
-  /** Wall-clock ceiling per run; the process tree is killed when it expires.
-   *  Server config (`--agent-timeout-ms`, PD-022) — a knob the user may
-   *  legitimately raise for long side-effecting runs, unlike the byte caps. */
-  timeoutMs?: number;
-}
-
 export const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60_000;
 
 /**
- * Byte caps are CIRCUIT BREAKERS, not exact quotas (PD-022): accounting is in
- * UTF-16 code units as chunks arrive (multi-byte output undercounts), the chunk
- * that crosses a cap still streams, and a few already-buffered chunks can land
- * after the kill signal. Every overshoot is bounded by pipe-buffer size; for a
- * local single-user tool, byte-exactness would buy nothing.
+ * Circuit-breaker caps (#142, PD-022) — not exact quotas. ai-storm is a local
+ * single-user tool (PD-003): these exist so a runaway harness cannot take the
+ * machine down, not to meter a hostile tenant. Accounting is per-chunk in
+ * UTF-16 code units, the chunk that crosses a cap still streams, and overshoot
+ * is bounded by the pipe buffer — byte-exactness would buy nothing here. Sized
+ * generously and NOT env-tunable; the one knob a user may legitimately raise is
+ * the timeout, which is real server config (`--agent-timeout-ms`).
  */
-export interface AgentLimits {
-  /** Max stdin payload accepted from the client; larger runs are refused. */
-  maxPayloadBytes: number;
-  /** Max stdout retained for post-exit artifact parsing (#120). */
-  maxCaptureBytes: number;
-  /** Max combined stdout+stderr streamed before the run is killed. */
-  maxOutputBytes: number;
-  /** Linux prlimit --cpu (seconds); 0 disables. */
-  maxCpuSeconds: number;
-  /** Linux prlimit --as (MB); 0 (default) disables — V8-based harnesses
-   *  reserve large virtual address ranges, so this is opt-in. */
-  maxMemoryMb: number;
-}
+export const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
+export const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
-function envInt(name: string, fallback: number): number {
-  const v = Number(process.env[name]);
-  return Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
-}
-
-/** Read per run (not at module load) so ops/tests can tune via env. */
-export function agentLimits(): AgentLimits {
-  return {
-    maxPayloadBytes: envInt("AI_STORM_AGENT_MAX_PAYLOAD_BYTES", 2 * 1024 * 1024),
-    maxCaptureBytes: envInt("AI_STORM_AGENT_MAX_CAPTURE_BYTES", 2 * 1024 * 1024),
-    maxOutputBytes: envInt("AI_STORM_AGENT_MAX_OUTPUT_BYTES", 16 * 1024 * 1024),
-    maxCpuSeconds: envInt("AI_STORM_AGENT_MAX_CPU_SECONDS", 900),
-    maxMemoryMb: envInt("AI_STORM_AGENT_MAX_MEMORY_MB", 0),
-  };
-}
-
-// prlimit ships with util-linux (present on effectively every Linux distro);
-// probed once. macOS has no prlimit and Windows would need Job Objects — both
-// fall back to the wall-clock timeout + tree kill.
-let prlimitAvailable: boolean | null = null;
-function hasPrlimit(): boolean {
-  if (prlimitAvailable === null) {
-    try {
-      prlimitAvailable = spawnSync("prlimit", ["--version"], { stdio: "ignore" }).status === 0;
-    } catch {
-      prlimitAvailable = false;
-    }
-  }
-  return prlimitAvailable;
-}
-
-function withResourceLimits(launch: ResolvedLaunch, limits: AgentLimits): ResolvedLaunch {
-  if (process.platform !== "linux" || !hasPrlimit()) return launch;
-  const flags: string[] = [];
-  if (limits.maxCpuSeconds > 0) flags.push(`--cpu=${limits.maxCpuSeconds}`);
-  if (limits.maxMemoryMb > 0) flags.push(`--as=${limits.maxMemoryMb * 1024 * 1024}`);
-  if (flags.length === 0) return launch;
-  return { cmd: "prlimit", args: [...flags, "--", launch.cmd, ...launch.args] };
+/** Per-run behaviour owned by SERVER configuration (never the client). */
+export interface AgentRunOptions {
+  /** Wall-clock ceiling per run; the process tree is killed when it expires.
+   *  Server config (`--agent-timeout-ms`, PD-022) — the one bound a user may
+   *  legitimately raise for long side-effecting runs. */
+  timeoutMs?: number;
+  /** Circuit-breaker overrides; only tests set these — the server uses the
+   *  module defaults above. Kept off env/CLI to avoid permanent knob surface. */
+  maxPayloadBytes?: number;
+  maxOutputBytes?: number;
 }
 
 /**
@@ -145,20 +102,21 @@ export function runAgent(
   spec: AgentSpec,
   emit: AgentEmitter,
   emitArtifacts?: ArtifactEmitter,
-  opts?: AgentRunOptions,
+  opts?: AgentRunOptions
 ): ChildProcess | null {
-  const limits = agentLimits();
   const timeoutMs = opts?.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : DEFAULT_AGENT_TIMEOUT_MS;
+  const maxPayloadBytes = opts?.maxPayloadBytes ?? MAX_PAYLOAD_BYTES;
+  const maxOutputBytes = opts?.maxOutputBytes ?? MAX_OUTPUT_BYTES;
 
   // The payload is buffered into the child's stdin pipe in one piece; refuse
   // pathological sizes before allocating anything (#142).
   const payloadBytes = Buffer.byteLength(spec.payload, "utf8");
-  if (payloadBytes > limits.maxPayloadBytes) {
-    log.warn("agent.payload_too_large", { workspace: workspaceId, bytes: payloadBytes, cap: limits.maxPayloadBytes });
+  if (payloadBytes > maxPayloadBytes) {
+    log.warn("agent.payload_too_large", { workspace: workspaceId, bytes: payloadBytes, cap: maxPayloadBytes });
     emit({
       workspaceId,
       status: "error",
-      data: `Agent payload too large (${payloadBytes} bytes; limit ${limits.maxPayloadBytes}).`,
+      data: `Agent payload too large (${payloadBytes} bytes; limit ${maxPayloadBytes}).`
     });
     return null;
   }
@@ -188,7 +146,7 @@ export function runAgent(
     // static flags, so control chars / cmd metachars are never legitimate.
     // (PTY sessions resolve non-strict — their argv carries the multi-line
     // prime and quoted MCP JSON.)
-    launch = withResourceLimits(resolveLaunch(spec.command, requestedArgs, { strict: true }), limits);
+    launch = resolveLaunch(spec.command, requestedArgs, { strict: true });
   } catch (err) {
     log.error("agent.resolve_failed", {
       workspace: workspaceId,
@@ -204,7 +162,7 @@ export function runAgent(
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     // Own process group on POSIX so a kill can signal the whole tree.
-    detached: process.platform !== "win32",
+    detached: process.platform !== "win32"
   });
 
   child.on("error", (err) => {
@@ -250,7 +208,7 @@ export function runAgent(
       status: "stderr",
       data:
         `[ai-storm] Agent run exceeded the ${Math.round(timeoutMs / 1000)}s time limit; killing it. ` +
-        `(Raise it with --agent-timeout-ms.)\n`,
+        `(Raise it with --agent-timeout-ms.)\n`
     });
     killAgentTree(child);
   }, timeoutMs);
@@ -266,13 +224,13 @@ export function runAgent(
   // flood the WebSocket (and the browser) unbounded until the timeout.
   const noteOutput = (chunk: string): void => {
     outputBytes += chunk.length;
-    if (outputBytes > limits.maxOutputBytes && killedFor === null) {
+    if (outputBytes > maxOutputBytes && killedFor === null) {
       killedFor = "output-cap";
-      log.warn("agent.output_capped", { workspace: workspaceId, command: spec.command, cap: limits.maxOutputBytes });
+      log.warn("agent.output_capped", { workspace: workspaceId, command: spec.command, cap: maxOutputBytes });
       emit({
         workspaceId,
         status: "stderr",
-        data: `[ai-storm] Agent run exceeded the ${limits.maxOutputBytes}-byte output limit; killing it.\n`,
+        data: `[ai-storm] Agent run exceeded the ${maxOutputBytes}-byte output limit; killing it.\n`
       });
       killAgentTree(child);
     }
@@ -283,8 +241,8 @@ export function runAgent(
   child.stdout?.on("data", (d: string) => {
     // Cap the artifact buffer independently of streaming: parsing works on a
     // truncated head, while an unbounded string would mirror the whole run.
-    if (captureArtifacts && captured.length < limits.maxCaptureBytes) {
-      captured += d.slice(0, limits.maxCaptureBytes - captured.length);
+    if (captureArtifacts && captured.length < MAX_CAPTURE_BYTES) {
+      captured += d.slice(0, MAX_CAPTURE_BYTES - captured.length);
     }
     emit({ workspaceId, status: "stdout", data: d });
     noteOutput(d);
@@ -296,7 +254,12 @@ export function runAgent(
 
   child.on("close", (code) => {
     clearTimeout(timer);
-    log.info("agent.exit", { workspace: workspaceId, command: spec.command, code: code ?? -1, killedFor: killedFor ?? "" });
+    log.info("agent.exit", {
+      workspace: workspaceId,
+      command: spec.command,
+      code: code ?? -1,
+      killedFor: killedFor ?? ""
+    });
     if (captureArtifacts) {
       const artifacts = parseIssueArtifacts(captured);
       if (artifacts.length > 0) emitArtifacts(artifacts);

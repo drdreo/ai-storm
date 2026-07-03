@@ -204,20 +204,23 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   product, PD-003/PD-007), so cmd-metachar/control-char rejection in `resolveLaunch` exists to
   keep future refactors from routing untrusted text into argv and to fail loudly instead of
   letting cmd.exe mis-parse — the real security boundary stays the loopback bind + Origin gate.
-  (2) **Byte caps are circuit breakers, not quotas** — output/capture/payload caps may overshoot
-  by a pipe-buffer chunk and count UTF-16 code units, and that is fine; their job is "a runaway
-  harness cannot take the machine down", not accounting precision. Precision hardening (exact
-  UTF-8 byte counts, truncating the crossing chunk, global-plus-per-connection cap matrices) is
-  explicitly declined as hosted-grade over-engineering. (3) **The wall-clock timeout is the one
-  knob a user may legitimately need** — a long side-effecting hand-off can honestly exceed 10
-  minutes — so it is real server configuration (`--agent-timeout-ms` on the backend CLI,
-  threaded through `ServerConfig`), while the circuit-breaker caps stay env-only escape hatches.
+  (2) **Byte caps are fixed circuit breakers, not quotas** — output/capture/payload caps may
+  overshoot by a pipe-buffer chunk and count UTF-16 code units, and that is fine; their job is
+  "a runaway harness cannot take the machine down", not accounting precision. They are plain
+  constants in `executor.ts`, **not** env/CLI-tunable: every knob is permanent doc/test surface a
+  local tool doesn't earn. Precision hardening (exact UTF-8 byte counts, truncating the crossing
+  chunk, global-plus-per-connection cap matrices) *and* hard CPU/memory caps (an earlier revision
+  wired Linux-only `prlimit --cpu`/`--as`; it was removed) are explicitly declined as hosted-grade
+  over-engineering — the wall-clock timeout + process-tree kill is the enforced bound on every
+  platform. (3) **The wall-clock timeout is the one bound a user may legitimately need** — a long
+  side-effecting hand-off can honestly exceed 10 minutes — so it alone is real server
+  configuration (`--agent-timeout-ms` on the backend CLI, threaded through `ServerConfig`).
 - **Why:** ai-storm is never hosted (PD-003): the "attacker" who hits a resource limit is
   usually the user themselves, so limits must favor recoverability and clear messaging over
   strictness, and every extra knob is permanent doc/test surface. Recording this spares future
-  reviews from re-litigating cap-precision findings — the caps being approximate is a decision,
-  not an oversight.
-- **Affects:** `backend/src/agent/executor.ts` (limits + `AgentRunOptions`),
+  reviews from re-litigating cap-precision findings — the caps being approximate and non-tunable
+  is a decision, not an oversight.
+- **Affects:** `backend/src/agent/executor.ts` (constant caps + `AgentRunOptions.timeoutMs`),
   `backend/src/pty/resolve.ts` (launch-token validation), `ServerConfig.agentTimeoutMs`;
   documented in [`docs/security/agent-executor-hardening.md`](../security/agent-executor-hardening.md).
   Sets the bar for future subprocess-security findings: hosted-threat-model fixes need a
