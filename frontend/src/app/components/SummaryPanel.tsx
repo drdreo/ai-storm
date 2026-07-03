@@ -1,18 +1,7 @@
-import { Button } from '@/components/ui/button'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { decorateTitle, normalizeKind } from '../core/idea-descriptors'
-import {
-  summaryToMarkdown,
-  STANDALONE_THEME,
-  type BoardCard,
-  type ConvergentSummary,
-} from '../core/synthesis'
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { decorateTitle, normalizeKind } from "../core/idea-descriptors";
+import { summaryToMarkdown, STANDALONE_THEME, type BoardCard, type ConvergentSummary } from "../core/synthesis";
 
 /**
  * The convergence side panel (#28, PD-015) — a **read-only reading** of the
@@ -26,30 +15,33 @@ export function SummaryPanel({
   open,
   onOpenChange,
   summary,
-  workspaceName,
+  workspaceName
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  summary: ConvergentSummary | null
-  workspaceName?: string
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  summary: ConvergentSummary | null;
+  workspaceName?: string;
 }) {
-  const markdown = summary ? summaryToMarkdown(summary) : ''
+  const markdown = summary ? summaryToMarkdown(summary) : "";
 
   const copy = () => {
-    if (markdown) void navigator.clipboard?.writeText(markdown)
-  }
+    if (markdown) void navigator.clipboard?.writeText(markdown);
+  };
 
   const download = () => {
-    if (!markdown) return
-    const slug = (workspaceName ?? 'board').trim().replace(/[^\w-]+/g, '-').toLowerCase()
-    const blob = new Blob([markdown], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${slug || 'board'}-synthesis.md`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+    if (!markdown) return;
+    const slug = (workspaceName ?? "board")
+      .trim()
+      .replace(/[^\w-]+/g, "-")
+      .toLowerCase();
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug || "board"}-synthesis.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -58,16 +50,14 @@ export function SummaryPanel({
           <SheetTitle>Board synthesis</SheetTitle>
           <SheetDescription>
             {summary && !summary.isEmpty
-              ? `${summary.cardCount} ${summary.cardCount === 1 ? 'idea' : 'ideas'}, read into themes and decisions. A generated reading of the board (#28) — edit on the canvas.`
-              : 'A generated reading of the board (#28).'}
+              ? `${summary.cardCount} ${summary.cardCount === 1 ? "idea" : "ideas"}, read into themes and decisions. A generated reading of the board (#28) — edit on the canvas.`
+              : "A generated reading of the board (#28)."}
           </SheetDescription>
         </SheetHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {!summary || summary.isEmpty ? (
-            <p className="text-sm text-muted-foreground">
-              No ideas on the board yet — nothing to synthesize.
-            </p>
+            <p className="text-sm text-muted-foreground">No ideas on the board yet — nothing to synthesize.</p>
           ) : (
             <div className="flex flex-col gap-5 pb-4">
               {summary.themes.length > 0 && (
@@ -98,11 +88,9 @@ export function SummaryPanel({
                   <ul className="flex flex-col gap-1">
                     {summary.resolutions.map((r, i) => (
                       <li key={i} className="text-sm">
-                        <span className="font-medium">{r.winner.title}</span>{' '}
-                        <span className="text-muted-foreground">replaces</span>{' '}
-                        <span className="text-muted-foreground line-through">
-                          {r.replaced.title}
-                        </span>
+                        <span className="font-medium">{r.winner.title}</span>{" "}
+                        <span className="text-muted-foreground">replaces</span>{" "}
+                        <span className="text-muted-foreground line-through">{r.replaced.title}</span>
                       </li>
                     ))}
                   </ul>
@@ -134,18 +122,16 @@ export function SummaryPanel({
         </div>
       </SheetContent>
     </Sheet>
-  )
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       {children}
     </section>
-  )
+  );
 }
 
 function CardList({ cards }: { cards: BoardCard[] }) {
@@ -153,14 +139,10 @@ function CardList({ cards }: { cards: BoardCard[] }) {
     <ul className="flex flex-col gap-1">
       {cards.map((card) => (
         <li key={card.id} className="text-sm leading-snug">
-          <span className="font-medium">
-            {decorateTitle(card.title, normalizeKind(card.kind))}
-          </span>
-          {card.body?.trim() ? (
-            <span className="text-muted-foreground"> — {card.body.trim()}</span>
-          ) : null}
+          <span className="font-medium">{decorateTitle(card.title, normalizeKind(card.kind))}</span>
+          {card.body?.trim() ? <span className="text-muted-foreground"> — {card.body.trim()}</span> : null}
         </li>
       ))}
     </ul>
-  )
+  );
 }

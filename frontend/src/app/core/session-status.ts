@@ -7,10 +7,10 @@
  * dot + label answers the real question: "can I start / what's running?"
  */
 
-import type { ConnectionState } from '../stores/backend.store';
-import type { WorkspaceStatus } from './models';
+import type { ConnectionState } from "../stores/backend.store";
+import type { WorkspaceStatus } from "./models";
 
-export type SessionTone = 'error' | 'pending' | 'ok';
+export type SessionTone = "error" | "pending" | "ok";
 
 export interface SessionIndicator {
   tone: SessionTone;
@@ -19,42 +19,38 @@ export interface SessionIndicator {
   detail: string;
 }
 
-export function sessionIndicator(
-  conn: ConnectionState,
-  attached: boolean,
-  status: WorkspaceStatus,
-): SessionIndicator {
-  if (conn === 'closed') {
+export function sessionIndicator(conn: ConnectionState, attached: boolean, status: WorkspaceStatus): SessionIndicator {
+  if (conn === "closed") {
     return {
-      tone: 'error',
-      label: 'backend offline',
-      detail: 'The backend is not reachable — a session cannot be launched.',
+      tone: "error",
+      label: "backend offline",
+      detail: "The backend is not reachable — a session cannot be launched."
     };
   }
-  if (conn === 'connecting') {
+  if (conn === "connecting") {
     return {
-      tone: 'pending',
-      label: 'connecting',
-      detail: 'Connecting to the backend…',
+      tone: "pending",
+      label: "connecting",
+      detail: "Connecting to the backend…"
     };
   }
   if (!attached) {
     return {
-      tone: 'ok',
-      label: 'ready',
-      detail: 'Backend connected — configure the session setup below and press Start.',
+      tone: "ok",
+      label: "ready",
+      detail: "Backend connected — configure the session setup below and press Start."
     };
   }
-  if (status === 'error') {
+  if (status === "error") {
     return {
-      tone: 'error',
-      label: 'session error',
-      detail: 'The session hit an error — see the message above.',
+      tone: "error",
+      label: "session error",
+      detail: "The session hit an error — see the message above."
     };
   }
   return {
-    tone: 'ok',
-    label: status === 'streaming' ? 'streaming' : 'session live',
-    detail: 'Session is running — talk to the agent in the terminal.',
+    tone: "ok",
+    label: status === "streaming" ? "streaming" : "session live",
+    detail: "Session is running — talk to the agent in the terminal."
   };
 }

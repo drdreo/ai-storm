@@ -38,7 +38,7 @@ function wire(registry: McpSessionRegistry, workspaceId: string) {
     ideaSink,
     scoreSink,
     onIdea: (i) => ideas.push(i),
-    onScore: (s) => scores.push(s),
+    onScore: (s) => scores.push(s)
   });
   return { ...target, ideaSink, scoreSink, ideas, scores };
 }
@@ -49,7 +49,7 @@ async function rpc(app: Hono, ws: string, token: string, method: string, params?
   const res = await app.request(`/mcp/${ws}/${token}`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params })
   });
   return res;
 }
@@ -85,7 +85,7 @@ describe("MCP endpoint — protocol surface", () => {
     const res = await rpc(app, "ws1", token, "initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
-      clientInfo: { name: "claude-code", version: "x" },
+      clientInfo: { name: "claude-code", version: "x" }
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -108,7 +108,7 @@ describe("MCP endpoint — protocol surface", () => {
     const res = await app.request(`/mcp/ws1/${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
     });
     expect(res.status).toBe(202);
   });
@@ -136,7 +136,7 @@ describe("MCP endpoint — protocol surface", () => {
     const batch = await app.request(`/mcp/ws1/${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "ping" }]),
+      body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "ping" }])
     });
     expect(batch.status).toBe(400);
 
@@ -162,13 +162,13 @@ describe("capture_idea — schema validation (§9.1)", () => {
     const w = wire(registry, "ws1");
     const links = Array.from({ length: 8 }, (_, i) => ({
       to: `a${i + 1}`,
-      relation: i === 0 ? ("supersedes" as const) : undefined,
+      relation: i === 0 ? ("supersedes" as const) : undefined
     }));
     const body = await callTool(app, "ws1", w.token, "capture_idea", {
       title: "Unified store",
       body: "line one\nline two",
       kind: "feature",
-      links,
+      links
     });
     expect(textOf(body)).toContain("Captured as @i1");
     expect(w.ideas).toHaveLength(1);
@@ -193,7 +193,7 @@ describe("capture_idea — schema validation (§9.1)", () => {
     [">8 links", { title: "T", links: Array.from({ length: 9 }, (_, i) => ({ to: `a${i}` })) }],
     ["link missing to", { title: "T", links: [{ relation: "about" }] }],
     ["link ref with bad charset", { title: "T", links: [{ to: "a1; rm -rf" }] }],
-    ["bad relation", { title: "T", links: [{ to: "a1", relation: "blocks" }] }],
+    ["bad relation", { title: "T", links: [{ to: "a1", relation: "blocks" }] }]
   ])("rejects %s as a tool error and emits nothing", async (_label, args) => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
@@ -209,14 +209,21 @@ describe("capture_score — schema validation (§9.1)", () => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
     expect(
-      textOf(await callTool(app, "ws1", w.token, "capture_score", { ref: "a1", impact: 4, effort: 2, confidence: 3 })),
+      textOf(
+        await callTool(app, "ws1", w.token, "capture_score", {
+          ref: "a1",
+          impact: 4,
+          effort: 2,
+          confidence: 3
+        })
+      )
     ).toBe("Scored @a1.");
     expect(textOf(await callTool(app, "ws1", w.token, "capture_score", { ref: "a2", impact: 5, effort: 1 }))).toBe(
-      "Scored @a2.",
+      "Scored @a2."
     );
     expect(w.scores).toEqual([
       { ref: "a1", impact: 4, effort: 2, confidence: 3 },
-      { ref: "a2", impact: 5, effort: 1 },
+      { ref: "a2", impact: 5, effort: 1 }
     ]);
   });
 
@@ -227,7 +234,7 @@ describe("capture_score — schema validation (§9.1)", () => {
     ["effort above range", { ref: "a1", impact: 4, effort: 6 }],
     ["non-integer impact", { ref: "a1", impact: 3.5, effort: 2 }],
     ["string effort", { ref: "a1", impact: 3, effort: "2" }],
-    ["confidence out of range", { ref: "a1", impact: 3, effort: 2, confidence: 9 }],
+    ["confidence out of range", { ref: "a1", impact: 3, effort: 2, confidence: 9 }]
   ])("rejects %s as a tool error and emits nothing", async (_label, args) => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
@@ -244,25 +251,30 @@ describe("capture_idea — marker parity (§9.2)", () => {
   const ideasOf = (...lines: string[]) => scanIdeas(lines, true);
 
   it.each([
-    [
-      "plain idea",
-      { title: "Edge cache", body: "serve from CDN" },
-      ["  «IDEA» Edge cache :: serve from CDN"],
-    ],
+    ["plain idea", { title: "Edge cache", body: "serve from CDN" }, ["  «IDEA» Edge cache :: serve from CDN"]],
     [
       "typed idea",
       { title: "Token rotation", body: "may break sessions", kind: "risk" },
-      ["  «IDEA:risk» Token rotation :: may break sessions"],
+      ["  «IDEA:risk» Token rotation :: may break sessions"]
     ],
     [
       "linked idea (about default)",
-      { title: "Token leak", body: "refresh races the reattach", kind: "risk", links: [{ to: "a1" }] },
-      ["  «IDEA:risk@a1» Token leak :: refresh races the reattach"],
+      {
+        title: "Token leak",
+        body: "refresh races the reattach",
+        kind: "risk",
+        links: [{ to: "a1" }]
+      },
+      ["  «IDEA:risk@a1» Token leak :: refresh races the reattach"]
     ],
     [
       "supersede (PD-012)",
-      { title: "Stronger plan", body: "addresses the objection", links: [{ to: "a1", relation: "supersedes" }] },
-      ["  «IDEA@a1!» Stronger plan :: addresses the objection"],
+      {
+        title: "Stronger plan",
+        body: "addresses the objection",
+        links: [{ to: "a1", relation: "supersedes" }]
+      },
+      ["  «IDEA@a1!» Stronger plan :: addresses the objection"]
     ],
     [
       "combine chain (#62)",
@@ -272,26 +284,26 @@ describe("capture_idea — marker parity (§9.2)", () => {
         kind: "feature",
         links: [
           { to: "a1", relation: "supersedes" },
-          { to: "a2", relation: "supersedes" },
-        ],
+          { to: "a2", relation: "supersedes" }
+        ]
       },
-      ["  «IDEA:feature@a1!@a2!» Unified store :: one CRDT-backed canvas"],
+      ["  «IDEA:feature@a1!@a2!» Unified store :: one CRDT-backed canvas"]
     ],
     [
       "multi-line body (fenced form)",
       {
         title: "Adopt event sourcing",
         body: "Persist every op as a log.\nEnables time-travel scrub.",
-        kind: "decision",
+        kind: "decision"
       },
       [
         "  ```idea kind=decision",
         "  title: Adopt event sourcing",
         "  body: Persist every op as a log.",
         "  Enables time-travel scrub.",
-        "  ```",
-      ],
-    ],
+        "  ```"
+      ]
+    ]
   ])("tool call ≡ marker scan for a %s", async (_label, toolArgs, markerLines) => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
@@ -313,7 +325,10 @@ describe("shared dedupe (§9.3)", () => {
     const w = wire(registry, "ws1");
     const scanner = new IdeaScanner({ sink: w.ideaSink });
 
-    await callTool(app, "ws1", w.token, "capture_idea", { title: "Edge cache", body: "serve from CDN" });
+    await callTool(app, "ws1", w.token, "capture_idea", {
+      title: "Edge cache",
+      body: "serve from CDN"
+    });
     expect(w.ideas).toHaveLength(1);
     // The agent redundantly echoes the marker line; the shared sink absorbs it.
     expect(scanner.scan("  «IDEA» Edge cache :: re-worded body\n❯")).toEqual([]);
@@ -325,7 +340,10 @@ describe("shared dedupe (§9.3)", () => {
     const scanner = new IdeaScanner({ sink: w.ideaSink });
 
     expect(scanner.scan("  «IDEA» Edge cache :: serve from CDN\n❯")).toHaveLength(1);
-    const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Edge cache", body: "serve from CDN" });
+    const body = await callTool(app, "ws1", w.token, "capture_idea", {
+      title: "Edge cache",
+      body: "serve from CDN"
+    });
     expect(textOf(body)).toContain("Already captured");
     expect(w.ideas).toEqual([]); // the tool path emitted nothing on top
   });
@@ -353,17 +371,20 @@ describe("ref round-trip (§9.4)", () => {
     expect(w.ideas[0].id).toBe("i1");
 
     // Link a follow-up to the just-returned ref…
-    await callTool(app, "ws1", w.token, "capture_idea", { title: "Follow-up", links: [{ to: "i1" }] });
+    await callTool(app, "ws1", w.token, "capture_idea", {
+      title: "Follow-up",
+      links: [{ to: "i1" }]
+    });
     expect(w.ideas[1]).toEqual({
       title: "Follow-up",
       body: "",
       id: "i2",
-      links: [{ to: "i1", relation: "about" }],
+      links: [{ to: "i1", relation: "about" }]
     });
 
     // …and score it.
     expect(textOf(await callTool(app, "ws1", w.token, "capture_score", { ref: "i1", impact: 4, effort: 2 }))).toBe(
-      "Scored @i1.",
+      "Scored @i1."
     );
     expect(w.scores).toEqual([{ ref: "i1", impact: 4, effort: 2 }]);
   });
@@ -387,7 +408,7 @@ describe("routing & auth (§9.5)", () => {
     const w = wire(registry, "ws1");
     const res = await rpc(app, "ws1", "not-the-token", "tools/call", {
       name: "capture_idea",
-      arguments: { title: "Sneaky" },
+      arguments: { title: "Sneaky" }
     });
     expect(res.status).toBe(404);
     expect(w.ideas).toEqual([]);
@@ -463,7 +484,7 @@ function fakeTmux() {
         const script = launch.match(/^bash '(.+)'$/)?.[1];
         sessions.set(argAfter(args, "-s")!, {
           launch: script ? readFileSync(script, "utf8") : launch,
-          options: {},
+          options: {}
         });
         return "";
       }
@@ -527,21 +548,31 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const fake = fakeTmux();
     const registry1 = new McpSessionRegistry();
     registry1.configure(BASE);
-    const b1 = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry: registry1 });
+    const b1 = new TmuxSessionBackend({
+      tmux: fake.tmux,
+      sleep: async () => {},
+      registry: registry1
+    });
     await b1.create({ workspaceId: "ws1", command: "claude", prime: "p" });
     const token = fake.sessions.get("ai-storm-ws1")!.options["@ai_storm_mcp_token"];
 
     // "Restart": fresh registry + backend over the same surviving tmux state.
     const registry2 = new McpSessionRegistry();
     registry2.configure(BASE);
-    const b2 = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry: registry2 });
+    const b2 = new TmuxSessionBackend({
+      tmux: fake.tmux,
+      sleep: async () => {},
+      registry: registry2
+    });
     expect(await b2.reconcile()).toEqual(["ws1"]);
 
     // The old token routes again; after attach, a tool call lands on the canvas.
     const app = new Hono().route("/mcp", mcpRoutes(registry2));
     const ideas: Idea[] = [];
     await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop);
-    const body = await callTool(app, "ws1", token, "capture_idea", { title: "Survived the restart" });
+    const body = await callTool(app, "ws1", token, "capture_idea", {
+      title: "Survived the restart"
+    });
     expect(textOf(body)).toContain("Captured as @i1");
     expect(ideas.map((i) => i.title)).toEqual(["Survived the restart"]);
 

@@ -23,7 +23,7 @@ visualizer — not a hosted observability stack.
 `@opentelemetry/api` (and, on the frontend, `@opentelemetry/api-logs`) is a normal (always-installed)
 dependency on both sides; the API is a no-op until a provider is registered, so none of the
 instrumentation below costs anything unless tracing/logging is explicitly turned on. The SDK/exporter
-packages that *do* register a provider are `optionalDependencies`, dynamically imported, and wrapped
+packages that _do_ register a provider are `optionalDependencies`, dynamically imported, and wrapped
 in try/catch — a missing or failed import degrades to "console only, nothing exported" rather than
 crashing the app.
 
@@ -71,13 +71,13 @@ The daemon and the tab both speak standard OTLP/HTTP (port 4318 by default), so 
 accepts OTLP works without touching app code. Candidates evaluated, all self-hostable and free of
 a required cloud account:
 
-| Option | Footprint | Traces | Logs | Verdict |
-| --- | --- | --- | --- | --- |
-| **Jaeger (all-in-one, v2)** | 1 container, in-memory or badger storage | ✅ native OTLP ingest | ➖ (traces only) | **Recommended.** `docker run -p 4318:4318 -p 16686:16686 jaegertracing/jaeger:2.x` and you have a trace UI in under a minute — closest thing to zero-config for a project this size. |
-| **Grafana Tempo + Loki + Grafana** | 3+ containers, needs a `docker-compose.yml` + provisioned datasources | ✅ | ✅ (via Loki, separate pipeline) | Most complete picture (traces *and* logs, correlated), but config weight is disproportionate to "baseline" — worth revisiting once frontend/backend logs need to be queried, not just eyeballed in a trace. |
-| **SigNoz** | Single docker-compose stack (ClickHouse-backed) | ✅ | ✅ | Genuinely local-first (self-hosted, OSS core) and gives traces+logs+metrics in one UI, but the ClickHouse dependency is heavier than this project needs for a first pass. Good next step if Tempo/Loki proves too fiddly. |
-| **otel-desktop-viewer** | Single static binary, no Docker | ✅ | ➖ | Interesting for a *dependency-free* option (matches the "local-first" spirit — no daemon to manage beyond the app itself), but less mature/maintained than Jaeger; keep as a fallback. |
-| **Hosted APM (Honeycomb, Datadog, etc.)** | N/A | — | — | Ruled out per the issue: this app never phones home, and a hosted vendor would be the one external dependency the whole product goes out of its way to avoid. |
+| Option                                    | Footprint                                                             | Traces                | Logs                             | Verdict                                                                                                                                                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------------- | --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Jaeger (all-in-one, v2)**               | 1 container, in-memory or badger storage                              | ✅ native OTLP ingest | ➖ (traces only)                 | **Recommended.** `docker run -p 4318:4318 -p 16686:16686 jaegertracing/jaeger:2.x` and you have a trace UI in under a minute — closest thing to zero-config for a project this size.                                      |
+| **Grafana Tempo + Loki + Grafana**        | 3+ containers, needs a `docker-compose.yml` + provisioned datasources | ✅                    | ✅ (via Loki, separate pipeline) | Most complete picture (traces _and_ logs, correlated), but config weight is disproportionate to "baseline" — worth revisiting once frontend/backend logs need to be queried, not just eyeballed in a trace.               |
+| **SigNoz**                                | Single docker-compose stack (ClickHouse-backed)                       | ✅                    | ✅                               | Genuinely local-first (self-hosted, OSS core) and gives traces+logs+metrics in one UI, but the ClickHouse dependency is heavier than this project needs for a first pass. Good next step if Tempo/Loki proves too fiddly. |
+| **otel-desktop-viewer**                   | Single static binary, no Docker                                       | ✅                    | ➖                               | Interesting for a _dependency-free_ option (matches the "local-first" spirit — no daemon to manage beyond the app itself), but less mature/maintained than Jaeger; keep as a fallback.                                    |
+| **Hosted APM (Honeycomb, Datadog, etc.)** | N/A                                                                   | —                     | —                                | Ruled out per the issue: this app never phones home, and a hosted vendor would be the one external dependency the whole product goes out of its way to avoid.                                                             |
 
 **Recommendation:** start with **Jaeger all-in-one** as the default local collector for traces — one
 container, native OTLP/HTTP ingest on 4318, a trace UI on 16686, nothing to provision, and the

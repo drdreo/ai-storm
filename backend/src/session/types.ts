@@ -75,7 +75,7 @@ export interface SessionBackend {
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
-    onError: (message: string) => void,
+    onError: (message: string) => void
   ): Promise<void>;
 
   /**

@@ -12,16 +12,16 @@
  * move — drop a card, start a session, open settings — without hunting for the
  * chrome (#106).
  */
-import { track, useEditor } from 'tldraw';
-import { Plus, Play, Settings } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { ideaCards } from './idea-card';
+import { track, useEditor } from "tldraw";
+import { Plus, Play, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ideaCards } from "./idea-card";
 
 /** One taught move: a leading glyph/key and its explanation. */
 const MOVES: ReadonlyArray<{ key: string; label: string }> = [
-  { key: 'i', label: 'Press to drop your first idea card' },
-  { key: '▸', label: 'Start a session — the agent’s ideas land here as cards' },
-  { key: '✦', label: 'Select a card to Discuss, Expand, Challenge, or Combine' },
+  { key: "i", label: "Press to drop your first idea card" },
+  { key: "▸", label: "Start a session — the agent’s ideas land here as cards" },
+  { key: "✦", label: "Select a card to Discuss, Expand, Challenge, or Combine" }
 ];
 
 /** The empty-state's primary actions, wired to app handlers (#106). */
@@ -33,24 +33,19 @@ export interface EmptyStateActions {
   attached: boolean;
 }
 
-export const CanvasEmptyState = track(function CanvasEmptyState({
-  actions,
-}: {
-  actions?: EmptyStateActions;
-}) {
+export const CanvasEmptyState = track(function CanvasEmptyState({ actions }: { actions?: EmptyStateActions }) {
   const editor = useEditor();
   if (ideaCards(editor).length > 0) return null;
 
   return (
     <div
-      style={{ pointerEvents: 'none' }}
+      style={{ pointerEvents: "none" }}
       className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-5 px-6 text-center"
     >
       <div className="flex flex-col gap-1.5">
         <h2 className="text-lg font-semibold text-foreground">Start your storm</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          An open canvas for you and the agent to think together. Ideas become cards
-          you can arrange, mark, and refine.
+          An open canvas for you and the agent to think together. Ideas become cards you can arrange, mark, and refine.
         </p>
       </div>
       <ul className="flex flex-col gap-2.5 text-left">
@@ -64,7 +59,7 @@ export const CanvasEmptyState = track(function CanvasEmptyState({
         ))}
       </ul>
       {actions && (
-        <div className="flex flex-wrap items-center justify-center gap-2" style={{ pointerEvents: 'auto' }}>
+        <div className="flex flex-wrap items-center justify-center gap-2" style={{ pointerEvents: "auto" }}>
           <Button size="sm" onClick={actions.onNewIdea}>
             <Plus aria-hidden /> New idea
           </Button>

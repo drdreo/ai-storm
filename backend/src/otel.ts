@@ -10,30 +10,32 @@
  * installed, the process still runs (spans become no-ops).
  */
 
-try {
-  const { NodeSDK } = await import("@opentelemetry/sdk-node");
-  const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
-  const { getNodeAutoInstrumentations } = await import("@opentelemetry/auto-instrumentations-node");
+// Only initialize OTEL if explicitly configured via OTEL_EXPORTER_OTLP_ENDPOINT.
+// This makes observability opt-in (not opt-out), so the app runs normally without it.
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT; // "http://localhost:4318"
+if (endpoint) {
+  try {
+    const { NodeSDK } = await import("@opentelemetry/sdk-node");
+    const { OTLPTraceExporter } = await import("@opentelemetry/exporter-trace-otlp-http");
+    const { getNodeAutoInstrumentations } = await import("@opentelemetry/auto-instrumentations-node");
 
-  const sdk = new NodeSDK({
-    serviceName: process.env.OTEL_SERVICE_NAME ?? "ai-storm-backend",
-    traceExporter: new OTLPTraceExporter(),
-    instrumentations: [getNodeAutoInstrumentations()],
-  });
-  sdk.start();
-  console.log(
-    `${new Date().toISOString()} INFO  otel.started ` +
-      JSON.stringify({ endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318" }),
-  );
+    const sdk = new NodeSDK({
+      serviceName: process.env.OTEL_SERVICE_NAME ?? "ai-storm-backend",
+      traceExporter: new OTLPTraceExporter(),
+      instrumentations: [getNodeAutoInstrumentations()]
+    });
+    sdk.start();
+    console.log(`${new Date().toISOString()} INFO  otel.started ` + JSON.stringify({ endpoint }));
 
-  const shutdown = () => {
-    sdk.shutdown().finally(() => process.exit(0));
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-} catch (err) {
-  console.warn(
-    `${new Date().toISOString()} WARN  otel.unavailable ` +
-      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-  );
+    const shutdown = () => {
+      sdk.shutdown().finally(() => process.exit(0));
+    };
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+  } catch (err) {
+    console.warn(
+      `${new Date().toISOString()} WARN  otel.unavailable ` +
+        JSON.stringify({ error: err instanceof Error ? err.message : String(err) })
+    );
+  }
 }

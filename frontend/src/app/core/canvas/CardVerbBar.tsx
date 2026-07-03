@@ -5,35 +5,24 @@
  * (#62, PD-019). Picking one serializes the selection and fires the handler
  * (wired to the terminal). Rendered `InFrontOfTheCanvas` by {@link ../canvas-island}.
  */
-import {
-  stopEventPropagation,
-  TldrawUiButton,
-  TldrawUiButtonLabel,
-  TldrawUiToolbar,
-  track,
-  useEditor,
-} from 'tldraw';
-import { cardToText, serializeCards } from '../canvas-text';
-import type { PromptIntent } from '../prompt-framing';
-import { cardRef, content, type IdeaCardShape } from './idea-card';
+import { stopEventPropagation, TldrawUiButton, TldrawUiButtonLabel, TldrawUiToolbar, track, useEditor } from "tldraw";
+import { cardToText, serializeCards } from "../canvas-text";
+import type { PromptIntent } from "../prompt-framing";
+import { cardRef, content, type IdeaCardShape } from "./idea-card";
 
 /** A card-level AI verb: a label bound to a {@link PromptIntent} (prompt-framing). */
 const CARD_VERBS: ReadonlyArray<{ intent: PromptIntent; label: string }> = [
-  { intent: 'discuss', label: 'Discuss' },
-  { intent: 'expand', label: 'Expand' },
-  { intent: 'challenge', label: 'Challenge' },
-  { intent: 'find-risks', label: 'Find risks' },
+  { intent: "discuss", label: "Discuss" },
+  { intent: "expand", label: "Expand" },
+  { intent: "challenge", label: "Challenge" },
+  { intent: "find-risks", label: "Find risks" }
 ];
 
 /**
  * The verb fired by the bar: the serialized selection text, the intent, and the
  * source card refs (one for the single-card verbs, several for `combine`).
  */
-export type CardVerbHandler = (
-  text: string,
-  intent: PromptIntent,
-  sourceRefs: readonly string[],
-) => void;
+export type CardVerbHandler = (text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void;
 
 /**
  * The bidirectional-canvas seam (#13, #15, #62): a small action bar over the
@@ -48,7 +37,7 @@ export type CardVerbHandler = (
  */
 export const CardVerbBar = track(function CardVerbBar({
   onVerb,
-  disabled = false,
+  disabled = false
 }: {
   onVerb: CardVerbHandler;
   /** No live session (#106): the verbs type into a terminal that isn't there, so
@@ -56,12 +45,10 @@ export const CardVerbBar = track(function CardVerbBar({
   disabled?: boolean;
 }) {
   const editor = useEditor();
-  const cards = editor
-    .getSelectedShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const cards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   if (cards.length === 0) return null;
   const multi = cards.length >= 2;
-  const disabledTip = 'Start a session first — idea actions talk to the live agent';
+  const disabledTip = "Start a session first — idea actions talk to the live agent";
 
   // Fire a single-card verb on the lone selected card.
   const fire = (intent: PromptIntent) => {
@@ -78,24 +65,24 @@ export const CardVerbBar = track(function CardVerbBar({
     const text = serializeCards(cards.map(content));
     if (!text.trim()) return;
     const refs = cards.map((c) => cardRef(editor, c.id)).filter((r): r is string => !!r);
-    onVerb(text, 'combine', refs);
+    onVerb(text, "combine", refs);
   };
 
   return (
     <div
       onPointerDown={stopEventPropagation}
       style={{
-        position: 'absolute',
+        position: "absolute",
         top: 12,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
+        left: "50%",
+        transform: "translateX(-50%)",
+        display: "flex",
         padding: 4,
-        borderRadius: 'var(--tl-radius-3, 8px)',
-        background: 'var(--tl-color-panel, #fff)',
-        boxShadow: 'var(--tl-shadow-2, 0 2px 10px rgba(0,0,0,0.18))',
-        pointerEvents: 'all',
-        zIndex: 300,
+        borderRadius: "var(--tl-radius-3, 8px)",
+        background: "var(--tl-color-panel, #fff)",
+        boxShadow: "var(--tl-shadow-2, 0 2px 10px rgba(0,0,0,0.18))",
+        pointerEvents: "all",
+        zIndex: 300
       }}
     >
       {/* Native tldraw toolbar + buttons: hover/focus states, keyboard nav, and

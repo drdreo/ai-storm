@@ -52,7 +52,7 @@ export const log = {
   debug: (event: string, attrs?: Attrs) => emit("debug", event, attrs),
   info: (event: string, attrs?: Attrs) => emit("info", event, attrs),
   warn: (event: string, attrs?: Attrs) => emit("warn", event, attrs),
-  error: (event: string, attrs?: Attrs) => emit("error", event, attrs),
+  error: (event: string, attrs?: Attrs) => emit("error", event, attrs)
 };
 
 /** Add a point-in-time event to the currently active span. */
@@ -61,11 +61,7 @@ export function addEvent(name: string, attrs?: Attrs): void {
 }
 
 /** Run `fn` inside a new active span, recording errors and ending it. */
-export async function withSpan<T>(
-  name: string,
-  attrs: Attrs,
-  fn: (span: Span) => Promise<T> | T,
-): Promise<T> {
+export async function withSpan<T>(name: string, attrs: Attrs, fn: (span: Span) => Promise<T> | T): Promise<T> {
   return await tracer.startActiveSpan(name, async (span) => {
     try {
       for (const [k, v] of Object.entries(clean(attrs))) span.setAttribute(k, v);

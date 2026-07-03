@@ -20,25 +20,30 @@
  * code path actually runs.
  */
 
-const endpoint = import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT as string | undefined
-const serviceName = (import.meta.env.VITE_OTEL_SERVICE_NAME as string | undefined) ?? 'ai-storm-frontend'
+const endpoint = (import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT as string | undefined) ?? "/otel";
+const serviceName = (import.meta.env.VITE_OTEL_SERVICE_NAME as string | undefined) ?? "ai-storm-frontend";
 
 export async function initOtel(): Promise<void> {
   try {
-    const [{ ConsoleInstrumentation }, { ErrorsInstrumentation }, { registerInstrumentations }] =
-      await Promise.all([
-        import('@opentelemetry/browser-instrumentation/experimental/console'),
-        import('@opentelemetry/browser-instrumentation/experimental/errors'),
-        import('@opentelemetry/instrumentation'),
-      ])
+    const [
+      { ConsoleInstrumentation },
+      { ErrorsInstrumentation },
+      { ResourceTimingInstrumentation },
+      { registerInstrumentations }
+    ] = await Promise.all([
+      import("@opentelemetry/browser-instrumentation/experimental/console"),
+      import("@opentelemetry/browser-instrumentation/experimental/errors"),
+      import("@opentelemetry/browser-instrumentation/experimental/resource-timing"),
+      import("@opentelemetry/instrumentation")
+    ]);
 
-    if (endpoint) await registerExporters()
+    if (endpoint) await registerExporters();
 
     registerInstrumentations({
-      instrumentations: [new ConsoleInstrumentation(), new ErrorsInstrumentation()],
-    })
+      instrumentations: [new ConsoleInstrumentation(), new ErrorsInstrumentation(), new ResourceTimingInstrumentation()]
+    });
   } catch (err) {
-    console.warn('otel.unavailable', err instanceof Error ? err.message : String(err))
+    console.warn("otel.unavailable", err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -51,33 +56,35 @@ async function registerExporters(): Promise<void> {
     { WebTracerProvider, BatchSpanProcessor, StackContextManager },
     { OTLPTraceExporter },
     { resourceFromAttributes },
-    { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION },
+    { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION }
   ] = await Promise.all([
-    import('@opentelemetry/api-logs'),
-    import('@opentelemetry/sdk-logs'),
-    import('@opentelemetry/exporter-logs-otlp-http'),
-    import('@opentelemetry/sdk-trace-web'),
-    import('@opentelemetry/exporter-trace-otlp-http'),
-    import('@opentelemetry/resources'),
-    import('@opentelemetry/semantic-conventions'),
-  ])
+    import("@opentelemetry/api-logs"),
+    import("@opentelemetry/sdk-logs"),
+    import("@opentelemetry/exporter-logs-otlp-http"),
+    import("@opentelemetry/sdk-trace-web"),
+    import("@opentelemetry/exporter-trace-otlp-http"),
+    import("@opentelemetry/resources"),
+    import("@opentelemetry/semantic-conventions")
+  ]);
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: serviceName,
-    [ATTR_SERVICE_VERSION]: '3.0.0',
-  })
+    [ATTR_SERVICE_VERSION]: "3.0.0"
+  });
 
   const loggerProvider = new LoggerProvider({
     resource,
     processors: [
-      new BatchLogRecordProcessor({ exporter: new OTLPLogExporter({ url: `${endpoint}/v1/logs` }) }),
-    ],
-  })
-  logs.setGlobalLoggerProvider(loggerProvider)
+      new BatchLogRecordProcessor({
+        exporter: new OTLPLogExporter({ url: `${endpoint}/v1/logs` })
+      })
+    ]
+  });
+  logs.setGlobalLoggerProvider(loggerProvider);
 
   const tracerProvider = new WebTracerProvider({
     resource,
-    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces` }))],
-  })
-  tracerProvider.register({ contextManager: new StackContextManager() })
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, keepAlive: true }))]
+  });
+  tracerProvider.register({ contextManager: new StackContextManager() });
 }

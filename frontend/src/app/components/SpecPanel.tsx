@@ -1,32 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download, ExternalLink, Sparkles } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Field, FieldContent, FieldDescription, FieldLabel } from '@/components/ui/field'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import { useAgentStore } from '../stores/agent.store'
-import { SPEC_FORMATS, type SpecFormat, type SpecOptions } from '../core/prompt-framing'
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, Download, ExternalLink, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useAgentStore } from "../stores/agent.store";
+import { SPEC_FORMATS, type SpecFormat, type SpecOptions } from "../core/prompt-framing";
 
 /** Last-used hand-off format (#110) — repeat hand-offs default sensibly. */
-const FORMAT_KEY = 'ai-storm-spec-format'
+const FORMAT_KEY = "ai-storm-spec-format";
 
 function initialFormat(): SpecFormat {
-  const stored = localStorage.getItem(FORMAT_KEY)
-  return stored && stored in SPEC_FORMATS ? (stored as SpecFormat) : 'prd'
+  const stored = localStorage.getItem(FORMAT_KEY);
+  return stored && stored in SPEC_FORMATS ? (stored as SpecFormat) : "prd";
 }
 
 /**
@@ -54,63 +42,66 @@ export function SpecPanel({
   workspaceId,
   workspaceName,
   boardEmpty,
-  onGenerate,
+  onGenerate
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  workspaceId?: string
-  workspaceName?: string
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaceId?: string;
+  workspaceName?: string;
   /** The board has no cards to hand off — Generate is gated with why-copy. */
-  boardEmpty: boolean
-  onGenerate: (format: SpecFormat, opts: SpecOptions) => void
+  boardEmpty: boolean;
+  onGenerate: (format: SpecFormat, opts: SpecOptions) => void;
 }) {
-  const run = useAgentStore((s) => (workspaceId ? s.runs[workspaceId] ?? null : null))
-  const spec = run?.kind === 'spec' ? run : null
-  const markdown = spec?.output ?? ''
-  const done = spec?.status === 'exit' || spec?.status === 'error'
-  const running = spec != null && !done
+  const run = useAgentStore((s) => (workspaceId ? (s.runs[workspaceId] ?? null) : null));
+  const spec = run?.kind === "spec" ? run : null;
+  const markdown = spec?.output ?? "";
+  const done = spec?.status === "exit" || spec?.status === "error";
+  const running = spec != null && !done;
 
-  const [format, setFormat] = useState<SpecFormat>(initialFormat)
-  const [createIssues, setCreateIssues] = useState(false)
+  const [format, setFormat] = useState<SpecFormat>(initialFormat);
+  const [createIssues, setCreateIssues] = useState(false);
   const pickFormat = (next: SpecFormat) => {
-    setFormat(next)
-    localStorage.setItem(FORMAT_KEY, next)
-  }
+    setFormat(next);
+    localStorage.setItem(FORMAT_KEY, next);
+  };
 
   // Transient "it worked" confirmation for the two write actions (#106). Copy and
   // Download both leave the app — one to the OS clipboard, one to a file — with no
   // in-app change to prove they landed. A short-lived `done` flag flips the button
   // to a ✓ + past-tense label, then reverts. One timer, cleared on unmount / re-fire.
-  const [flash, setFlash] = useState<'copied' | 'downloaded' | null>(null)
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => () => clearTimeout(flashTimer.current), [])
-  const confirm = (which: 'copied' | 'downloaded') => {
-    setFlash(which)
-    clearTimeout(flashTimer.current)
-    flashTimer.current = setTimeout(() => setFlash(null), 1800)
-  }
+  const [flash, setFlash] = useState<"copied" | "downloaded" | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  const confirm = (which: "copied" | "downloaded") => {
+    setFlash(which);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1800);
+  };
 
   const copy = async () => {
-    if (!markdown) return
-    await navigator.clipboard?.writeText(markdown)
-    confirm('copied')
-  }
+    if (!markdown) return;
+    await navigator.clipboard?.writeText(markdown);
+    confirm("copied");
+  };
 
   const download = () => {
-    if (!markdown) return
-    const slug = (workspaceName ?? 'board').trim().replace(/[^\w-]+/g, '-').toLowerCase()
+    if (!markdown) return;
+    const slug = (workspaceName ?? "board")
+      .trim()
+      .replace(/[^\w-]+/g, "-")
+      .toLowerCase();
     // Name by the format the run was actually generated as (stamped at dispatch),
     // not the picker's current selection — they diverge once the user re-picks.
-    const suffix = spec?.format ? SPEC_FORMATS[spec.format].fileSuffix : 'spec'
-    const blob = new Blob([markdown], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${slug || 'board'}-${suffix}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-    confirm('downloaded')
-  }
+    const suffix = spec?.format ? SPEC_FORMATS[spec.format].fileSuffix : "spec";
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug || "board"}-${suffix}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    confirm("downloaded");
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -120,25 +111,18 @@ export function SpecPanel({
             Hand off board
             {spec && (
               <Badge
-                variant={
-                  spec.status === 'error'
-                    ? 'destructive'
-                    : spec.status === 'exit'
-                      ? 'secondary'
-                      : 'default'
-                }
+                variant={spec.status === "error" ? "destructive" : spec.status === "exit" ? "secondary" : "default"}
                 className="uppercase"
               >
                 {spec.status}
-                {spec.code !== undefined ? ` (${spec.code})` : ''}
-                {spec.format ? ` · ${SPEC_FORMATS[spec.format].label}` : ''}
+                {spec.code !== undefined ? ` (${spec.code})` : ""}
+                {spec.format ? ` · ${SPEC_FORMATS[spec.format].label}` : ""}
               </Badge>
             )}
           </SheetTitle>
           <SheetDescription>
-            Hand the board off to an agent as a PRD, plan, issue list, or task prompts. This is a
-            snapshot for the agent to read — it won't change your board; keep refining on the
-            canvas.
+            Hand the board off to an agent as a PRD, plan, issue list, or task prompts. This is a snapshot for the agent
+            to read — it won't change your board; keep refining on the canvas.
           </SheetDescription>
         </SheetHeader>
 
@@ -160,7 +144,7 @@ export function SpecPanel({
             <FieldDescription>{SPEC_FORMATS[format].description}</FieldDescription>
           </Field>
 
-          {format === 'issues' && (
+          {format === "issues" && (
             <Field orientation="horizontal">
               <Checkbox
                 id="spec-create-issues"
@@ -172,45 +156,32 @@ export function SpecPanel({
                   Actually create the issues via <code>gh</code>
                 </FieldLabel>
                 <FieldDescription>
-                  Permission is granted for this run only (scoped to{' '}
-                  <code>gh issue create</code>); needs <code>gh</code> auth. Off = ready-to-file
-                  drafts, no side effects.
+                  Permission is granted for this run only (scoped to <code>gh issue create</code>); needs{" "}
+                  <code>gh</code> auth. Off = ready-to-file drafts, no side effects.
                 </FieldDescription>
               </FieldContent>
             </Field>
           )}
 
-          <Button
-            size="sm"
-            onClick={() => onGenerate(format, { createIssues })}
-            disabled={boardEmpty || running}
-          >
-            <Sparkles aria-hidden /> {spec ? 'Regenerate' : 'Generate'}
+          <Button size="sm" onClick={() => onGenerate(format, { createIssues })} disabled={boardEmpty || running}>
+            <Sparkles aria-hidden /> {spec ? "Regenerate" : "Generate"}
           </Button>
           {boardEmpty && (
-            <p className="text-xs text-muted-foreground">
-              The board is empty — add cards before handing off.
-            </p>
+            <p className="text-xs text-muted-foreground">The board is empty — add cards before handing off.</p>
           )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {!spec ? (
-            <p className="text-sm text-muted-foreground">
-              No hand-off yet — pick a format above and press Generate.
-            </p>
+            <p className="text-sm text-muted-foreground">No hand-off yet — pick a format above and press Generate.</p>
           ) : markdown ? (
             <>
-              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">
-                {markdown}
-              </pre>
+              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">{markdown}</pre>
               {spec.artifacts && spec.artifacts.length > 0 && (
                 <div className="mt-3 border-t pt-3">
                   {/* Structured created-issue artifacts parsed server-side (#120) —
                       link chips, the deferred follow-up from #110. */}
-                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-                    Created issues
-                  </p>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Created issues</p>
                   <div className="flex flex-wrap gap-1.5 pb-3">
                     {spec.artifacts.map((a) => (
                       <a
@@ -232,15 +203,15 @@ export function SpecPanel({
           ) : (
             <p className="text-sm text-muted-foreground">
               {done
-                ? 'The agent produced no output.'
-                : `Generating the ${spec.format ? SPEC_FORMATS[spec.format].label : 'spec'}…`}
+                ? "The agent produced no output."
+                : `Generating the ${spec.format ? SPEC_FORMATS[spec.format].label : "spec"}…`}
             </p>
           )}
         </div>
 
         <div className="flex gap-2 border-t p-4">
           <Button size="sm" variant="outline" onClick={copy} disabled={!markdown}>
-            {flash === 'copied' ? (
+            {flash === "copied" ? (
               <>
                 <Check className="text-emerald-600 dark:text-emerald-500" aria-hidden /> Copied
               </>
@@ -251,7 +222,7 @@ export function SpecPanel({
             )}
           </Button>
           <Button size="sm" onClick={download} disabled={!markdown}>
-            {flash === 'downloaded' ? (
+            {flash === "downloaded" ? (
               <>
                 <Check aria-hidden /> Downloaded
               </>
@@ -264,10 +235,10 @@ export function SpecPanel({
           {/* Screen-reader announcement mirroring the visual flash (the icon swap
               alone is silent to AT). */}
           <span role="status" aria-live="polite" className="sr-only">
-            {flash === 'copied' ? 'Spec copied to clipboard' : flash === 'downloaded' ? 'Spec downloaded' : ''}
+            {flash === "copied" ? "Spec copied to clipboard" : flash === "downloaded" ? "Spec downloaded" : ""}
           </span>
         </div>
       </SheetContent>
     </Sheet>
-  )
+  );
 }

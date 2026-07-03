@@ -1,8 +1,8 @@
 /** Domain models for ai-storm workspaces (PRD §3.4). */
 
-import { DEFAULT_MODE_ID } from '@ai-storm/shared';
+import { DEFAULT_MODE_ID } from "@ai-storm/shared";
 
-export type WorkspaceStatus = 'idle' | 'active' | 'streaming' | 'error';
+export type WorkspaceStatus = "idle" | "active" | "streaming" | "error";
 
 /** Metadata describing a single isolated project workspace. */
 export interface WorkspaceMeta {
@@ -24,15 +24,15 @@ export interface WorkspaceMeta {
 
 /** Fixed accent palette (Tailwind 500s) — kept small so swatches stay distinguishable. */
 export const WORKSPACE_COLORS = [
-  '#f43f5e', // rose
-  '#f97316', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#14b8a6', // teal
-  '#0ea5e9', // sky
-  '#6366f1', // indigo
-  '#a855f7', // purple
-  '#ec4899', // pink
+  "#f43f5e", // rose
+  "#f97316", // orange
+  "#eab308", // yellow
+  "#22c55e", // green
+  "#14b8a6", // teal
+  "#0ea5e9", // sky
+  "#6366f1", // indigo
+  "#a855f7", // purple
+  "#ec4899" // pink
 ] as const;
 
 /** Deterministic default accent color, stable for a given workspace id. */
@@ -69,8 +69,8 @@ export interface TerminalConfig {
 
 export function defaultTerminalConfig(): TerminalConfig {
   return {
-    agentCommand: 'claude',
+    agentCommand: "claude",
     agentArgs: [],
-    mode: DEFAULT_MODE_ID,
+    mode: DEFAULT_MODE_ID
   };
 }

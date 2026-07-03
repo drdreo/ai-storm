@@ -1,41 +1,41 @@
-import { create } from 'zustand'
-import type { Idea } from '@ai-storm/shared'
-import { backend } from './backend.store'
-import { canvas } from './canvas.store'
-import { workspace } from './workspace.store'
-import { RenderScheduler } from '../core/render-scheduler'
-import type { TerminalConfig } from '../core/models'
+import { create } from "zustand";
+import type { Idea } from "@ai-storm/shared";
+import { backend } from "./backend.store";
+import { canvas } from "./canvas.store";
+import { workspace } from "./workspace.store";
+import { RenderScheduler } from "../core/render-scheduler";
+import type { TerminalConfig } from "../core/models";
 
 /** Cap on raw bytes buffered before a terminal mounts, so an attached-but-never-
  *  viewed workspace cannot grow without bound (oldest chunks are dropped). */
-const MAX_BUFFERED_DATA = 256 * 1024
+const MAX_BUFFERED_DATA = 256 * 1024;
 
 /** A mounted xterm.js terminal's sink — the component registers these. */
 export interface TerminalSink {
   /** Write base64-encoded raw PTY bytes to the terminal. */
-  write(dataB64: string): void
+  write(dataB64: string): void;
   /** Clear the terminal's scrollback + viewport. */
-  clear(): void
+  clear(): void;
   /** Move keyboard focus into the terminal (bidirectional canvas, #13). */
-  focus?(): void
+  focus?(): void;
 }
 
 /** Live streaming machinery (exists only while a session is attached). */
 interface Pipeline {
-  scheduler: RenderScheduler<Idea>
-  unsubscribe: () => void
+  scheduler: RenderScheduler<Idea>;
+  unsubscribe: () => void;
   /** The attach message, re-sent on socket reopen to resume the session (§3.5). */
-  reattach: () => void
-  unsubscribeOpen: () => void
+  reattach: () => void;
+  unsubscribeOpen: () => void;
 }
 
 /** Per-workspace terminal binding (survives attach/detach cycles). */
 interface TerminalState {
   /** The mounted terminal's sink, or null until the component registers it. */
-  sink: TerminalSink | null
+  sink: TerminalSink | null;
   /** Raw `data` chunks (base64) received before the terminal mounted. */
-  buffer: string[]
-  bufferedBytes: number
+  buffer: string[];
+  bufferedBytes: number;
 }
 
 /**
@@ -59,99 +59,99 @@ interface TerminalState {
  */
 
 interface IngestionState {
-  attached: Record<string, true>
+  attached: Record<string, true>;
   /**
    * Last backend error per workspace (e.g. a harness that couldn't be launched).
    * Transient — not persisted with the workspace registry, since it describes a
    * momentary launch/runtime condition the user should be able to read and act
    * on, then dismiss. Cleared when the workspace next attaches or is stopped.
    */
-  errors: Record<string, string>
+  errors: Record<string, string>;
 }
 
-export const useIngestionStore = create<IngestionState>(() => ({ attached: {}, errors: {} }))
+export const useIngestionStore = create<IngestionState>(() => ({ attached: {}, errors: {} }));
 
 function setError(workspaceId: string, message: string | null): void {
   useIngestionStore.setState((s) => {
-    if (message === (s.errors[workspaceId] ?? null)) return s
-    const next = { ...s.errors }
-    if (message) next[workspaceId] = message
-    else delete next[workspaceId]
-    return { errors: next }
-  })
+    if (message === (s.errors[workspaceId] ?? null)) return s;
+    const next = { ...s.errors };
+    if (message) next[workspaceId] = message;
+    else delete next[workspaceId];
+    return { errors: next };
+  });
 }
 
 // ---- Imperative module state -----------------------------------------------
 
-const terminals = new Map<string, TerminalState>()
-const active = new Map<string, Pipeline>()
+const terminals = new Map<string, TerminalState>();
+const active = new Map<string, Pipeline>();
 
 function terminal(workspaceId: string): TerminalState {
-  let t = terminals.get(workspaceId)
+  let t = terminals.get(workspaceId);
   if (!t) {
-    t = { sink: null, buffer: [], bufferedBytes: 0 }
-    terminals.set(workspaceId, t)
+    t = { sink: null, buffer: [], bufferedBytes: 0 };
+    terminals.set(workspaceId, t);
   }
-  return t
+  return t;
 }
 
 function markAttached(workspaceId: string, on: boolean): void {
   useIngestionStore.setState((s) => {
-    if (on === !!s.attached[workspaceId]) return s
-    const next = { ...s.attached }
-    if (on) next[workspaceId] = true
-    else delete next[workspaceId]
-    return { attached: next }
-  })
+    if (on === !!s.attached[workspaceId]) return s;
+    const next = { ...s.attached };
+    if (on) next[workspaceId] = true;
+    else delete next[workspaceId];
+    return { attached: next };
+  });
 }
 
 /** Forward raw PTY bytes to the terminal (or buffer until it mounts). */
 function ingestData(workspaceId: string, dataB64: string): void {
-  const t = terminal(workspaceId)
+  const t = terminal(workspaceId);
   if (t.sink) {
-    t.sink.write(dataB64)
-    return
+    t.sink.write(dataB64);
+    return;
   }
-  t.buffer.push(dataB64)
-  t.bufferedBytes += dataB64.length
+  t.buffer.push(dataB64);
+  t.bufferedBytes += dataB64.length;
   // Drop oldest chunks past the cap (a never-viewed session must stay bounded).
   while (t.bufferedBytes > MAX_BUFFERED_DATA && t.buffer.length > 1) {
-    t.bufferedBytes -= t.buffer.shift()!.length
+    t.bufferedBytes -= t.buffer.shift()!.length;
   }
 }
 
 /** Route one extracted idea to the canvas via the render scheduler. */
 function ingestIdea(workspaceId: string, idea: Idea): void {
-  const p = active.get(workspaceId)
-  if (!p) return
-  p.scheduler.enqueueAll([idea])
+  const p = active.get(workspaceId);
+  if (!p) return;
+  p.scheduler.enqueueAll([idea]);
 }
 
 function applyStatus(workspaceId: string, status: string): void {
   switch (status) {
-    case 'responding':
-      workspace.setStatus(workspaceId, 'streaming')
-      break
-    case 'created':
-    case 'attached':
-    case 'idle':
-      workspace.setStatus(workspaceId, 'active')
-      break
-    case 'killed':
-      workspace.setStatus(workspaceId, 'idle')
-      break
+    case "responding":
+      workspace.setStatus(workspaceId, "streaming");
+      break;
+    case "created":
+    case "attached":
+    case "idle":
+      workspace.setStatus(workspaceId, "active");
+      break;
+    case "killed":
+      workspace.setStatus(workspaceId, "idle");
+      break;
   }
 }
 
 function teardownPipeline(workspaceId: string): Pipeline | undefined {
-  const p = active.get(workspaceId)
-  if (!p) return undefined
-  p.unsubscribe()
-  p.unsubscribeOpen()
-  p.scheduler.dispose()
-  active.delete(workspaceId)
-  markAttached(workspaceId, false)
-  return p
+  const p = active.get(workspaceId);
+  if (!p) return undefined;
+  p.unsubscribe();
+  p.unsubscribeOpen();
+  p.scheduler.dispose();
+  active.delete(workspaceId);
+  markAttached(workspaceId, false);
+  return p;
 }
 
 export const ingestion = {
@@ -161,55 +161,55 @@ export const ingestion = {
    * no-op, and the backend reuses a running session rather than respawning it.
    */
   attach(workspaceId: string, config: TerminalConfig, cols = 120, rows = 32): void {
-    if (active.has(workspaceId)) return
+    if (active.has(workspaceId)) return;
     // A fresh attempt clears any error from the previous launch.
-    setError(workspaceId, null)
+    setError(workspaceId, null);
     // Pre-create the terminal binding so a sink can register immediately.
-    terminal(workspaceId)
+    terminal(workspaceId);
 
     const scheduler = new RenderScheduler<Idea>({
       sink: (batch) => canvas.applyIdeas(workspaceId, batch),
       // Ideas are low-frequency and deduped one-per-marker; a small cap still
       // collapses multiple ideas in one frame into a single applyIdeas call.
-      maxPerFrame: 8,
-    })
+      maxPerFrame: 8
+    });
 
     const unsubscribe = backend.subscribe(workspaceId, (msg) => {
       switch (msg.type) {
-        case 'data':
-          ingestData(workspaceId, msg.data)
-          break
-        case 'idea':
-          ingestIdea(workspaceId, msg.idea)
-          break
-        case 'score':
+        case "data":
+          ingestData(workspaceId, msg.data);
+          break;
+        case "idea":
+          ingestIdea(workspaceId, msg.idea);
+          break;
+        case "score":
           // Triage score (#60) → update the target card's meta on the canvas.
-          canvas.applyScore(workspaceId, msg.score)
-          break
-        case 'session-status':
-          applyStatus(workspaceId, msg.status)
-          break
-        case 'exit':
-          active.get(workspaceId)?.scheduler.flushNow()
-          workspace.setStatus(workspaceId, 'idle')
-          break
-        case 'error':
-          workspace.setStatus(workspaceId, 'error')
+          canvas.applyScore(workspaceId, msg.score);
+          break;
+        case "session-status":
+          applyStatus(workspaceId, msg.status);
+          break;
+        case "exit":
+          active.get(workspaceId)?.scheduler.flushNow();
+          workspace.setStatus(workspaceId, "idle");
+          break;
+        case "error":
+          workspace.setStatus(workspaceId, "error");
           // Surface *why* so the user can fix it (e.g. a bad harness command),
           // rather than seeing only an opaque "error" status.
-          setError(workspaceId, msg.message)
-          break
+          setError(workspaceId, msg.message);
+          break;
       }
-    })
+    });
 
     // The interactive session defaults to launching the configured AI harness
     // (e.g. `claude`), so prompts typed in the terminal go to the agent — not to
     // a raw shell. An explicit `shell` override takes precedence.
-    const harness = config.shell?.trim() || config.agentCommand?.trim() || 'claude'
-    const harnessArgs = config.shell ? config.args ?? [] : config.agentArgs ?? []
+    const harness = config.shell?.trim() || config.agentCommand?.trim() || "claude";
+    const harnessArgs = config.shell ? (config.args ?? []) : (config.agentArgs ?? []);
     const reattach = () => {
       backend.send({
-        type: 'attach',
+        type: "attach",
         workspaceId,
         shell: harness,
         args: harnessArgs,
@@ -217,18 +217,18 @@ export const ingestion = {
         cols,
         rows,
         mode: config.mode,
-        background: config.background,
-      })
-    }
+        background: config.background
+      });
+    };
     // Re-issue the attach whenever the socket (re)opens so a backend restart or
     // refresh resumes the durable session without losing the agent (§3.5).
-    const unsubscribeOpen = backend.onOpen(reattach)
+    const unsubscribeOpen = backend.onOpen(reattach);
 
-    active.set(workspaceId, { scheduler, unsubscribe, reattach, unsubscribeOpen })
-    markAttached(workspaceId, true)
+    active.set(workspaceId, { scheduler, unsubscribe, reattach, unsubscribeOpen });
+    markAttached(workspaceId, true);
 
-    backend.connect()
-    reattach()
+    backend.connect();
+    reattach();
   },
 
   /**
@@ -237,35 +237,35 @@ export const ingestion = {
    * unbind fn the component calls on teardown.
    */
   registerTerminal(workspaceId: string, sink: TerminalSink): () => void {
-    const t = terminal(workspaceId)
-    t.sink = sink
+    const t = terminal(workspaceId);
+    t.sink = sink;
     if (t.buffer.length > 0) {
-      for (const chunk of t.buffer) sink.write(chunk)
-      t.buffer = []
-      t.bufferedBytes = 0
+      for (const chunk of t.buffer) sink.write(chunk);
+      t.buffer = [];
+      t.bufferedBytes = 0;
     }
     return () => {
-      if (t.sink === sink) t.sink = null
-    }
+      if (t.sink === sink) t.sink = null;
+    };
   },
 
   /** Forward raw keystrokes from the terminal to the session's PTY. */
   sendInput(workspaceId: string, data: string): void {
-    backend.send({ type: 'input', workspaceId, data })
+    backend.send({ type: "input", workspaceId, data });
   },
 
   resize(workspaceId: string, cols: number, rows: number): void {
-    backend.send({ type: 'resize', workspaceId, cols, rows })
+    backend.send({ type: "resize", workspaceId, cols, rows });
   },
 
   /** Dismiss the last backend error shown for a workspace. */
   clearError(workspaceId: string): void {
-    setError(workspaceId, null)
+    setError(workspaceId, null);
   },
 
   /** Clear the workspace's terminal display (does not touch the session). */
   clearTerminal(workspaceId: string): void {
-    terminals.get(workspaceId)?.sink?.clear()
+    terminals.get(workspaceId)?.sink?.clear();
   },
 
   /**
@@ -274,11 +274,11 @@ export const ingestion = {
    * without first clicking the terminal. No-op if no terminal is mounted.
    */
   focusTerminal(workspaceId: string): void {
-    terminals.get(workspaceId)?.sink?.focus?.()
+    terminals.get(workspaceId)?.sink?.focus?.();
   },
 
   isAttached(workspaceId: string): boolean {
-    return active.has(workspaceId)
+    return active.has(workspaceId);
   },
 
   /**
@@ -286,16 +286,16 @@ export const ingestion = {
    * (refresh / hot-switch — PRD §3.5). Use {@link kill} to tear it down.
    */
   detach(workspaceId: string): void {
-    const p = teardownPipeline(workspaceId)
-    if (!p) return
-    backend.send({ type: 'detach', workspaceId })
-    workspace.setStatus(workspaceId, 'idle')
+    const p = teardownPipeline(workspaceId);
+    if (!p) return;
+    backend.send({ type: "detach", workspaceId });
+    workspace.setStatus(workspaceId, "idle");
   },
 
   /** Terminate the session entirely (PRD §5.2 teardown). */
   kill(workspaceId: string): void {
-    const p = teardownPipeline(workspaceId)
-    backend.send({ type: 'kill', workspaceId })
-    if (p) workspace.setStatus(workspaceId, 'idle')
-  },
-}
+    const p = teardownPipeline(workspaceId);
+    backend.send({ type: "kill", workspaceId });
+    if (p) workspace.setStatus(workspaceId, "idle");
+  }
+};

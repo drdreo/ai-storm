@@ -6,6 +6,6 @@ export default defineConfig({
     // line buffering) is pure and has no runtime dependency, so a plain Node
     // environment is sufficient.
     environment: "node",
-    include: ["src/**/*.test.ts"],
-  },
+    include: ["src/**/*.test.ts"]
+  }
 });

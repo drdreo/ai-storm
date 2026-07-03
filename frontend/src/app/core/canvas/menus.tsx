@@ -13,7 +13,7 @@
  * island (see {@link useFilterAtom}) and passed in, so it's per-workspace and resets
  * on board switch with no shared global.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   atom,
   track,
@@ -28,14 +28,14 @@ import {
   TldrawUiMenuGroup,
   TldrawUiMenuSubmenu,
   TldrawUiMenuCheckboxItem,
-  TldrawUiMenuItem,
-} from 'tldraw';
-import { kindLabel, KNOWN_KINDS, normalizeKind } from '../idea-descriptors';
-import { serializeCards } from '../canvas-text';
-import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
-import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from './filter';
-import { arrangeMindMap, arrangePriorityGrid, markSelected } from './layout';
-import { createUserIdea } from './idea-tool';
+  TldrawUiMenuItem
+} from "tldraw";
+import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
+import { serializeCards } from "../canvas-text";
+import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
+import { arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
+import { createUserIdea } from "./idea-tool";
 
 /**
  * Select every idea card matching `pred` (#106) — the shared engine behind the
@@ -53,22 +53,21 @@ function selectMatching(editor: Editor, pred: (card: IdeaCardShape) => boolean):
 
 const isMarked = (c: IdeaCardShape) => !!(c.meta as IdeaCardMeta).starred;
 const isUntriaged = (c: IdeaCardShape) => !(c.meta as IdeaCardMeta).score && !c.props.superseded;
-const isOpenQuestion = (c: IdeaCardShape) =>
-  normalizeKind(c.props.kind) === 'question' && !c.props.superseded;
+const isOpenQuestion = (c: IdeaCardShape) => normalizeKind(c.props.kind) === "question" && !c.props.superseded;
 
 /** A workspace's live filter, held in a tldraw signal so it outlives menu open/close. */
 export type FilterAtom = Atom<BoardFilter>;
 
 /** A fresh filter atom for the current workspace, discarded when the island remounts. */
 export function useFilterAtom(): FilterAtom {
-  return useState(() => atom<BoardFilter>('boardFilter', EMPTY_FILTER))[0];
+  return useState(() => atom<BoardFilter>("boardFilter", EMPTY_FILTER))[0];
 }
 
 /** Count of engaged facets — drives the "(N)" hint on the submenu label. */
 function filterCount(f: BoardFilter): number {
   return (
     (f.hiddenKinds.size > 0 ? 1 : 0) +
-    (f.origin !== 'all' ? 1 : 0) +
+    (f.origin !== "all" ? 1 : 0) +
     (f.markedOnly ? 1 : 0) +
     (f.triagedOnly ? 1 : 0) +
     (!f.showSuperseded ? 1 : 0)
@@ -88,7 +87,7 @@ export const FilterApplier = track(function FilterApplier({ $filter }: { $filter
   const filter = $filter.get();
   const cardsKey = ideaCards(editor)
     .map((c) => c.id)
-    .join(',');
+    .join(",");
   useEffect(() => {
     applyFilter(editor, filter);
   }, [editor, filter, cardsKey]);
@@ -102,11 +101,7 @@ export const FilterApplier = track(function FilterApplier({ $filter }: { $filter
  * makes {@link boardFacets} reactive, so absent facets grey out (disabled) but every
  * option always shows. Toggling writes the filter atom; {@link FilterApplier} applies it.
  */
-export const CanvasMainMenu = track(function CanvasMainMenu({
-  $filter,
-}: {
-  $filter: FilterAtom;
-}): React.JSX.Element {
+export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filter: FilterAtom }): React.JSX.Element {
   const editor = useEditor();
   const filter = $filter.get();
   const facets = boardFacets(editor);
@@ -145,7 +140,7 @@ export const CanvasMainMenu = track(function CanvasMainMenu({
             />
           </TldrawUiMenuGroup>
         </TldrawUiMenuSubmenu>
-        <TldrawUiMenuSubmenu id="filter" label={count > 0 ? `Filter (${count})` : 'Filter'} size="small">
+        <TldrawUiMenuSubmenu id="filter" label={count > 0 ? `Filter (${count})` : "Filter"} size="small">
           <TldrawUiMenuGroup id="filter-kind">
             {displayKinds.map((kind) => (
               <TldrawUiMenuCheckboxItem
@@ -163,25 +158,25 @@ export const CanvasMainMenu = track(function CanvasMainMenu({
             <TldrawUiMenuCheckboxItem
               id="filter-origin-all"
               label="All origins"
-              checked={filter.origin === 'all'}
+              checked={filter.origin === "all"}
               readonlyOk
-              onSelect={() => patch({ origin: 'all' })}
+              onSelect={() => patch({ origin: "all" })}
             />
             <TldrawUiMenuCheckboxItem
               id="filter-origin-ai"
               label="🤖 AI only"
-              checked={filter.origin === 'ai'}
+              checked={filter.origin === "ai"}
               disabled={!facets.hasAi}
               readonlyOk
-              onSelect={() => patch({ origin: filter.origin === 'ai' ? 'all' : 'ai' })}
+              onSelect={() => patch({ origin: filter.origin === "ai" ? "all" : "ai" })}
             />
             <TldrawUiMenuCheckboxItem
               id="filter-origin-user"
               label="User only"
-              checked={filter.origin === 'user'}
+              checked={filter.origin === "user"}
               disabled={!facets.hasUser}
               readonlyOk
-              onSelect={() => patch({ origin: filter.origin === 'user' ? 'all' : 'user' })}
+              onSelect={() => patch({ origin: filter.origin === "user" ? "all" : "user" })}
             />
           </TldrawUiMenuGroup>
           <TldrawUiMenuGroup id="filter-more">
@@ -236,13 +231,9 @@ export const CanvasMainMenu = track(function CanvasMainMenu({
  * label between Mark / Unmark to match group state (the same toggle
  * {@link markSelected} performs).
  */
-export const CanvasContextMenu = track(function CanvasContextMenu(
-  props: TLUiContextMenuProps,
-): React.JSX.Element {
+export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiContextMenuProps): React.JSX.Element {
   const editor = useEditor();
-  const selectedCards = editor
-    .getSelectedShapes()
-    .filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
 
   // Board-wide "select by trait" (#106): counts drive the disabled state so a verb
@@ -264,17 +255,11 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
-          <TldrawUiMenuItem
-            id="mark"
-            label={allStarred ? 'Unmark' : '★ Mark'}
-            onSelect={() => markSelected(editor)}
-          />
+          <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
           <TldrawUiMenuItem
             id="copy-cards-md"
             label={
-              selectedCards.length > 1
-                ? `⧉ Copy ${selectedCards.length} cards as markdown`
-                : '⧉ Copy card as markdown'
+              selectedCards.length > 1 ? `⧉ Copy ${selectedCards.length} cards as markdown` : "⧉ Copy card as markdown"
             }
             readonlyOk
             onSelect={copyAsMarkdown}
@@ -299,21 +284,21 @@ export const CanvasContextMenu = track(function CanvasContextMenu(
           <TldrawUiMenuGroup id="select-traits">
             <TldrawUiMenuItem
               id="select-marked"
-              label={markedCount > 0 ? `★ Marked (${markedCount})` : '★ Marked'}
+              label={markedCount > 0 ? `★ Marked (${markedCount})` : "★ Marked"}
               disabled={markedCount === 0}
               readonlyOk
               onSelect={() => selectMatching(editor, isMarked)}
             />
             <TldrawUiMenuItem
               id="select-untriaged"
-              label={untriagedCount > 0 ? `Untriaged (${untriagedCount})` : 'Untriaged'}
+              label={untriagedCount > 0 ? `Untriaged (${untriagedCount})` : "Untriaged"}
               disabled={untriagedCount === 0}
               readonlyOk
               onSelect={() => selectMatching(editor, isUntriaged)}
             />
             <TldrawUiMenuItem
               id="select-open-questions"
-              label={openQuestionCount > 0 ? `❓ Open questions (${openQuestionCount})` : '❓ Open questions'}
+              label={openQuestionCount > 0 ? `❓ Open questions (${openQuestionCount})` : "❓ Open questions"}
               disabled={openQuestionCount === 0}
               readonlyOk
               onSelect={() => selectMatching(editor, isOpenQuestion)}

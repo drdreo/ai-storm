@@ -65,7 +65,7 @@ auto-mode affordance, or `⎿ Tip:` gutter. So that chrome flows through as `res
 `MarkdownBlockParser` dutifully turns `* Catapulting…` into a canvas bullet.
 
 The deeper issue: **the extractor cleans bytes but cannot tell "idea worth a card" from "UI noise" or
-even from "ordinary conversational reply."** `MarkdownBlockParser` *guesses* structure from markdown
+even from "ordinary conversational reply."** `MarkdownBlockParser` _guesses_ structure from markdown
 shape, which conflates three different things the product wants kept apart:
 
 1. the AI's **conversational reply** ("Let me know which…") — belongs in the **chat hub**;
@@ -85,6 +85,7 @@ verbatim.
 The approach is **already decided** (this doc designs it, it does not re-litigate it):
 
 > **Prime the agent + heuristic floor.**
+>
 > 1. **Prime the session** with a harness-agnostic first message that defines a machine-parseable,
 >    reflow-resilient, **single-line** idea marker. Everything not marked is chat.
 > 2. **Heuristic floor**: a claude **harness profile** that (stage 1) strips TUI chrome with concrete
@@ -105,7 +106,7 @@ The marker is read out of `tmux capture-pane -p` output, which is **a fixed-widt
 already wrapped at the pane width**. Any marker must therefore be:
 
 - **Single-line / line-leading.** A logical idea is one line; reflow may wrap it across several screen
-  rows, but the marker sits at the start of the *first* row. Multi-line JSON would be shredded by
+  rows, but the marker sits at the start of the _first_ row. Multi-line JSON would be shredded by
   wrapping — there is no robust way to know a `{` on row 5 closes a `}` on row 9 after reflow.
 - **Rare in prose & code.** Low collision with anything the agent might legitimately say.
 - **Trivially regex-anchored** at line start so detection is O(1) per line.
@@ -145,25 +146,25 @@ body        = printable ;                                   (* optional; "" if "
 > `{kind:"risk", links:[{to:"a1", relation:"about"}]}`. A **trailing `!`** makes
 > that link a `supersedes` instead of `about` (PD-012): `«IDEA:feature@a1!» …`
 > parses to `links:[{to:"a1", relation:"supersedes"}]` — the refined idea
-> *replaces* the target. This keeps `supersedes` on the robust single-line marker:
+> _replaces_ the target. This keeps `supersedes` on the robust single-line marker:
 > the fenced `rel:` key below also expresses it, but the agent's TUI renders the
 > code fence away before the backend captures the screen (PD-008), so in practice
 > the inline `!` is the form that survives. The default edge stays generic
-> (`about`) — the *flavour* lives on the source card's `kind`, so no relation
+> (`about`) — the _flavour_ lives on the source card's `kind`, so no relation
 > taxonomy is carried inline beyond the one structural `supersedes`. **Several refs
 > may be chained** (`«IDEA@a1!@a2!@a3!» …` → three `supersedes` links) so a single
-> idea can replace *several* sources at once — the multi-select combine/merge verb
+> idea can replace _several_ sources at once — the multi-select combine/merge verb
 > (#62, PD-019); each ref carries its own optional `!`, so a mixed `@a1@a2!` links
 > `about` a1 and `supersedes` a2. If the agent
 > omits `@ref` the idea lands unlinked, exactly as before (graceful degradation).
 > The session-scoped dedupe key includes the links, so the same title/body pointed
-> at a *different* target (or with a *different* relation) is a distinct idea.
+> at a _different_ target (or with a _different_ relation) is a distinct idea.
 
 - **Marker:** guillemets `«` (U+00AB) / `»` (U+00BB). Chosen because they are essentially absent from
   source code and ordinary English prose (very low collision), visually unmistakable, a balanced
   single-glyph pair, and cheap to anchor: `^\s*«IDEA(:…)?»`. The ASCII alias `<<IDEA>>` / `<</IDEA>>`
   is accepted for harnesses or locales that mangle the guillemets.
-- **Kind:** optional, encoded *inside* the marker (`«IDEA:risk»`) so the `::` separator is never
+- **Kind:** optional, encoded _inside_ the marker (`«IDEA:risk»`) so the `::` separator is never
   overloaded. Free-form lower-kebab; the canvas may style known kinds (`risk`, `question`, `feature`,
   `todo`, `decision`) and treats unknown kinds as a plain tag.
 - **Separator `::`** splits title from body on its **first** occurrence. If absent, the whole remainder
@@ -182,7 +183,7 @@ Cost: storage growth; mitigate with periodic snapshots.
 ```
 ````
 
-- Opened by a line matching ` ```idea ` (optionally ` kind=… `), closed by a bare ` ``` `.
+- Opened by a line matching ` ```idea ` (optionally `kind=…`), closed by a bare ` ``` `.
 - Inside, recognised keys `title:` / `body:` / `kind:` (case-insensitive) seed the fields; any lines
   after `body:` (or all lines, if no keys are present) accumulate into the body verbatim. First
   non-key line with no key → title; the rest → body.
@@ -190,7 +191,7 @@ Cost: storage growth; mitigate with periodic snapshots.
   (alias `parent:`) sets the target card ref; `rel:` selects the relation (`about` default, or
   `supersedes`). So a fenced idea can express the one structural relation the single-line `@ref`
   cannot: `link: a1` + `rel: supersedes` → `links:[{to:"a1", relation:"supersedes"}]`.
-- The fences anchor start **and** end, so reflow *inside* the block is harmless — we never have to
+- The fences anchor start **and** end, so reflow _inside_ the block is harmless — we never have to
   guess where it ends. This is why a fenced block is safe for multi-line where a wrapped single line
   is not.
 
@@ -236,19 +237,19 @@ parse(region: string[], paneWidth: number) -> { chat: string[], ideas: Idea[] }:
 
 Regexes (drop-in for the claude profile / a shared `contract.ts`):
 
-```ts
-const IDEA_MARKER     = /^\s*(?:«IDEA(?::([a-z][\w-]*))?»|<<IDEA(?::([a-z][\w-]*))?>>)\s*(.*)$/u;
+````ts
+const IDEA_MARKER = /^\s*(?:«IDEA(?::([a-z][\w-]*))?»|<<IDEA(?::([a-z][\w-]*))?>>)\s*(.*)$/u;
 const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
-const IDEA_FENCE_CLOSE= /^\s*```\s*$/;
+const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
 // title :: body, split on the FIRST "::"
 function ideaFromLine(kind, logical) {
-  const rest = logical.replace(IDEA_MARKER, "$3").trim();   // remainder after marker
-  const sep  = rest.indexOf("::");
+  const rest = logical.replace(IDEA_MARKER, "$3").trim(); // remainder after marker
+  const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
-  const body  = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
+  const body = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
   return { title, body, kind };
 }
-```
+````
 
 `rowWasWrapped(row, paneWidth)` returns `row.length >= paneWidth` (tmux only wraps a row that has
 filled the full column width). This is the no-`-J` fallback; see §5.4 for why `-J` makes it mostly
@@ -267,9 +268,9 @@ moot.
 The contract **prefers** single-line. The agent is primed to keep an idea on one logical line and
 reserve the fenced form for the rare idea whose body genuinely needs paragraphs/code. So:
 
-- A long single-line body that *tmux* wraps is still one logical idea — rejoined by the algorithm
+- A long single-line body that _tmux_ wraps is still one logical idea — rejoined by the algorithm
   above (or by `-J`, §5.4).
-- A body the *agent* deliberately splits uses Form 2, which is fence-delimited and reflow-proof.
+- A body the _agent_ deliberately splits uses Form 2, which is fence-delimited and reflow-proof.
 
 This keeps the parse trivial for the 95% case without losing the ability to express a rich idea.
 
@@ -282,7 +283,7 @@ This keeps the parse trivial for the 95% case without losing the ability to expr
 Sent once, as the **first message** into the session (a normal prompt — **not** a CLI flag, not a
 headless mode; harness-agnostic per ai-session-layer.md §1 hard constraints):
 
-```
+````
 You are in a brainstorming workspace. Reply to me normally in conversation.
 
 Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas,
@@ -296,15 +297,17 @@ For an idea that truly needs several lines, use a fenced block instead:
   ```idea kind=<kind>
   title: <short title>
   body: <as many lines as you need>
-  ```
+````
 
 Rules:
+
 - One idea per «IDEA» line. Put each «IDEA» line on its own line.
 - Use «IDEA» ONLY for real ideas, never for chitchat, status, or questions to me.
 - Everything you write that is NOT an «IDEA» line is treated as ordinary chat.
 
 Acknowledge with the single word READY and nothing else.
-```
+
+````
 
 The trailing `READY` ack is deliberate (see §4.4): it gives the backend a deterministic signal that
 priming landed, and a single, droppable line rather than a chatty paragraph polluting the hub.
@@ -411,7 +414,7 @@ export interface HarnessProfile {
    *  precise than the idle-timeout, which can fire during a mid-stream pause. */
   completionMarker?: RegExp;
 }
-```
+````
 
 `DEFAULT_PROFILE` keeps its current chrome rules and sets `supportsIdeaContract: false`,
 `ideaFallback: false` (conservative — a generic harness is chat-only until proven otherwise).
@@ -434,10 +437,10 @@ export const CLAUDE_PROFILE: HarnessProfile = {
   // claude 2.1.x renders a bare "❯" input prompt between two horizontal rules.
   promptMarkers: [/^[>❯]$/u],
   promptPrefix: /^\s*[>❯]\s?/u,
-  readyMarker: /^\s*❯/u,                       // the "❯" input prompt has appeared
-  responseMarker: /^\s*●\s/u,                   // assistant turn starts with "● "
-  responsePrefix: /^(?:●\s|\s{2})/u,            // strip "● " bullet / 2-space margin
-  completionMarker: /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu,  // done-line
+  readyMarker: /^\s*❯/u, // the "❯" input prompt has appeared
+  responseMarker: /^\s*●\s/u, // assistant turn starts with "● "
+  responsePrefix: /^(?:●\s|\s{2})/u, // strip "● " bullet / 2-space margin
+  completionMarker: /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b/iu, // done-line
   chrome: [
     // 1) Status bar:
     //    "Opus 4.8 (1M context) | main | ~/path | ctx:29.0k/1000k (3%) | 5h:33%"
@@ -468,8 +471,8 @@ export const CLAUDE_PROFILE: HarnessProfile = {
 
     // 5) Tip / continuation gutter:
     //    "⎿  Tip: Run claude --continue or claude --resume to resume a conversation"
-    /^\s*⎿\s.*$/u,                              // claude's tool-result/gutter glyph
-    /\bclaude\s+--(?:continue|resume)\b/u,      // resume hint anywhere
+    /^\s*⎿\s.*$/u, // claude's tool-result/gutter glyph
+    /\bclaude\s+--(?:continue|resume)\b/u, // resume hint anywhere
 
     // 6) Shortcuts / queued-message hints and placeholders.
     /^\s*\?\s+for shortcuts\s*$/u,
@@ -480,29 +483,29 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     //    line (idle prompt, echoed input, or a queued suggestion). ASCII "---"
     //    markdown dividers are NOT matched (only the box-drawing range).
     /^[─-╿\s]+$/u,
-    /^\s*❯/u,
-  ],
+    /^\s*❯/u
+  ]
 };
 ```
 
 Mapping against the §1 samples — every line is accounted for:
 
-| Sample line | Rule |
-|---|---|
-| `Opus 4.8 (1M context) … ctx:29.0k/1000k (3%) … 5h:33%` | (1) status bar |
-| `* Catapulting…` | (2) spinner |
-| `✽ Forging… (5s · ↓ 227 tokens)` | (2) spinner + parenthetical |
-| `✶ Metamorphosing…` | (2) spinner |
-| `✻ Worked for 3s` | (3) worked-for |
-| `⏵⏵ auto mode on (shift+tab to cycle) · ← for agents` | (4) auto-mode |
-| `⎿  Tip: Run claude --continue or claude --resume …` | (5) gutter + resume hint |
-| `Let me know which, or just tell me the task.` | **none → kept as chat** ✓ |
+| Sample line                                             | Rule                        |
+| ------------------------------------------------------- | --------------------------- |
+| `Opus 4.8 (1M context) … ctx:29.0k/1000k (3%) … 5h:33%` | (1) status bar              |
+| `* Catapulting…`                                        | (2) spinner                 |
+| `✽ Forging… (5s · ↓ 227 tokens)`                        | (2) spinner + parenthetical |
+| `✶ Metamorphosing…`                                     | (2) spinner                 |
+| `✻ Worked for 3s`                                       | (3) worked-for              |
+| `⏵⏵ auto mode on (shift+tab to cycle) · ← for agents`   | (4) auto-mode               |
+| `⎿  Tip: Run claude --continue or claude --resume …`    | (5) gutter + resume hint    |
+| `Let me know which, or just tell me the task.`          | **none → kept as chat** ✓   |
 
 Whatever survives stage 1 still runs through the existing `ansi.ts` `sanitize()` (already done in
 `tmux-backend.ts:#capture`) for residual control bytes.
 
 > **Note on `⎿` (rule 5):** the gutter glyph prefixes claude tool-result lines as well as tips.
-> Stripping all `⎿`-led lines is correct in a *brainstorming* workspace (tool noise isn't ideas) but
+> Stripping all `⎿`-led lines is correct in a _brainstorming_ workspace (tool noise isn't ideas) but
 > is a known trade-off — see §9 risk 6.
 
 ### 5.3 Stage 2 — prose-vs-ideas classification (fallback only)
@@ -516,9 +519,9 @@ from a model that ignored the contract:
   `markdown-block-parser.ts` (`BULLET`, `NUMBERED`, `HEADING`).
 - Convert each such line to a candidate `Idea` (`title` = line text sans marker, `body` = "",
   `kind` = `"heuristic"`); the surrounding prose stays in `chat`.
-- **Always log** `extract.heuristic { workspace, count }` so a contract-ignoring agent is *visible*,
+- **Always log** `extract.heuristic { workspace, count }` so a contract-ignoring agent is _visible_,
   never silently mis-attributed (ai-session-layer.md §10 risk 1; the brief's "log when falling back").
-- Default `ideaFallback: true` for claude, `false` for `DEFAULT_PROFILE`. When markers *are* present,
+- Default `ideaFallback: true` for claude, `false` for `DEFAULT_PROFILE`. When markers _are_ present,
   the fallback never runs — the explicit contract always wins.
 
 ---
@@ -607,7 +610,7 @@ ingest(capture):
   the harness command basename, e.g. `claude` → `"claude"`) in a per-workspace map; `attach()` reads it
   and builds the extractor with `CLAUDE_PROFILE`.
 - **Priming.** In `create()`'s create branch (`tmux-backend.ts:161-221`), after `set-option status
-  off` and the §4.3 readiness probe, if `profile.supportsIdeaContract` and the durable primed-flag is
+off` and the §4.3 readiness probe, if `profile.supportsIdeaContract` and the durable primed-flag is
   absent: send `spec.prime` via `sendInput`, run the §4.5 suppression window, then
   `set-option @ai_storm_primed 1`.
 - **Pane width** for the reflow rejoin (§3.3) is the session's `cols` (already known at create:
@@ -627,10 +630,14 @@ The `attach` handler's `onChunk` (`server.ts:188-193`) changes from forwarding `
 the split:
 
 ```ts
-(chunk) => send({
-  type: "response", workspaceId,
-  chat: chunk.chat, ideas: chunk.ideas, complete: chunk.complete,
-});
+(chunk) =>
+  send({
+    type: "response",
+    workspaceId,
+    chat: chunk.chat,
+    ideas: chunk.ideas,
+    complete: chunk.complete
+  });
 ```
 
 and `create({ … })` gains `harnessProfile` + `prime` (derived from the harness command). Everything
@@ -693,9 +700,9 @@ The brief: "pushes ideas straight to `CanvasService.applyBlocks` as cards/notes.
 **both**, layered:
 
 - **Primary (smallest change, honours the brief literally):** a pure `ideaToDescriptors(idea):
-  BlockDescriptor[]` adapter maps each idea to a deterministic block sequence — a `heading` (the
+BlockDescriptor[]` adapter maps each idea to a deterministic block sequence — a `heading` (the
   title, prefixed/decorated by `kind`) + a `paragraph`/list for the body — and feeds the **existing**
-  `applyBlocks` (`canvas.service.ts:138`). This is *not* inference: the structure is dictated by the
+  `applyBlocks` (`canvas.service.ts:138`). This is _not_ inference: the structure is dictated by the
   `Idea` shape, not guessed from text shape.
 - **Recommended enhancement (true "cards"):** add `applyIdeas(workspaceId, ideas)` that creates
   **one card per idea** on the canvas, seeded with the title heading + body. This realises "cards on
@@ -709,7 +716,7 @@ etc.); unknown kinds render as a plain tag. This is presentation-only and out of
 
 **Retired from the streaming path; kept as a body formatter.** It no longer parses the raw response
 stream (the backend already split chat/ideas, so there is nothing to infer). It is **retained** as a
-pure helper to render a *multi-line idea body* (the fenced Form-2 case) that itself contains markdown:
+pure helper to render a _multi-line idea body_ (the fenced Form-2 case) that itself contains markdown:
 `ideaToDescriptors` can call `MarkdownBlockParser.translateAll(body.split('\n'))` to turn a body with
 bullets/code into child blocks under the card. So the module survives, demoted from "infer structure
 from a byte stream" to "format a known idea body." Its unit tests stay valid.
@@ -753,7 +760,7 @@ Required cases:
    the final text (hold-back + dedupe, §7.1).
 8. **Idempotent priming (backend).** Mock tmux: `create` on a fresh session sends priming + stamps
    `@ai_storm_primed`; a second `create` (reattach) sees the flag and sends **no** priming; a session
-   that exists *without* the flag (simulated mid-prime crash) gets re-primed.
+   that exists _without_ the flag (simulated mid-prime crash) gets re-primed.
 9. **Priming suppression.** The `READY` ack and anything before the first user input is **not**
    forwarded as a `response`.
 
@@ -786,7 +793,7 @@ Each step independently shippable; app stays working throughout.
 
 ## 11. Risks & open questions
 
-1. **Marker collisions.** The agent could emit `«IDEA»` inside ordinary prose (e.g. *describing* the
+1. **Marker collisions.** The agent could emit `«IDEA»` inside ordinary prose (e.g. _describing_ the
    contract). Mitigation: line-leading anchor only (`^\s*«IDEA…`); priming explicitly says "ideas
    only." Residual risk accepted; rare and low-harm (a stray card, not lost chat).
 2. **Agents that won't follow the contract.** A model lapse or a non-claude harness produces no
@@ -798,11 +805,11 @@ Each step independently shippable; app stays working throughout.
    in-place repaint collapsing (ai-session-layer.md §4.1, §10.3) helps; true token-level idea
    streaming remains out of scope (finalized cards are the product target).
 4. **Idempotent priming across restart.** Covered by the durable `@ai_storm_primed` tmux option
-   (§4.4); the only window is a crash *between* priming and stamping, which the absent-flag re-prime
-   path handles. Open question: should a *very* old session be re-primed if we change the contract text
+   (§4.4); the only window is a crash _between_ priming and stamping, which the absent-flag re-prime
+   path handles. Open question: should a _very_ old session be re-primed if we change the contract text
    (versioned flag, e.g. `@ai_storm_primed=2`)? Proposed: yes — stamp the contract version and re-prime
    on mismatch.
-5. **claude TUI version drift breaking chrome regexes.** The biggest *ongoing* maintenance risk. The
+5. **claude TUI version drift breaking chrome regexes.** The biggest _ongoing_ maintenance risk. The
    contract is the **primary** path, so drift degrades gracefully: an unmatched spinner/status leaks
    into **chat**, not onto the canvas (ideas are explicit markers, immune to chrome regex rot).
    Mitigation: keep chrome as data in the profile; commit a CI canary fixture captured from a pinned
@@ -821,49 +828,50 @@ Each step independently shippable; app stays working throughout.
 
 ## Appendix A — contract quick reference
 
-| Form | Example | Parses to |
-|---|---|---|
-| Single line | `«IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB` | `{title:"Offline-first canvas", body:"cache CRDT ops in IndexedDB"}` |
-| With kind | `«IDEA:risk» Token rotation :: may break long-lived sessions` | `{title:"Token rotation", body:"may break long-lived sessions", kind:"risk"}` |
-| With link (idea-graph) | `«IDEA:risk@a1» Token leak :: refresh races the reattach` | `{title:"Token leak", body:"refresh races the reattach", kind:"risk", links:[{to:"a1", relation:"about"}]}` |
+| Form                         | Example                                                                    | Parses to                                                                                                                        |
+| ---------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Single line                  | `«IDEA» Offline-first canvas :: cache CRDT ops in IndexedDB`               | `{title:"Offline-first canvas", body:"cache CRDT ops in IndexedDB"}`                                                             |
+| With kind                    | `«IDEA:risk» Token rotation :: may break long-lived sessions`              | `{title:"Token rotation", body:"may break long-lived sessions", kind:"risk"}`                                                    |
+| With link (idea-graph)       | `«IDEA:risk@a1» Token leak :: refresh races the reattach`                  | `{title:"Token leak", body:"refresh races the reattach", kind:"risk", links:[{to:"a1", relation:"about"}]}`                      |
 | Supersedes (`@ref!`, PD-012) | `«IDEA:feature@a1!» Rotate token on attach :: survives the reconnect race` | `{title:"Rotate token on attach", body:"survives the reconnect race", kind:"feature", links:[{to:"a1", relation:"supersedes"}]}` |
-| Bare | `«IDEA» Offline-first canvas` | `{title:"Offline-first canvas", body:""}` |
-| ASCII alias | `<<IDEA>> Offline-first canvas :: …` | same as single line |
-| Fenced (multiline) | ` ```idea kind=decision ` … ` ``` ` | `{title, body:"<multi-line>", kind:"decision"}` |
-| Anything else | `Let me know which, or just tell me the task.` | → `chat` |
+| Bare                         | `«IDEA» Offline-first canvas`                                              | `{title:"Offline-first canvas", body:""}`                                                                                        |
+| ASCII alias                  | `<<IDEA>> Offline-first canvas :: …`                                       | same as single line                                                                                                              |
+| Fenced (multiline)           | ` ```idea kind=decision ` … ` ``` `                                        | `{title, body:"<multi-line>", kind:"decision"}`                                                                                  |
+| Anything else                | `Let me know which, or just tell me the task.`                             | → `chat`                                                                                                                         |
 
 ## Appendix B — key regexes (single source of truth for the impl)
 
-```ts
+````ts
 // Contract (shared, harness-agnostic). In-marker tag is [:kind][@ref[!]…] (idea-graph §5.1):
 //   groups 1/3 = kind (guillemet/ASCII), 2/4 = the ref CHAIN ("@a1!@a2"), 5 = remainder ("title :: body").
 //   A trailing "!" after a ref makes THAT link 'supersedes' instead of the default 'about' (PD-012).
 //   The chain (@a1!@a2!) = one idea superseding several sources — the combine/merge verb (PD-019);
 //   individual {to, relation} links are parsed from the chain by REF_TOKEN.
-const IDEA_MARKER      = /^\s*(?:«IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?»|<<IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?>>)\s*(.*)$/u;
-const REF_TOKEN        = /@([\w-]+)(!)?/gu;  // one ref (+ optional supersede "!") within the chain
-const IDEA_FENCE_OPEN  = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
+const IDEA_MARKER =
+  /^\s*(?:«IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?»|<<IDEA(?::([a-z][\w-]*))?((?:@[\w-]+!?)+)?>>)\s*(.*)$/u;
+const REF_TOKEN = /@([\w-]+)(!)?/gu; // one ref (+ optional supersede "!") within the chain
+const IDEA_FENCE_OPEN = /^\s*```idea(?:\s+kind=([a-z][\w-]*))?\s*$/u;
 const IDEA_FENCE_CLOSE = /^\s*```\s*$/;
-const FENCE_KEY        = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;  // idea-graph keys added
+const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i; // idea-graph keys added
 
 // claude chrome strip (profile.chrome)
-const STATUS  = /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu;
-const STATUS_TRUNC = /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu;  // truncated bar (ctx: cut off)
-const STATUS_T= /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu;  // truncated status bar
+const STATUS = /^.*\bctx:\s*[\d.]+[kmg]?\s*\/\s*[\d.]+[kmg]?\s*\(\s*\d+\s*%\s*\).*$/iu;
+const STATUS_TRUNC = /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu; // truncated bar (ctx: cut off)
+const STATUS_T = /\(\s*[\d.]+\s*[kmgt]?\s+context\s*\)\s*\|/iu; // truncated status bar
 const SPINNER = /^\s*[*✻✽✶✷●∗·]\s+\S.*…(?:\s*\([^)]*\))?\s*$/u;
-const DONE    = /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu;  // "✻ Brewed for 4s"
-const AUTO    = /^\s*⏵⏵?\s.*$/u;
-const AGENTS  = /(?:^|·)\s*←\s+for agents\s*$/u;
-const GUTTER  = /^\s*⎿\s.*$/u;
-const RESUME  = /\bclaude\s+--(?:continue|resume)\b/u;
-const SHORTCUT= /^\s*\?\s+for shortcuts\s*$/u;
-const QUEUED  = /^\s*Press up to edit queued messages\s*$/iu;
-const TRY     = /^\s*Try\s+".*"\s*$/u;
-const BORDER  = /^[─-╿\s]+$/u;   // U+2500–U+257F box drawing (incl. ╭╮╰╯│); ASCII --- preserved
-const PROMPT  = /^\s*❯/u;        // bare "❯" input line (idle / echoed input / suggestion)
+const DONE = /^\s*[*✻✽✶✷∗·]\s+\w+ for \d+(?:\.\d+)?\s*[smhd]\b.*$/iu; // "✻ Brewed for 4s"
+const AUTO = /^\s*⏵⏵?\s.*$/u;
+const AGENTS = /(?:^|·)\s*←\s+for agents\s*$/u;
+const GUTTER = /^\s*⎿\s.*$/u;
+const RESUME = /\bclaude\s+--(?:continue|resume)\b/u;
+const SHORTCUT = /^\s*\?\s+for shortcuts\s*$/u;
+const QUEUED = /^\s*Press up to edit queued messages\s*$/iu;
+const TRY = /^\s*Try\s+".*"\s*$/u;
+const BORDER = /^[─-╿\s]+$/u; // U+2500–U+257F box drawing (incl. ╭╮╰╯│); ASCII --- preserved
+const PROMPT = /^\s*❯/u; // bare "❯" input line (idle / echoed input / suggestion)
 
 // claude turn structure
-const READY   = /^\s*❯/u;                         // readyMarker — input prompt present
-const TURN    = /^\s*●\s/u;                        // responseMarker — assistant turn start
-const MARGIN  = /^(?:●\s|\s{2})/u;                 // responsePrefix — "● " bullet / 2-space margin
-```
+const READY = /^\s*❯/u; // readyMarker — input prompt present
+const TURN = /^\s*●\s/u; // responseMarker — assistant turn start
+const MARGIN = /^(?:●\s|\s{2})/u; // responsePrefix — "● " bullet / 2-space margin
+````

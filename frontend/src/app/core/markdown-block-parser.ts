@@ -11,15 +11,7 @@
  * translation rules are unit-testable in isolation.
  */
 
-export type BlockType =
-  | "heading"
-  | "bulleted"
-  | "numbered"
-  | "todo"
-  | "quote"
-  | "code"
-  | "divider"
-  | "paragraph";
+export type BlockType = "heading" | "bulleted" | "numbered" | "todo" | "quote" | "code" | "divider" | "paragraph";
 
 export interface BlockDescriptor {
   type: BlockType;
@@ -64,7 +56,7 @@ export class MarkdownBlockParser {
         const descriptor: BlockDescriptor = {
           type: "code",
           text: this.#fenceLines.join("\n"),
-          language: this.#fenceLang || undefined,
+          language: this.#fenceLang || undefined
         };
         this.#inFence = false;
         this.#fenceLang = "";
@@ -94,7 +86,7 @@ export class MarkdownBlockParser {
       return {
         type: "todo",
         checked: todo[1].toLowerCase() === "x",
-        text: todo[2].trim(),
+        text: todo[2].trim()
       };
     }
 
@@ -140,7 +132,7 @@ export class MarkdownBlockParser {
     const descriptor: BlockDescriptor = {
       type: "code",
       text: this.#fenceLines.join("\n"),
-      language: this.#fenceLang || undefined,
+      language: this.#fenceLang || undefined
     };
     this.#inFence = false;
     this.#fenceLang = "";

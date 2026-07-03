@@ -14,9 +14,9 @@
  * clipboard). Any other selection returns `undefined` → tldraw copies as normal,
  * so a mixed selection's other shapes aren't lost.
  */
-import type { Editor, TldrawOptions } from 'tldraw';
-import { serializeCards } from '../canvas-text';
-import { content, type IdeaCardShape } from './idea-card';
+import type { Editor, TldrawOptions } from "tldraw";
+import { serializeCards } from "../canvas-text";
+import { content, type IdeaCardShape } from "./idea-card";
 
 /**
  * The markdown for the current selection when we should own Copy — i.e. it's
@@ -24,7 +24,7 @@ import { content, type IdeaCardShape } from './idea-card';
  */
 function selectedCardsText(editor: Editor): string | null {
   const selected = editor.getSelectedShapes();
-  const cards = selected.filter((s): s is IdeaCardShape => s.type === 'idea-card');
+  const cards = selected.filter((s): s is IdeaCardShape => s.type === "idea-card");
   // Pure-card selection only — else tldraw's copy must run so the other shapes
   // still make it onto the clipboard.
   if (cards.length === 0 || cards.length !== selected.length) return null;
@@ -44,7 +44,7 @@ export const copyTextOptions: Partial<TldrawOptions> = {
     const text = selectedCardsText(editor);
     if (text === null) return; // not a pure-card selection → let tldraw copy
     await navigator.clipboard?.writeText(text);
-    if (operation === 'cut') editor.deleteShapes(editor.getSelectedShapeIds());
+    if (operation === "cut") editor.deleteShapes(editor.getSelectedShapeIds());
     return false;
-  },
+  }
 };

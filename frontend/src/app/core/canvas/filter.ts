@@ -3,9 +3,9 @@
  * plus the facet scan that greys out empty options and the applier that turns a
  * filter into per-card opacity. Pure logic; the menu UI lives in {@link ./menus}.
  */
-import type { Editor } from 'tldraw';
-import { normalizeKind } from '../idea-descriptors';
-import { ideaCards, type IdeaCardMeta, type IdeaCardShape, type Origin } from './idea-card';
+import type { Editor } from "tldraw";
+import { normalizeKind } from "../idea-descriptors";
+import { ideaCards, type IdeaCardMeta, type IdeaCardShape, type Origin } from "./idea-card";
 
 /**
  * The board's filterable dimensions (#21+): the full multi-facet model behind the
@@ -17,7 +17,7 @@ export interface BoardFilter {
   /** Kinds toggled OFF (#21). Empty ⇒ every kind shown. */
   hiddenKinds: ReadonlySet<string>;
   /** Provenance facet (#31): everything, or only AI / only user cards. */
-  origin: 'all' | Origin;
+  origin: "all" | Origin;
   /** Show only starred cards (#29). */
   markedOnly: boolean;
   /** Show superseded ghosts (#20/PD-012). Off ⇒ they drop out entirely. */
@@ -29,10 +29,10 @@ export interface BoardFilter {
 /** The no-op filter — every card visible. The Filter menu's reset target. */
 export const EMPTY_FILTER: BoardFilter = {
   hiddenKinds: new Set(),
-  origin: 'all',
+  origin: "all",
   markedOnly: false,
   showSuperseded: true,
-  triagedOnly: false,
+  triagedOnly: false
 };
 
 /**
@@ -62,7 +62,7 @@ export function boardFacets(editor: Editor): BoardFacets {
   for (const card of ideaCards(editor)) {
     const k = normalizeKind(card.props.kind);
     if (k) kinds.add(k);
-    if (card.props.origin === 'ai') hasAi = true;
+    if (card.props.origin === "ai") hasAi = true;
     else hasUser = true;
     const meta = card.meta as IdeaCardMeta;
     if (meta.starred) hasMarked = true;
@@ -76,7 +76,7 @@ export function boardFacets(editor: Editor): BoardFacets {
 function cardVisible(card: IdeaCardShape, filter: BoardFilter): boolean {
   const k = normalizeKind(card.props.kind);
   if (k && filter.hiddenKinds.has(k)) return false;
-  if (filter.origin !== 'all' && card.props.origin !== filter.origin) return false;
+  if (filter.origin !== "all" && card.props.origin !== filter.origin) return false;
   const meta = card.meta as IdeaCardMeta;
   if (filter.markedOnly && !meta.starred) return false;
   if (!filter.showSuperseded && card.props.superseded) return false;
@@ -98,8 +98,13 @@ export function applyFilter(editor: Editor, filter: BoardFilter): void {
     editor.updateShapes(
       cards.map((c) => {
         const visible = cardVisible(c, filter);
-        return { id: c.id, type: 'idea-card' as const, opacity: visible ? 1 : 0, isLocked: !visible };
-      }),
-    ),
+        return {
+          id: c.id,
+          type: "idea-card" as const,
+          opacity: visible ? 1 : 0,
+          isLocked: !visible
+        };
+      })
+    )
   );
 }

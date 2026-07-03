@@ -12,7 +12,7 @@
  * card props off the live tldraw editor) and by the card-verb bar (#13/#15,
  * which serializes a single selected card before framing the prompt).
  */
-import { decorateTitle } from './idea-descriptors';
+import { decorateTitle } from "./idea-descriptors";
 
 /** The minimal idea-card content a serializer needs — the shape's text props. */
 export interface CardContent {
@@ -37,7 +37,7 @@ export function cardToText(card: CardContent): string {
  * heading+body block, separated by a blank line. Empty input yields `''`.
  */
 export function serializeCards(cards: readonly CardContent[]): string {
-  return cards.map(cardToText).join('\n\n').trim();
+  return cards.map(cardToText).join("\n\n").trim();
 }
 
 /** An idea-card with the lifecycle flags the hand-off serializer reads (#89). */
@@ -59,7 +59,7 @@ export interface HandoffCard extends CardContent {
 export function handoffCardsToText(cards: readonly HandoffCard[]): string {
   return cards
     .filter((card) => !card.superseded)
-    .map((card) => (card.starred ? cardToText(card).replace(/^### /, '### ★ ') : cardToText(card)))
-    .join('\n\n')
+    .map((card) => (card.starred ? cardToText(card).replace(/^### /, "### ★ ") : cardToText(card)))
+    .join("\n\n")
     .trim();
 }

@@ -11,6 +11,11 @@
     "dev:frontend": "pnpm --filter ai-storm-frontend start",
     "start:backend": "pnpm --filter ai-storm-backend start",
     "smoke": "pnpm --filter ai-storm-backend smoke",
-    "prepare": "pnpm --filter @ai-storm/shared build"
+    "prepare": "pnpm --filter @ai-storm/shared build",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.57.0"
   }
 }

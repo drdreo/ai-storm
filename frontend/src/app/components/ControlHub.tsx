@@ -1,33 +1,33 @@
-import { useEffect } from 'react'
-import * as Toolbar from '@radix-ui/react-toolbar'
-import { ChevronDown, PanelRightClose } from 'lucide-react'
-import { FACILITATION_MODES, getFacilitationMode } from '@ai-storm/shared'
-import { Lock } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { useEffect } from "react";
+import * as Toolbar from "@radix-ui/react-toolbar";
+import { ChevronDown, PanelRightClose } from "lucide-react";
+import { FACILITATION_MODES, getFacilitationMode } from "@ai-storm/shared";
+import { Lock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
-import { useWorkspaceStore, selectActive, workspace } from '../stores/workspace.store'
-import { useIngestionStore, ingestion } from '../stores/ingestion.store'
-import { useBackendStore } from '../stores/backend.store'
-import { sessionIndicator } from '../core/session-status'
-import { TONE_DOT } from './SessionStatusDot'
-import { Terminal } from './Terminal'
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { useWorkspaceStore, selectActive, workspace } from "../stores/workspace.store";
+import { useIngestionStore, ingestion } from "../stores/ingestion.store";
+import { useBackendStore } from "../stores/backend.store";
+import { sessionIndicator } from "../core/session-status";
+import { TONE_DOT } from "./SessionStatusDot";
+import { Terminal } from "./Terminal";
 
 /**
  * Soft cap on the background context (#76). Not enforced — the textarea rides
  * every turn's prompt, so past the cap the counter turns amber to nudge the user
  * toward something the agent can actually keep in view, rather than blocking.
  */
-const BACKGROUND_SOFT_CAP = 1500
+const BACKGROUND_SOFT_CAP = 1500;
 
 /**
  * Conversational Control Hub (PRD §3.1). The conversation surface is a real
@@ -36,29 +36,29 @@ const BACKGROUND_SOFT_CAP = 1500
  * of the background connection.
  */
 export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
-  const ws = useWorkspaceStore(selectActive)
-  const connState = useBackendStore((s) => s.state)
-  const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false))
-  const sessionError = useIngestionStore((s) => (ws ? s.errors[ws.id] ?? null : null))
+  const ws = useWorkspaceStore(selectActive);
+  const connState = useBackendStore((s) => s.state);
+  const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false));
+  const sessionError = useIngestionStore((s) => (ws ? (s.errors[ws.id] ?? null) : null));
 
   // Resume a durable session after a reload / hot-switch (PRD §3.5). `attach` is
   // idempotent: it reconnects to the surviving backend session rather than
   // respawning it. Gated on the persisted live status so visiting a never-started
   // workspace does not spawn a harness.
   useEffect(() => {
-    if (!ws) return
-    const wasLive = ws.status === 'active' || ws.status === 'streaming'
+    if (!ws) return;
+    const wasLive = ws.status === "active" || ws.status === "streaming";
     if (wasLive && !ingestion.isAttached(ws.id)) {
-      ingestion.attach(ws.id, ws.terminal)
+      ingestion.attach(ws.id, ws.terminal);
     }
-  }, [ws, attached])
+  }, [ws, attached]);
 
-  if (!ws) return null
+  if (!ws) return null;
 
-  const harness = ws.terminal.agentCommand || 'claude'
-  const mode = getFacilitationMode(ws.terminal.mode)
-  const background = ws.terminal.background ?? ''
-  const overCap = background.length > BACKGROUND_SOFT_CAP
+  const harness = ws.terminal.agentCommand || "claude";
+  const mode = getFacilitationMode(ws.terminal.mode);
+  const background = ws.terminal.background ?? "";
+  const overCap = background.length > BACKGROUND_SOFT_CAP;
 
   // One indication instead of three (#97 follow-up): connection state used to
   // appear in the header, a readiness checklist, and the sidebar footer. The
@@ -66,8 +66,8 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
   // connection (harness/mode always resolve, background is visible below) — so
   // the header carries a single derived session state and the Start tooltip
   // carries the reason when it's disabled.
-  const indicator = sessionIndicator(connState, attached, ws.status)
-  const offline = connState === 'closed'
+  const indicator = sessionIndicator(connState, attached, ws.status);
+  const offline = connState === "closed";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -76,10 +76,8 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
           className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
           title={indicator.detail}
         >
-          <span className={cn('size-2 rounded-full', TONE_DOT[indicator.tone])} />
-          <span className={cn(indicator.tone === 'error' && 'text-destructive')}>
-            {indicator.label}
-          </span>
+          <span className={cn("size-2 rounded-full", TONE_DOT[indicator.tone])} />
+          <span className={cn(indicator.tone === "error" && "text-destructive")}>{indicator.label}</span>
         </div>
         <Toolbar.Root className="flex gap-2" aria-label="Session controls">
           {attached ? (
@@ -93,18 +91,12 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <Button
-                      size="sm"
-                      disabled={offline}
-                      onClick={() => ingestion.attach(ws.id, ws.terminal)}
-                    >
+                    <Button size="sm" disabled={offline} onClick={() => ingestion.attach(ws.id, ws.terminal)}>
                       Start session
                     </Button>
                   </span>
                 </TooltipTrigger>
-                {offline && (
-                  <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>
-                )}
+                {offline && <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>}
               </Tooltip>
             </Toolbar.Button>
           )}
@@ -117,12 +109,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             <Toolbar.Button asChild>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Collapse control hub"
-                    onClick={onCollapse}
-                  >
+                  <Button size="icon" variant="ghost" aria-label="Collapse control hub" onClick={onCollapse}>
                     <PanelRightClose className="size-4" />
                   </Button>
                 </TooltipTrigger>
@@ -141,9 +128,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
           role="alert"
           className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"
         >
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-medium">
-            {sessionError}
-          </span>
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words font-medium">{sessionError}</span>
           <button
             type="button"
             onClick={() => ingestion.clearError(ws.id)}
@@ -172,8 +157,8 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Stop to edit setup. Baked in at launch — background, mode &amp; harness define the
-                  session and can&apos;t change while it&apos;s live. Stop &amp; Start to apply edits.
+                  Stop to edit setup. Baked in at launch — background, mode &amp; harness define the session and
+                  can&apos;t change while it&apos;s live. Stop &amp; Start to apply edits.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -191,9 +176,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             disabled={attached}
             placeholder="claude, pi, or codex"
             spellCheck={false}
-            onChange={(e) =>
-              workspace.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || 'claude' })
-            }
+            onChange={(e) => workspace.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
             title="The AI CLI launched for this workspace's session (PRD §2). Keystrokes are sent to its PTY."
           />
           <span className="truncate italic">{mode.hint}</span>
@@ -204,11 +187,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild disabled={attached}>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="ml-auto h-7 gap-1 font-mono text-xs"
-                  >
+                  <Button size="sm" variant="outline" className="ml-auto h-7 gap-1 font-mono text-xs">
                     {mode.label}
                     <ChevronDown className="size-3 opacity-60" />
                   </Button>
@@ -224,11 +203,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
                 onValueChange={(id) => workspace.patchTerminal(ws.id, { mode: id })}
               >
                 {FACILITATION_MODES.map((m) => (
-                  <DropdownMenuRadioItem
-                    key={m.id}
-                    value={m.id}
-                    className="flex-col items-start gap-0"
-                  >
+                  <DropdownMenuRadioItem key={m.id} value={m.id} className="flex-col items-start gap-0">
                     <span className="font-medium">{m.label}</span>
                     <span className="text-xs text-muted-foreground">{m.hint}</span>
                   </DropdownMenuRadioItem>
@@ -246,7 +221,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             <label htmlFor={`bg-${ws.id}`} className="font-medium uppercase tracking-wide">
               Background
             </label>
-            <span className={cn('font-mono tabular-nums', overCap && 'text-amber-600 dark:text-amber-500')}>
+            <span className={cn("font-mono tabular-nums", overCap && "text-amber-600 dark:text-amber-500")}>
               {background.length}/{BACKGROUND_SOFT_CAP}
             </span>
           </div>
@@ -259,11 +234,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             spellCheck={true}
             placeholder="e.g. We're a B2B fintech, audience is CFOs, avoid ideas needing new hardware."
             onChange={(e) => workspace.patchTerminal(ws.id, { background: e.target.value })}
-            title={
-              attached
-                ? 'Baked in at launch. Stop & Start to edit the background context.'
-                : undefined
-            }
+            title={attached ? "Baked in at launch. Stop & Start to edit the background context." : undefined}
           />
           <p className="mt-1 italic">Sets the scene for every idea. Locked once you start.</p>
         </div>
@@ -272,8 +243,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
       <section className="relative min-h-0 flex-1">
         {!attached && (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-start gap-2 bg-background p-3 text-sm text-muted-foreground">
-            No session yet. Start a session, then talk to the agent in the terminal; ideas land
-            on the canvas.
+            No session yet. Start a session, then talk to the agent in the terminal; ideas land on the canvas.
           </div>
         )}
         <div className="block h-full">
@@ -281,5 +251,5 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
         </div>
       </section>
     </div>
-  )
+  );
 }

@@ -6,11 +6,11 @@
  * logic, but (unlike `applyIdeas`) preserves origin/superseded/starred instead of
  * always stamping AI provenance.
  */
-import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from 'tldraw';
-import { normalizeKind, kindColor } from '../idea-descriptors';
-import type { PortableBoard } from '../workspace-portable';
-import { CARD_W, CARD_H, cardRef, ideaCards, type IdeaCardMeta, type IdeaCardShape } from './idea-card';
-import { ideaEdges } from './edges';
+import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
+import { normalizeKind, kindColor } from "../idea-descriptors";
+import type { PortableBoard } from "../workspace-portable";
+import { CARD_W, CARD_H, cardRef, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import { ideaEdges } from "./edges";
 
 /** Snapshot the live board into its portable, ref-keyed JSON form for export. */
 export function exportBoard(editor: Editor): PortableBoard {
@@ -27,38 +27,41 @@ export function exportBoard(editor: Editor): PortableBoard {
       body: c.props.body,
       origin: c.props.origin,
       superseded: c.props.superseded,
-      starred: !!(c.meta as IdeaCardMeta).starred,
+      starred: !!(c.meta as IdeaCardMeta).starred
     })),
     edges: ideaEdges(editor, cardIds)
       .map((e) => ({
         from: refByShape.get(e.from as TLShapeId),
         to: refByShape.get(e.to as TLShapeId),
-        relation: e.relation,
+        relation: e.relation
       }))
-      .filter((e): e is PortableBoard['edges'][number] => !!e.from && !!e.to),
+      .filter((e): e is PortableBoard["edges"][number] => !!e.from && !!e.to)
   };
 }
 
 /** Draw a native arrow connecting two ref-resolved cards, tagged with its relation. */
-function connect(editor: Editor, fromId: TLShapeId, toId: TLShapeId, relation: 'about' | 'supersedes'): void {
+function connect(editor: Editor, fromId: TLShapeId, toId: TLShapeId, relation: "about" | "supersedes"): void {
   const arrowId = createShapeId();
   editor.createShape({
     id: arrowId,
-    type: 'arrow',
+    type: "arrow",
     meta: { relation },
     props: {
-      color: relation === 'supersedes' ? 'red' : 'grey',
-      dash: relation === 'supersedes' ? 'dashed' : 'solid',
+      color: relation === "supersedes" ? "red" : "grey",
+      dash: relation === "supersedes" ? "dashed" : "solid",
       start: { x: 0, y: 0 },
-      end: { x: 0, y: 0 },
-    },
+      end: { x: 0, y: 0 }
+    }
   });
-  for (const [terminal, target] of [['start', fromId], ['end', toId]] as const) {
+  for (const [terminal, target] of [
+    ["start", fromId],
+    ["end", toId]
+  ] as const) {
     editor.createBinding({
-      type: 'arrow',
+      type: "arrow",
       fromId: arrowId,
       toId: target,
-      props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false },
+      props: { terminal, normalizedAnchor: { x: 0.5, y: 0.5 }, isExact: false, isPrecise: false }
     });
   }
 }
@@ -74,7 +77,7 @@ export function importBoard(editor: Editor, board: PortableBoard): void {
       const row = Math.floor(i / 3);
       editor.createShape<IdeaCardShape>({
         id,
-        type: 'idea-card',
+        type: "idea-card",
         x: 120 + col * 320,
         y: 140 + row * 200,
         meta: { ref: card.ref, starred: card.starred } satisfies IdeaCardMeta,
@@ -86,8 +89,8 @@ export function importBoard(editor: Editor, board: PortableBoard): void {
           body: card.body,
           origin: card.origin,
           superseded: card.superseded,
-          color: (kindColor(normalizeKind(card.kind)) as TLDefaultColorStyle) ?? 'blue',
-        },
+          color: (kindColor(normalizeKind(card.kind)) as TLDefaultColorStyle) ?? "blue"
+        }
       });
       refToShape.set(card.ref, id);
     });

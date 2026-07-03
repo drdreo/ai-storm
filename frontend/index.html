@@ -19,23 +19,21 @@
       // src/app/stores/theme.store.ts (applyAll).
       (function () {
         try {
-          var ls = localStorage
-          var m = ls.getItem('ai-storm.theme') || 'system'
-          var dark =
-            m === 'dark' ||
-            (m === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-          var root = document.documentElement
-          root.classList.toggle('dark', dark)
-          root.style.colorScheme = dark ? 'dark' : 'light'
-          if (ls.getItem('ai-storm.palette') === 'ember') root.setAttribute('data-theme', 'ember')
-          root.setAttribute('data-font', ls.getItem('ai-storm.font') || 'grotesque')
-          root.setAttribute('data-radius', ls.getItem('ai-storm.radius') || 'default')
-          root.setAttribute('data-density', ls.getItem('ai-storm.density') || 'comfortable')
-          root.setAttribute('data-contrast', ls.getItem('ai-storm.contrast') || 'normal')
+          var ls = localStorage;
+          var m = ls.getItem("ai-storm.theme") || "system";
+          var dark = m === "dark" || (m === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var root = document.documentElement;
+          root.classList.toggle("dark", dark);
+          root.style.colorScheme = dark ? "dark" : "light";
+          if (ls.getItem("ai-storm.palette") === "ember") root.setAttribute("data-theme", "ember");
+          root.setAttribute("data-font", ls.getItem("ai-storm.font") || "grotesque");
+          root.setAttribute("data-radius", ls.getItem("ai-storm.radius") || "default");
+          root.setAttribute("data-density", ls.getItem("ai-storm.density") || "comfortable");
+          root.setAttribute("data-contrast", ls.getItem("ai-storm.contrast") || "normal");
         } catch (e) {
-          document.documentElement.classList.add('dark')
+          document.documentElement.classList.add("dark");
         }
-      })()
+      })();
     </script>
     <link rel="icon" href="/assets/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png" />
