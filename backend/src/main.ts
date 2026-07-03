@@ -16,14 +16,16 @@ function parseArgs(): ServerConfig {
   let port = Number(env.AI_STORM_PORT ?? 8787);
   let hostname = env.AI_STORM_HOST ?? "127.0.0.1";
   let staticDir = env.AI_STORM_STATIC;
+  let agentTimeoutMs: number | undefined;
 
   const args = process.argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--port") port = Number(args[++i]);
     else if (args[i] === "--host") hostname = args[++i];
     else if (args[i] === "--static") staticDir = args[++i];
+    else if (args[i] === "--agent-timeout-ms") agentTimeoutMs = Number(args[++i]);
   }
-  return { hostname, port, staticDir };
+  return { hostname, port, staticDir, agentTimeoutMs };
 }
 
 const config = parseArgs();

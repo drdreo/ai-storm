@@ -194,6 +194,25 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-022 — Subprocess safeguards are sized for local-first, not hosted
+
+`(2026-07-03, accepted, extends PD-003/PD-007; #142)`
+
+- **Decision:** The #142 hardening is scoped to a _local, single-user_ deployment. Byte caps
+  (payload/capture/output) are fixed constants in `executor.ts` — approximate circuit breakers
+  ("a runaway harness can't take the machine down"), not env/CLI-tunable quotas. Hard CPU/memory
+  caps are not attempted (an earlier revision wired Linux `prlimit`; removed); the wall-clock
+  timeout + process-tree kill is the bound on every platform. Only the timeout is real server
+  config (`--agent-timeout-ms`) — the one bound a long side-effecting run may legitimately need.
+- **Why:** ai-storm is never hosted (PD-003): the user who hits a limit is usually themselves, so
+  favor recoverability over strictness, and every extra knob is permanent doc/test surface. The
+  caps being approximate and non-tunable is a decision, not an oversight.
+- **Affects:** `backend/src/agent/executor.ts`, `backend/src/pty/resolve.ts`,
+  `ServerConfig.agentTimeoutMs`; details in
+  [`docs/security/agent-executor-hardening.md`](../security/agent-executor-hardening.md). Sets the
+  bar for future subprocess-security findings: hosted-threat-model fixes need a deployment-model
+  change first.
+
 ### PD-021 — Spec export is backend-aware: run metadata on the wire, capabilities by name
 
 `(2026-07-02, accepted, extends PD-007/PD-015; #110/#120)`

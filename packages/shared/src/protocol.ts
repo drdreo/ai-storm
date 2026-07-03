@@ -366,6 +366,20 @@ function requireNumber(msg: Record<string, unknown>, field: string, type: string
   }
 }
 
+function requireOptionalString(msg: Record<string, unknown>, field: string, type: string): void {
+  if (msg[field] !== undefined && typeof msg[field] !== "string") {
+    throw new Error(`Malformed \`${type}\` message: \`${field}\` must be a string when present`);
+  }
+}
+
+function requireOptionalStringArray(msg: Record<string, unknown>, field: string, type: string): void {
+  const v = msg[field];
+  if (v === undefined) return;
+  if (!Array.isArray(v) || v.some((e) => typeof e !== "string")) {
+    throw new Error(`Malformed \`${type}\` message: \`${field}\` must be an array of strings when present`);
+  }
+}
+
 export function parseClientMessage(raw: string): ClientMessage {
   const msg = JSON.parse(raw) as ClientMessage;
   if (typeof msg !== "object" || msg === null || !("type" in msg)) {
@@ -399,6 +413,13 @@ export function parseClientMessage(raw: string): ClientMessage {
     case "agent":
       requireString(m, "command", "agent");
       requireString(m, "payload", "agent");
+      // Optional launch fields feed a subprocess spawn (#142): reject shape
+      // surprises here (an args entry that is an object, a non-string cwd)
+      // instead of letting them reach the spawn layer.
+      requireOptionalStringArray(m, "args", "agent");
+      requireOptionalStringArray(m, "capabilities", "agent");
+      requireOptionalString(m, "cwd", "agent");
+      requireOptionalString(m, "format", "agent");
       break;
     default:
       throw new Error(`Malformed message: unknown type \`${(msg as { type: string }).type}\``);
