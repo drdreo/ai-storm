@@ -10,6 +10,9 @@ already running on your machine.
 > 📋 The PRD and all product decisions live in
 > [`docs/decisions/product-decisions.md`](docs/decisions/product-decisions.md).
 > The `PRD §x` references below resolve to Part 1 of that document (section numbering preserved).
+>
+> 🧩 Adding support for a new AI CLI? See
+> [`docs/guides/harness-authoring.md`](docs/guides/harness-authoring.md).
 
 ## Architecture
 
