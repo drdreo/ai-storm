@@ -32,10 +32,12 @@ import {
 } from "tldraw";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
 import { serializeCards } from "../canvas-text";
+import { useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
 import { arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
 import { createUserIdea } from "./idea-tool";
+import { focusedCardIds } from "./focus";
 
 /**
  * Select every idea card matching `pred` (#106) — the shared engine behind the
@@ -75,22 +77,28 @@ function filterCount(f: BoardFilter): number {
 }
 
 /**
- * Invisible board⇄filter binding (#21): re-applies the filter as per-card opacity
- * whenever the filter or the set of cards changes. Always mounted (it renders
- * `InFrontOfTheCanvas`, not in the menu), so freshly-streamed cards honour the
- * active filter even while the menu is closed. `track` re-runs it on board changes;
- * `cardsKey` keys the effect off card identity (not opacity), so applying the
- * filter — which only touches opacity/lock — can't loop.
+ * Invisible board⇄filter binding (#21, #131): re-applies the filter — and, while
+ * focus mode is on, a further restriction to the selected cluster — as per-card
+ * opacity whenever the filter, focus mode, selection, or the set of cards
+ * changes. Always mounted (it renders `InFrontOfTheCanvas`, not in the menu), so
+ * freshly-streamed cards honour the active filter even while the menu is closed.
+ * `track` re-runs it on board changes; reading the selection only while focus
+ * mode is on means selecting a card doesn't re-render this when focus is off.
+ * `cardsKey`/`focusKey` key the effect off identity (not opacity), so applying
+ * the filter — which only touches opacity/lock — can't loop.
  */
 export const FilterApplier = track(function FilterApplier({ $filter }: { $filter: FilterAtom }): null {
   const editor = useEditor();
   const filter = $filter.get();
+  const focusMode = useUiStore((s) => s.focusMode);
+  const focusIds = focusMode ? focusedCardIds(editor, new Set(editor.getSelectedShapeIds())) : null;
   const cardsKey = ideaCards(editor)
     .map((c) => c.id)
     .join(",");
+  const focusKey = focusIds ? [...focusIds].join(",") : "";
   useEffect(() => {
-    applyFilter(editor, filter);
-  }, [editor, filter, cardsKey]);
+    applyFilter(editor, filter, focusIds);
+  }, [editor, filter, cardsKey, focusKey]);
   return null;
 });
 

@@ -3,7 +3,7 @@
  * plus the facet scan that greys out empty options and the applier that turns a
  * filter into per-card opacity. Pure logic; the menu UI lives in {@link ./menus}.
  */
-import type { Editor } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import { normalizeKind } from "../idea-descriptors";
 import { ideaCards, type IdeaCardMeta, type IdeaCardShape, type Origin } from "./idea-card";
 
@@ -85,19 +85,24 @@ function cardVisible(card: IdeaCardShape, filter: BoardFilter): boolean {
 }
 
 /**
- * Apply the whole {@link BoardFilter} to the canvas (#21) by toggling each card's
- * opacity (0 ⇒ hidden) and locking hidden cards out of interaction. Native-tldraw
- * replacement for BlockSuite's `displayMode` toggle; cards stay on the board (data
- * is never removed — just dimmed out), so clearing the filter restores them. Recomputes
- * every card from scratch each call, so it's safe to re-run after new cards stream in.
+ * Apply the whole {@link BoardFilter} to the canvas (#21) — further restricted to
+ * `focusIds` when focus mode (#131) is active, so a card must pass the facet
+ * filter AND (if given) be in the focused cluster to stay visible. The two
+ * dimming mechanisms share this single write path rather than each toggling
+ * opacity independently, so they can never fight over a card's state. Toggles
+ * each card's opacity (0 ⇒ hidden) and locks hidden cards out of interaction.
+ * Native-tldraw replacement for BlockSuite's `displayMode` toggle; cards stay on
+ * the board (data is never removed — just dimmed out), so clearing the filter (or
+ * focus) restores them. Recomputes every card from scratch each call, so it's
+ * safe to re-run after new cards stream in.
  */
-export function applyFilter(editor: Editor, filter: BoardFilter): void {
+export function applyFilter(editor: Editor, filter: BoardFilter, focusIds: ReadonlySet<TLShapeId> | null = null): void {
   const cards = ideaCards(editor);
   if (cards.length === 0) return;
   editor.run(() =>
     editor.updateShapes(
       cards.map((c) => {
-        const visible = cardVisible(c, filter);
+        const visible = cardVisible(c, filter) && (!focusIds || focusIds.has(c.id));
         return {
           id: c.id,
           type: "idea-card" as const,

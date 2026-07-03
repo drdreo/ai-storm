@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, PanelRightOpen } from "lucide-react";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore, workspace } from "./stores/workspace.store";
 import { backend } from "./stores/backend.store";
+import { useUiStore } from "./stores/ui.store";
 import { Sidebar } from "./components/Sidebar";
 import { CanvasPane } from "./components/CanvasPane";
 import { ControlHub } from "./components/ControlHub";
@@ -26,6 +27,21 @@ function restoreHubCollapsed(): boolean {
 }
 
 /**
+ * Auto-collapses the left sidebar when focus mode (#131) turns on, reusing its
+ * existing offcanvas collapse (and Ctrl/⌘ B shortcut) rather than a second
+ * hiding mechanism. Must live inside {@link SidebarProvider} to reach the
+ * context; doesn't force it back open on exit, so a manual reopen during focus
+ * mode is remembered.
+ */
+function FocusSidebarSync({ focusMode }: { focusMode: boolean }) {
+  const { setOpen } = useSidebar();
+  useEffect(() => {
+    if (focusMode) setOpen(false);
+  }, [focusMode, setOpen]);
+  return null;
+}
+
+/**
  * Root shell (PRD §3.1): a persistent sidebar, the structural workspace canvas
  * (left pane) and the conversational control hub (right pane). Boots the
  * crash-recovery sequence before rendering the panes.
@@ -33,6 +49,7 @@ function restoreHubCollapsed(): boolean {
 export function App() {
   const booted = useWorkspaceStore((s) => s.booted);
   const [bootError, setBootError] = useState<string | null>(null);
+  const focusMode = useUiStore((s) => s.focusMode);
 
   const [hubWidth, setHubWidth] = useState(restoreHubWidth);
   const hubWidthRef = useRef(hubWidth);
@@ -97,6 +114,7 @@ export function App() {
 
   return (
     <SidebarProvider className="h-full">
+      <FocusSidebarSync focusMode={focusMode} />
       <Sidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <div className="flex h-full min-h-0">
@@ -105,9 +123,9 @@ export function App() {
           </main>
           <aside
             className="relative flex min-w-0 flex-col border-l bg-background transition-[width] duration-150 ease-out"
-            style={{ width: hubCollapsed ? HUB_COLLAPSED_WIDTH : hubWidth }}
+            style={{ width: focusMode ? 0 : hubCollapsed ? HUB_COLLAPSED_WIDTH : hubWidth }}
           >
-            {!hubCollapsed && (
+            {!focusMode && !hubCollapsed && (
               <div
                 className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
                 role="separator"
@@ -116,7 +134,7 @@ export function App() {
                 onPointerDown={startResize}
               />
             )}
-            {hubCollapsed && (
+            {!focusMode && hubCollapsed && (
               <div className="flex h-full flex-col items-center gap-3 py-2">
                 <Button
                   size="icon"
@@ -132,9 +150,10 @@ export function App() {
                 <SessionStatusDot />
               </div>
             )}
-            {/* Kept mounted while collapsed (just visually hidden) so the live
-                terminal/PTY session isn't torn down and reattached (#109). */}
-            <div className={cn("min-h-0 flex-1", hubCollapsed && "invisible absolute inset-0 -z-10")}>
+            {/* Kept mounted while collapsed/focus-hidden (just visually hidden) so
+                the live terminal/PTY session isn't torn down and reattached (#109,
+                #131). */}
+            <div className={cn("min-h-0 flex-1", (hubCollapsed || focusMode) && "invisible absolute inset-0 -z-10")}>
               <ControlHub onCollapse={toggleHubCollapsed} />
             </div>
           </aside>
