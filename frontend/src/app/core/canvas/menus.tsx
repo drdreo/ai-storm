@@ -33,7 +33,7 @@ import {
 } from "tldraw";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
 import { serializeCards } from "../canvas-text";
-import { useUiStore } from "../../stores/ui.store";
+import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
 import { arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
@@ -88,31 +88,35 @@ function filterCount(f: BoardFilter): number {
  * `cardsKey`/`focusKey` key the effect off identity (not opacity), so applying
  * the filter — which only touches opacity/lock — can't loop.
  *
- * Focus "sticks" to the last non-empty selection's cluster (`lastFocusIds`)
- * rather than falling back to the whole board the instant the selection clears
- * — e.g. clicking empty canvas to pan, or selecting a connecting arrow instead
- * of a card, would otherwise silently un-focus while the chrome stays hidden.
- * Reset when focus mode itself toggles off, so the next time it's turned on
- * starts fresh from whatever (if anything) is selected then.
+ * The focused cluster is captured ONCE, on the moment focus mode turns on, from
+ * whatever is selected then — and then held fixed until focus mode is explicitly
+ * turned off (context menu, exit pill, palette, Escape). It deliberately does
+ * NOT track later selection changes: clicking, right-clicking, or editing a card
+ * inside the focused set must not re-narrow or re-widen the board (that made
+ * cards flicker in and out, and effectively "un-focused" the board while the
+ * chrome stayed hidden). An empty selection on entry captures `null` — the cue
+ * to go fullscreen over the whole board without narrowing.
  */
 export const FilterApplier = track(function FilterApplier({ $filter }: { $filter: FilterAtom }): null {
   const editor = useEditor();
   const filter = $filter.get();
   const focusMode = useUiStore((s) => s.focusMode);
-  const lastFocusIds = useRef<Set<TLShapeId> | null>(null);
-  if (!focusMode) {
-    lastFocusIds.current = null;
-  } else {
-    const selected = focusedCardIds(editor, new Set(editor.getSelectedShapeIds()));
-    if (selected) lastFocusIds.current = selected;
+  const focusIds = useRef<Set<TLShapeId> | null>(null);
+  const wasFocused = useRef(false);
+  if (focusMode && !wasFocused.current) {
+    // off → on edge: snapshot the cluster around the current selection.
+    focusIds.current = focusedCardIds(editor, new Set(editor.getSelectedShapeIds()));
+  } else if (!focusMode) {
+    focusIds.current = null;
   }
-  const focusIds = focusMode ? lastFocusIds.current : null;
+  wasFocused.current = focusMode;
+  const active = focusMode ? focusIds.current : null;
   const cardsKey = ideaCards(editor)
     .map((c) => c.id)
     .join(",");
-  const focusKey = focusIds ? [...focusIds].join(",") : "";
+  const focusKey = active ? [...active].join(",") : "";
   useEffect(() => {
-    applyFilter(editor, filter, focusIds);
+    applyFilter(editor, filter, active);
   }, [editor, filter, cardsKey, focusKey]);
   return null;
 });
@@ -256,6 +260,7 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
  */
 export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiContextMenuProps): React.JSX.Element {
   const editor = useEditor();
+  const focusMode = useUiStore((s) => s.focusMode);
   const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
 
@@ -274,10 +279,33 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
     if (text.trim()) void navigator.clipboard?.writeText(text);
   };
 
+  // Focus the selected cards' cluster (#131) — the right-click twin of
+  // Ctrl/⌘+Shift+F and the palette entry. Entering first widens the selection to the whole connected cluster
+  // ({@link focusedCardIds}), then goes fullscreen — {@link FilterApplier} reads
+  // that selection to decide what stays visible. While already focused the same
+  // slot exits instead, since cards remain visible in focus mode and a plain
+  // "Focus cards" here would otherwise silently toggle focus *off*.
+  const focusSelected = () => {
+    if (focusMode) {
+      ui.setFocusMode(false);
+      return;
+    }
+    const focusIds = focusedCardIds(editor, new Set(selectedCards.map((c) => c.id)));
+    if (focusIds) {
+      editor.setSelectedShapes(Array.from(focusIds));
+      ui.setFocusMode(true);
+    }
+  };
+
   return (
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
+          <TldrawUiMenuItem
+            id="focus"
+            label={focusMode ? "Exit focus" : "⤢ Focus cards"}
+            onSelect={focusSelected}
+          />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
           <TldrawUiMenuItem
             id="copy-cards-md"
