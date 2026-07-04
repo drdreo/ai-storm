@@ -21,6 +21,7 @@ import type { SessionBackend } from "./session/types.ts";
 import { commandProfileName, getProfile } from "./session/extraction.ts";
 import { mcpRegistry } from "./mcp/registry.ts";
 import { mcpRoutes } from "./mcp/endpoint.ts";
+import { fsRoutes } from "./fs/routes.ts";
 import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, getFacilitationMode, type ServerMessage } from "@ai-storm/shared";
@@ -198,6 +199,7 @@ export function buildApp(config: ServerConfig) {
   // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
   mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
   app.route("/mcp", mcpRoutes(mcpRegistry));
+  app.route("/api/fs", fsRoutes());
 
   app.get(
     "/pty",

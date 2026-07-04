@@ -396,6 +396,11 @@ export function parseClientMessage(raw: string): ClientMessage {
   switch (msg.type) {
     case "attach":
       requireString(m, "workspaceId", "attach");
+      requireOptionalString(m, "shell", "attach");
+      requireOptionalStringArray(m, "args", "attach");
+      requireOptionalString(m, "cwd", "attach");
+      requireOptionalString(m, "mode", "attach");
+      requireOptionalString(m, "background", "attach");
       break;
     case "input":
       requireString(m, "data", "input");

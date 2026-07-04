@@ -21,6 +21,7 @@ import { useBackendStore } from "../stores/backend.store";
 import { sessionIndicator } from "../core/session-status";
 import { TONE_DOT } from "./SessionStatusDot";
 import { Terminal } from "./Terminal";
+import { DirectoryPicker } from "./DirectoryPicker";
 
 /**
  * Soft cap on the background context (#76). Not enforced — the textarea rides
@@ -52,6 +53,28 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
       ingestion.attach(ws.id, ws.terminal);
     }
   }, [ws, attached]);
+
+  // Seed a sane default working directory (#152): the browser can't see the
+  // OS filesystem, so the home directory comes from the backend (same machine
+  // the harness will spawn on). Only fills in an unset cwd — never overwrites
+  // a directory the user already picked.
+  useEffect(() => {
+    if (!ws || ws.terminal.cwd) return;
+    const id = ws.id;
+    let cancelled = false;
+    fetch("/api/fs/home")
+      .then((res) => (res.ok ? (res.json() as Promise<{ home: string }>) : null))
+      .then((data) => {
+        if (!cancelled && data?.home) workspace.patchTerminal(id, { cwd: data.home });
+      })
+      .catch(() => {
+        // Offline or no backend yet — leave cwd unset; the picker still works
+        // once the backend is reachable, and the spawn falls back sanely.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws]);
 
   if (!ws) return null;
 
@@ -206,6 +229,28 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+        </div>
+
+        {/* Working directory (#152): where the harness process is spawned.
+            Follows the same lock-on-attach rule as harness/mode/background —
+            it's part of the launch, so it can't change under a live session. */}
+        <div className="mt-2 flex items-center gap-2">
+          <label className="font-medium uppercase tracking-wide">directory</label>
+          <Input
+            className="h-7 flex-1 font-mono text-xs"
+            value={ws.terminal.cwd ?? ""}
+            key={`${ws.id}:${attached}:cwd`}
+            disabled={attached}
+            placeholder="~"
+            spellCheck={false}
+            onChange={(e) => workspace.patchTerminal(ws.id, { cwd: e.target.value.trim() || undefined })}
+            title="Working directory the harness process is spawned in."
+          />
+          <DirectoryPicker
+            value={ws.terminal.cwd}
+            disabled={attached}
+            onChange={(path) => workspace.patchTerminal(ws.id, { cwd: path })}
+          />
         </div>
 
         {/* Background context (#76): freeform "set the scene" priming, baked into
