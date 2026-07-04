@@ -19,6 +19,7 @@ export default defineConfig({
     proxy: {
       "/pty": { target: "ws://127.0.0.1:8787", ws: true, secure: false },
       "/health": { target: "http://127.0.0.1:8787", secure: false },
+      "/api": { target: "http://127.0.0.1:8787", secure: false },
       "/otel": {
         target: "http://127.0.0.1:4318",
         changeOrigin: true,

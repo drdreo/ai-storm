@@ -44,10 +44,14 @@ const CURRENT_VERSION = 1;
 
 /** Wrap a workspace's meta + board into the portable envelope. */
 export function buildExportBundle(meta: WorkspaceMeta, board: PortableBoard): WorkspaceExportBundle {
+  // `cwd` (#152) is a local filesystem path — meaningless (or worse, wrong) on
+  // whatever machine imports this bundle, so it's dropped from the portable
+  // terminal config rather than round-tripped.
+  const { cwd: _cwd, ...portableTerminal } = meta.terminal;
   return {
     version: CURRENT_VERSION,
     exportedAt: Date.now(),
-    workspace: { title: meta.title, color: meta.color, terminal: { ...meta.terminal } },
+    workspace: { title: meta.title, color: meta.color, terminal: portableTerminal },
     board
   };
 }
