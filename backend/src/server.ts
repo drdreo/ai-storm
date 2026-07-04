@@ -286,7 +286,7 @@ async function dispatch(
   send: (msg: ServerMessage) => void,
   attached: Set<string>,
   agents: Set<ChildProcess>,
-  config: ServerConfig,
+  config: ServerConfig
 ): Promise<void> {
   switch (msg.type) {
     case "attach": {
@@ -429,7 +429,7 @@ async function dispatch(
           type: "agent-status",
           workspaceId: msg.workspaceId,
           status: "error",
-          data: `Concurrent agent-run limit (${MAX_AGENTS_PER_CONNECTION}) reached; wait for a run to finish.`,
+          data: `Concurrent agent-run limit (${MAX_AGENTS_PER_CONNECTION}) reached; wait for a run to finish.`
         });
         break;
       }
@@ -454,7 +454,7 @@ async function dispatch(
           },
           (status) => send({ type: "agent-status", ...status }),
           (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts }),
-          { timeoutMs: config.agentTimeoutMs },
+          { timeoutMs: config.agentTimeoutMs }
         );
         // Track for connection-scoped teardown; drop once it exits on its own.
         if (child) {

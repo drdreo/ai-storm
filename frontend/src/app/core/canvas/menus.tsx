@@ -351,11 +351,7 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
-          <TldrawUiMenuItem
-            id="focus"
-            label={focusMode ? "Exit focus" : "⤢ Focus cards"}
-            onSelect={focusSelected}
-          />
+          <TldrawUiMenuItem id="focus" label={focusMode ? "Exit focus" : "⤢ Focus cards"} onSelect={focusSelected} />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
           <TldrawUiMenuItem
             id="copy-cards-md"
