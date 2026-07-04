@@ -5,6 +5,8 @@ import {
   Grid2X2,
   LayoutList,
   ListRestart,
+  Maximize2,
+  X,
   Play,
   Plus,
   Settings,
@@ -66,6 +68,8 @@ interface BoardCommandPaletteProps {
   onClearFilters(): void;
   onOpenSettings(): void;
   onSwitchWorkspace(workspaceId: string): void;
+  focusMode: boolean;
+  onToggleFocusMode(): void;
 }
 
 function hasActiveFilter(filter: BoardFilter): boolean {
@@ -139,6 +143,18 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
         icon: FileOutput,
         disabledReason: emptyBoard,
         run: props.onHandoff
+      },
+      {
+        id: "toggle-focus-mode",
+        group: "View",
+        label: props.focusMode ? "Exit focus mode" : "Focus mode",
+        hint: props.focusMode
+          ? "Return to the full canvas and app chrome."
+          : "Go fullscreen and show only the selected card(s)' cluster (#131).",
+        keywords: ["fullscreen", "zen", "distraction-free", "cluster"],
+        icon: props.focusMode ? X : Maximize2,
+        disabledReason: boardUnavailable,
+        run: props.onToggleFocusMode
       },
       {
         id: "arrange-mind-map",

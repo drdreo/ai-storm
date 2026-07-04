@@ -68,7 +68,7 @@ export function assertCmdSafeTokens(target: string, args: readonly string[]): vo
   if ([target, ...args].some((t) => CMD_METACHARS.test(t))) {
     throw new Error(
       `Unsafe argument for a cmd.exe-wrapped launch: ` +
-        `cmd metacharacters (& | < > ^ % " or line breaks) are not allowed.`,
+        `cmd metacharacters (& | < > ^ % " or line breaks) are not allowed.`
     );
   }
 }

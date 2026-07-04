@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore, workspace } from "./stores/workspace.store";
 import { backend } from "./stores/backend.store";
+import { useUiStore } from "./stores/ui.store";
 import { Sidebar } from "./components/Sidebar";
 import { CanvasPane } from "./components/CanvasPane";
 import { ControlHub } from "./components/ControlHub";
@@ -33,6 +34,7 @@ function restoreHubCollapsed(): boolean {
 export function App() {
   const booted = useWorkspaceStore((s) => s.booted);
   const [bootError, setBootError] = useState<string | null>(null);
+  const focusMode = useUiStore((s) => s.focusMode);
 
   const [hubWidth, setHubWidth] = useState(restoreHubWidth);
   const hubWidthRef = useRef(hubWidth);
@@ -95,19 +97,32 @@ export function App() {
     );
   }
 
+  // One derived state instead of four independent `focusMode`/`hubCollapsed`
+  // branches below (review #131) — a future edit to the hub's visuals only has
+  // one place to touch, not four that can silently drift out of sync.
+  const hubVisual = focusMode ? "hidden" : hubCollapsed ? "collapsed" : "expanded";
+
   return (
     <SidebarProvider className="h-full">
-      <Sidebar />
+      {/* Unmounted rather than told to close (#131): the sidebar's own state
+          (and its global Ctrl/⌘ B shortcut) is left completely alone, so
+          whatever the user had before focus mode is exactly what they get
+          back on exit — no separate "remember and restore" bookkeeping, and
+          no window where Ctrl/⌘ B could reopen it over the fullscreen canvas. */}
+      {!focusMode && <Sidebar />}
       <SidebarInset className="min-w-0 overflow-hidden">
         <div className="flex h-full min-h-0">
           <main className="relative min-w-0 flex-1 overflow-hidden bg-card">
             <CanvasPane />
           </main>
           <aside
-            className="relative flex min-w-0 flex-col border-l bg-background transition-[width] duration-150 ease-out"
-            style={{ width: hubCollapsed ? HUB_COLLAPSED_WIDTH : hubWidth }}
+            className={cn(
+              "relative flex min-w-0 flex-col bg-background transition-[width] duration-150 ease-out",
+              hubVisual === "hidden" ? "border-l-0" : "border-l"
+            )}
+            style={{ width: hubVisual === "hidden" ? 0 : hubVisual === "collapsed" ? HUB_COLLAPSED_WIDTH : hubWidth }}
           >
-            {!hubCollapsed && (
+            {hubVisual === "expanded" && (
               <div
                 className="absolute -left-1 top-0 bottom-0 z-10 w-2 cursor-col-resize touch-none after:absolute after:left-[3px] after:top-0 after:bottom-0 after:w-px after:bg-transparent hover:after:bg-ring"
                 role="separator"
@@ -116,7 +131,7 @@ export function App() {
                 onPointerDown={startResize}
               />
             )}
-            {hubCollapsed && (
+            {hubVisual === "collapsed" && (
               <div className="flex h-full flex-col items-center gap-3 py-2">
                 <Button
                   size="icon"
@@ -132,9 +147,10 @@ export function App() {
                 <SessionStatusDot />
               </div>
             )}
-            {/* Kept mounted while collapsed (just visually hidden) so the live
-                terminal/PTY session isn't torn down and reattached (#109). */}
-            <div className={cn("min-h-0 flex-1", hubCollapsed && "invisible absolute inset-0 -z-10")}>
+            {/* Kept mounted while collapsed/focus-hidden (just visually hidden) so
+                the live terminal/PTY session isn't torn down and reattached (#109,
+                #131). */}
+            <div className={cn("min-h-0 flex-1", hubVisual !== "expanded" && "invisible absolute inset-0 -z-10")}>
               <ControlHub onCollapse={toggleHubCollapsed} />
             </div>
           </aside>

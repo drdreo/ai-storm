@@ -15,7 +15,7 @@ A harness is any interactive CLI ai-storm launches inside a PTY (tmux on POSIX,
 node-pty on Windows) as the thing the user brainstorms with — `claude`, `pi`,
 `codex`, or a bare `bash`/`python` shell. The terminal is the **presentation**
 surface: raw bytes stream straight to the browser and render in xterm.js, so
-ai-storm never parses the conversation itself. What it *does* need from a
+ai-storm never parses the conversation itself. What it _does_ need from a
 harness-specific **profile** is:
 
 1. how to prime the harness with the idea contract at launch, and
@@ -150,8 +150,8 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     "--mcp-config",
     JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
     "--allowedTools",
-    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`,
-  ],
+    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`
+  ]
 };
 ```
 
@@ -165,7 +165,7 @@ export const PI_PROFILE: HarnessProfile = {
   name: "pi",
   supportsIdeaContract: true,
   systemPromptFlag: "--append-system-prompt",
-  modelFlag: "--model",
+  modelFlag: "--model"
   // No defaultModel: pi is multi-provider with its own user/project default —
   // forcing "haiku" here would break users on OpenAI/Copilot/Gemini backends.
 };
@@ -186,7 +186,7 @@ export const CODEX_PROFILE: HarnessProfile = {
   defaultArgs: ["--no-alt-screen"],
   modelFlag: "--model",
   defaultModel: "gpt-5.3-codex-spark",
-  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
+  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
 };
 ```
 
@@ -208,7 +208,7 @@ const PROFILES: Record<string, HarnessProfile> = {
   default: DEFAULT_PROFILE,
   claude: CLAUDE_PROFILE,
   pi: PI_PROFILE,
-  codex: CODEX_PROFILE,
+  codex: CODEX_PROFILE
   // + your new profile
 };
 
