@@ -117,12 +117,7 @@ export const agent = {
    *
    * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
-  generateSpec(
-    projectId: string,
-    config: TerminalConfig,
-    format: SpecFormat = "prd",
-    opts: SpecOptions = {}
-  ): boolean {
+  generateSpec(projectId: string, config: TerminalConfig, format: SpecFormat = "prd", opts: SpecOptions = {}): boolean {
     const payload = frameSpec(canvas.serializeForHandoff(projectId), format, opts);
     if (!payload) return false;
     const command = config.agentCommand?.trim() || "claude";

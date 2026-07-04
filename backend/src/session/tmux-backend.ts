@@ -230,9 +230,7 @@ export class TmuxSessionBackend implements SessionBackend {
     // holding keeps working with the fresh in-memory registry.
     for (const projectId of projects) {
       try {
-        const token = (
-          await this.#tmux("show-options", "-t", this.#target(projectId), "-v", MCP_TOKEN_OPTION)
-        ).trim();
+        const token = (await this.#tmux("show-options", "-t", this.#target(projectId), "-v", MCP_TOKEN_OPTION)).trim();
         if (token) this.#mcp.restoreSession(projectId, token);
       } catch {
         // Option unset — a markers-only session (no mcpArgs at launch). Fine.
@@ -583,15 +581,7 @@ export class TmuxSessionBackend implements SessionBackend {
    *  reflow-wrapped lines back into one logical line so a wrapped «IDEA» is a
    *  single line for the contract parser (extraction-contract §5.4). */
   async #capture(projectId: string): Promise<string> {
-    const raw = await this.#tmux(
-      "capture-pane",
-      "-t",
-      this.#target(projectId),
-      "-p",
-      "-J",
-      "-S",
-      `-${CAPTURE_LINES}`
-    );
+    const raw = await this.#tmux("capture-pane", "-t", this.#target(projectId), "-p", "-J", "-S", `-${CAPTURE_LINES}`);
     return sanitize(raw);
   }
 
