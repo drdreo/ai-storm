@@ -1,5 +1,5 @@
 /**
- * Board synthesis (#28, PD-015) — turn the whole board into a convergent
+ * Board summarization (#28, PD-015) — turn the whole board into a convergent
  * *reading* of it: themes → ideas → decisions → open questions, produced on
  * demand and exportable as markdown.
  *
@@ -43,7 +43,7 @@ export interface BoardEdge {
   relation: "about" | "supersedes";
 }
 
-/** The whole board, flattened — the input to {@link synthesizeBoard}. */
+/** The whole board, flattened — the input to {@link summarizeBoard}. */
 export interface BoardSnapshot {
   cards: readonly BoardCard[];
   edges: readonly BoardEdge[];
@@ -150,7 +150,7 @@ function mainIdea(cluster: BoardCard[], edges: readonly BoardEdge[]): BoardCard 
  * / highlights) come from `kind` and the keep-mark. An empty board yields an empty
  * summary (`isEmpty: true`) rather than throwing.
  */
-export function synthesizeBoard(snapshot: BoardSnapshot): ConvergentSummary {
+export function summarizeBoard(snapshot: BoardSnapshot): ConvergentSummary {
   const { cards, edges } = snapshot;
   if (cards.length === 0) {
     return {
@@ -228,14 +228,14 @@ function cardLine(card: BoardCard): string {
  * Render a {@link ConvergentSummary} as a normalized markdown document — the
  * artifact behind Copy / Download (#28, PD-015). A *reading* of the board, never
  * an editable surface. Empty sections are omitted; an empty board yields a single
- * "nothing to synthesize yet" line.
+ * "nothing to summarize yet" line.
  */
 export function summaryToMarkdown(summary: ConvergentSummary): string {
   if (summary.isEmpty) {
-    return "# Board synthesis\n\n_No ideas on the board yet — nothing to synthesize._";
+    return "# Board summary\n\n_No ideas on the board yet — nothing to summarize._";
   }
 
-  const out: string[] = ["# Board synthesis"];
+  const out: string[] = ["# Board summary"];
   const themeCount = summary.themes.filter((t) => t.title !== STANDALONE_THEME).length;
   const themeNote = themeCount ? ` across ${themeCount} ${themeCount === 1 ? "theme" : "themes"}` : "";
   out.push(`_${summary.cardCount} ${summary.cardCount === 1 ? "idea" : "ideas"}${themeNote}._`);

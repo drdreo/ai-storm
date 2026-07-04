@@ -1,4 +1,12 @@
-import { useMemo } from "react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut
+} from "@/components/ui/command";
 import {
   FileOutput,
   Filter,
@@ -6,24 +14,17 @@ import {
   LayoutList,
   ListRestart,
   Maximize2,
-  X,
   Play,
   Plus,
   Settings,
   Sparkles,
   Square,
-  Workflow
+  Workflow,
+  X
 } from "lucide-react";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from "@/components/ui/command";
-import type { WorkspaceMeta } from "../core/models";
+import { useMemo } from "react";
 import type { BoardFilter } from "../core/canvas/filter";
+import type { WorkspaceMeta } from "../core/models";
 
 type CommandIcon = typeof Plus;
 
@@ -34,6 +35,7 @@ interface CommandAction {
   hint: string;
   keywords?: readonly string[];
   icon: CommandIcon;
+  shortcut?: string;
   disabledReason?: string;
   run(): void;
 }
@@ -60,7 +62,8 @@ interface BoardCommandPaletteProps {
   onStartSession(): void;
   onStopSession(): void;
   onTriage(): void;
-  onSynthesize(): void;
+
+  onSummarize(): void;
   onHandoff(): void;
   onArrangeMindMap(): void;
   onArrangePriorityGrid(): void;
@@ -125,20 +128,20 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
         run: props.onTriage
       },
       {
-        id: "synthesize",
+        id: "summarize",
         group: "Agent",
-        label: "Synthesize board",
+        label: "Summarize board",
         hint: "Read the current board into themes, decisions, questions, and highlights.",
         keywords: ["summary", "converge"],
         icon: LayoutList,
         disabledReason: emptyBoard,
-        run: props.onSynthesize
+        run: props.onSummarize
       },
       {
         id: "handoff",
         group: "Agent",
-        label: "Hand off board / selection",
-        hint: "Pick a format — PRD, implementation plan, GitHub issues, or agent tasks — and generate it from the board.",
+        label: "Export to format",
+        hint: "Convert your ideas into a structured format like a PRD, GitHub issues, or agent tasks",
         keywords: ["spec", "prd", "export", "plan", "issues", "tasks"],
         icon: FileOutput,
         disabledReason: emptyBoard,
@@ -150,9 +153,10 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
         label: props.focusMode ? "Exit focus mode" : "Focus mode",
         hint: props.focusMode
           ? "Return to the full canvas and app chrome."
-          : "Go fullscreen and show only the selected card(s)' cluster (#131).",
+            : "Go fullscreen and show only the selected card(s)",
         keywords: ["fullscreen", "zen", "distraction-free", "cluster"],
         icon: props.focusMode ? X : Maximize2,
+        shortcut: "Ctrl/⌘ Shift F",
         disabledReason: boardUnavailable,
         run: props.onToggleFocusMode
       },
@@ -302,6 +306,7 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
                       {disabled ? `Unavailable: ${action.disabledReason}` : action.hint}
                     </span>
                   </div>
+                  {action.shortcut && !disabled && <CommandShortcut>{action.shortcut}</CommandShortcut>}
                 </CommandItem>
               );
             })}
