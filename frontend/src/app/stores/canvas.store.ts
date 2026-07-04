@@ -14,7 +14,7 @@ import {
   serializeForTriage
 } from "../core/canvas-island";
 import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
-import { type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
+import { allIdeaCards, type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
 import { createUserIdea } from "../core/canvas/idea-tool";
 import {
   arrangeMindMap as layoutArrangeMindMap,
@@ -295,7 +295,8 @@ export const canvas = {
     const results = await Promise.all(
       workspaces.map(async ({ id, title }) => {
         if (editor && id === activeId) {
-          return ideaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
+          // All pages, not just the open one — parity with the persisted path.
+          return allIdeaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
         }
         return readPersistedIdeas(id, title);
       })
@@ -314,6 +315,10 @@ export const canvas = {
     if (!editor || workspaceId !== activeId) return false;
     const id = shapeId as TLShapeId;
     if (!editor.getShape(id)) return false;
+    // The card may live on a different tldraw page (boards-within-a-workspace);
+    // switch there first or the select/zoom below would frame the wrong page.
+    const pageId = editor.getAncestorPageId(id);
+    if (pageId && pageId !== editor.getCurrentPageId()) editor.setCurrentPage(pageId);
     editor.select(id);
     const bounds = editor.getShapePageBounds(id);
     if (bounds) editor.zoomToBounds(bounds, { targetZoom: 1, animation: { duration: 300 }, inset: 128 });
