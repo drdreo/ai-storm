@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { SpecFormat } from "@ai-storm/shared";
 import { useAgentStore } from "../stores/agent.store";
-import { SPEC_FORMATS, type SpecFormat, type SpecOptions } from "../core/prompt-framing";
+import { SPEC_FORMATS, type SpecOptions } from "../core/prompt-framing";
 
 /** Last-used hand-off format (#110) — repeat hand-offs default sensibly. */
 const FORMAT_KEY = "ai-storm-spec-format";

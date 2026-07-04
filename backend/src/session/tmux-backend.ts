@@ -21,6 +21,7 @@
  * control. (AO's own core `tmux.ts` likewise targets by bare session name.)
  */
 
+import type { Idea, Score } from "@ai-storm/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -45,7 +46,7 @@ import {
 import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
-import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
+import type { SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const TMUX_TIMEOUT_MS = 5_000;

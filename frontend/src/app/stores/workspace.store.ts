@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
+import type { WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
-import { defaultTerminalConfig, defaultWorkspaceColor, type WorkspaceMeta, type WorkspaceStatus } from "../core/models";
+import { defaultTerminalConfig, defaultWorkspaceColor } from "../core/models";
 import { buildExportBundle, type WorkspaceExportBundle } from "../core/workspace-portable";
 import { withSpan } from "../../lib/log";
 

@@ -2,16 +2,8 @@ import { create } from "zustand";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { ingestion } from "./ingestion.store";
-import {
-  framePrompt,
-  frameTriage,
-  frameSpec,
-  type PromptIntent,
-  type SpecFormat,
-  type SpecOptions
-} from "../core/prompt-framing";
-import type { TerminalConfig } from "../core/models";
-import type { AgentArtifact } from "@ai-storm/shared";
+import { framePrompt, frameTriage, frameSpec, type PromptIntent, type SpecOptions } from "../core/prompt-framing";
+import type { AgentArtifact, SpecFormat, TerminalConfig } from "@ai-storm/shared";
 import { log } from "../../lib/log";
 
 export interface AgentRun {

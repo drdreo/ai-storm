@@ -23,8 +23,6 @@
 
 import { ideaIdentityKey, type Idea, type IdeaLink, type IdeaRelation, type Score } from "@ai-storm/shared";
 
-export type { Idea, Score };
-
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server
  * at launch (mcp-idea-capture §4.3). Built backend-side at `create()` — the

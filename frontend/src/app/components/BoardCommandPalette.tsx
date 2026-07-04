@@ -23,7 +23,7 @@ import {
   searchIdeas
 } from "../core/canvas/search";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../core/idea-descriptors";
-import type { WorkspaceMeta } from "../core/models";
+import type { WorkspaceMeta } from "@ai-storm/shared";
 import { buildCommandActions, groupActions } from "./command-palette/actions";
 import { DATE_PRESETS, IdeaFilterBar } from "./command-palette/IdeaFilterBar";
 import type { BoardCommandState, CommandAction } from "./command-palette/types";

@@ -26,6 +26,7 @@
  */
 
 export * from "./modes.js";
+export * from "./workspace.js";
 
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =

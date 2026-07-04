@@ -18,6 +18,7 @@
 
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
+import type { Idea, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
 import { ScanGate } from "./scan-gate.ts";
@@ -33,7 +34,7 @@ import {
   type HarnessProfile
 } from "./extraction.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
-import type { Idea, Score, SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
+import type { SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 
 // node-pty ships as CommonJS; the default import is its module.exports.
 const pty = ptyDefault as unknown as typeof import("@lydell/node-pty");

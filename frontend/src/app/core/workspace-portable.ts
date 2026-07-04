@@ -6,7 +6,7 @@
  * validation, and the filename convention, so it stays pure and unit-testable
  * (no tldraw `Editor` involved).
  */
-import type { TerminalConfig, WorkspaceMeta } from "./models";
+import type { TerminalConfig, WorkspaceMeta } from "@ai-storm/shared";
 
 export interface PortableCard {
   ref: string;

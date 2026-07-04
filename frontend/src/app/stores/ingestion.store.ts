@@ -1,10 +1,9 @@
 import { create } from "zustand";
-import type { Idea } from "@ai-storm/shared";
+import type { Idea, TerminalConfig } from "@ai-storm/shared";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { workspace } from "./workspace.store";
 import { RenderScheduler } from "../core/render-scheduler";
-import type { TerminalConfig } from "../core/models";
 
 /** Cap on raw bytes buffered before a terminal mounts, so an attached-but-never-
  *  viewed workspace cannot grow without bound (oldest chunks are dropped). */

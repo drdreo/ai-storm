@@ -8,15 +8,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  framePrompt,
-  frameTriage,
-  frameSpec,
-  PROMPT_TEMPLATES,
-  SPEC_FORMATS,
-  type PromptIntent,
-  type SpecFormat
-} from "./prompt-framing";
+import type { SpecFormat } from "@ai-storm/shared";
+import { framePrompt, frameTriage, frameSpec, PROMPT_TEMPLATES, SPEC_FORMATS, type PromptIntent } from "./prompt-framing";
 
 describe("framePrompt", () => {
   it('returns "" for an empty selection', () => {
