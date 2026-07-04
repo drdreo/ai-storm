@@ -26,8 +26,9 @@ export class Shell {
     return this.page.locator(".tl-container").first();
   }
 
-  get newProjectButton(): Locator {
-    return this.page.getByRole("button", { name: "New project" });
+  /** The sidebar's "New…" dropdown trigger (offers "New project" / "New folder"). */
+  get newMenuButton(): Locator {
+    return this.page.getByRole("button", { name: "New project or folder" });
   }
 
   /**
@@ -55,10 +56,11 @@ export class Shell {
     await expect(this.canvas).toBeVisible({ timeout: 15_000 });
   }
 
-  /** Create a project via the (+) action; resolves once the row count grows. */
+  /** Create a project via the "New…" menu; resolves once the row count grows. */
   async createProject(): Promise<void> {
     const before = await this.projectRows.count();
-    await this.newProjectButton.click();
+    await this.newMenuButton.click();
+    await this.page.getByRole("menuitem", { name: "New project" }).click();
     await expect(this.projectRows).toHaveCount(before + 1);
   }
 
@@ -91,10 +93,14 @@ export class Shell {
 
 /**
  * Connecting to the local backend fails in the backend-free UI suite, so the
- * browser logs `WebSocket` connection noise. Filter it so a genuine app error
+ * browser logs `WebSocket` connection noise, plus a browser-level "Failed to
+ * load resource" entry for any proxied `/api/*` request that 502s (e.g.
+ * ControlHub's best-effort `/api/fs/home` cwd lookup) — that failure is
+ * already caught in app code, but Chrome still logs the raw network error to
+ * the console regardless of the JS catch. Filter it so a genuine app error
  * still trips `expectNoConsoleErrors`.
  */
-const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health/i;
+const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health|\/api\/|bad gateway|502/i;
 
 export const test = base.extend<{ shell: Shell; consoleErrors: string[] }>({
   consoleErrors: async ({ page }, use) => {
