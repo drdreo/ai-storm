@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sessionIndicator } from "./session-status";
 
 describe("sessionIndicator", () => {
-  it("reports offline as an error regardless of workspace status", () => {
+  it("reports offline as an error regardless of project status", () => {
     expect(sessionIndicator("closed", false, "idle").tone).toBe("error");
     expect(sessionIndicator("closed", true, "streaming")).toMatchObject({
       tone: "error",

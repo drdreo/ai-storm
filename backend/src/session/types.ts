@@ -12,13 +12,13 @@ import type { Idea, Score } from "@ai-storm/shared";
 
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
-  workspaceId: string;
-  /** e.g. "ai-storm-<workspaceId>" on tmux; an internal id on Windows. */
+  projectId: string;
+  /** e.g. "ai-storm-<projectId>" on tmux; an internal id on Windows. */
   sessionId: string;
 }
 
 export interface SessionSpec {
-  workspaceId: string;
+  projectId: string;
   /** Harness binary, e.g. "claude". Harness-agnostic; never a headless flag. */
   command: string;
   args?: string[];
@@ -59,17 +59,17 @@ export interface SessionBackend {
   /** Idempotent: create the named session if absent, else no-op. Returns handle. */
   create(spec: SessionSpec): Promise<SessionHandle>;
 
-  /** True if a durable session for this workspace currently exists. */
-  hasSession(workspaceId: string): Promise<boolean>;
+  /** True if a durable session for this project currently exists. */
+  hasSession(projectId: string): Promise<boolean>;
 
   /**
-   * Begin (or resume) streaming this workspace's session. `onData` receives the
+   * Begin (or resume) streaming this project's session. `onData` receives the
    * raw PTY bytes (for the xterm.js terminal); `onIdea` receives each newly-seen
    * extracted idea (a new card); `onScore` receives each newly-seen triage score
    * (#60) updating an existing card.
    */
   attach(
-    workspaceId: string,
+    projectId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
@@ -81,7 +81,7 @@ export interface SessionBackend {
    * terminal sends these as the user types (printable bytes, control codes, the
    * carriage return that submits a line). No line editing or Enter synthesis.
    */
-  sendInput(workspaceId: string, data: string): Promise<void>;
+  sendInput(projectId: string, data: string): Promise<void>;
 
   /**
    * Submit a complete prompt PROGRAMMATICALLY (priming, canvas-context
@@ -89,14 +89,14 @@ export interface SessionBackend {
    * text, then submits it. Distinct from {@link sendInput} because a real
    * terminal's keystrokes must NOT be line-edited or auto-submitted.
    */
-  submitPrompt(workspaceId: string, text: string): Promise<void>;
+  submitPrompt(projectId: string, text: string): Promise<void>;
 
   /** Inform the session of a new viewport size (cols/rows). */
-  resize(workspaceId: string, cols: number, rows: number): Promise<void>;
+  resize(projectId: string, cols: number, rows: number): Promise<void>;
 
-  /** Stop extracting for this workspace but LEAVE the session alive (refresh/disconnect). */
-  detach(workspaceId: string): void;
+  /** Stop extracting for this project but LEAVE the session alive (refresh/disconnect). */
+  detach(projectId: string): void;
 
   /** Terminate and clean up the session (PRD §5.2 teardown). */
-  kill(workspaceId: string): Promise<void>;
+  kill(projectId: string): Promise<void>;
 }

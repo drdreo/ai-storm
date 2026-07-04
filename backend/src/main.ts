@@ -36,7 +36,7 @@ const config = parseArgs();
 // (the harness process already exited — the exact stop→restart flow used to
 // switch facilitation modes, #61), `undefined.forEach` throws inside a promise
 // tick. That surfaces as an unhandled rejection which, left alone, terminates
-// the whole daemon and every other workspace's durable session. The fault fires
+// the whole daemon and every other project's durable session. The fault fires
 // asynchronously inside node-pty, so a try/catch at the call site can't catch
 // it — only a process-level handler can. We log and keep running rather than
 // die; the underlying PTY is already gone, only its handle cleanup is skipped.
@@ -63,7 +63,7 @@ try {
 }
 
 // Boot reconciliation (PRD §3.5): re-expose durable sessions that outlived a
-// previous backend process so a workspace `attach` resumes without respawning.
+// previous backend process so a project `attach` resumes without respawning.
 const survivors = await backend.reconcile();
 if (survivors.length > 0) {
   log.info("backend.sessions_recovered", { count: survivors.length });

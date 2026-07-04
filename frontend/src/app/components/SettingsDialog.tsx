@@ -76,9 +76,9 @@ function SettingsRow({
 }
 
 /**
- * App settings (#77). One dialog gathering the global, cross-workspace appearance
+ * App settings (#77). One dialog gathering the global, cross-project appearance
  * knobs — five independent axes (mode, color, font, radius, density, contrast)
- * the user mixes freely. Per-workspace terminal settings stay in the ControlHub.
+ * the user mixes freely. Per-project terminal settings stay in the ControlHub.
  * Controlled by the sidebar footer trigger.
  */
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {

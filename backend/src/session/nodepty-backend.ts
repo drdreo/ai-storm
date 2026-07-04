@@ -1,7 +1,7 @@
 /**
  * `NodePtySessionBackend` — the Windows implementation of `SessionBackend`
  * (design §5.2). Windows has no tmux, so the "durable session" is an
- * in-process node-pty (ConPTY) keyed by workspaceId.
+ * in-process node-pty (ConPTY) keyed by projectId.
  *
  * It streams the raw PTY bytes straight to the client (rendered by xterm.js)
  * and, in parallel, feeds them to a headless `TerminalScreen` whose rendered
@@ -100,16 +100,16 @@ export class NodePtySessionBackend implements SessionBackend {
     return [];
   }
 
-  async hasSession(workspaceId: string): Promise<boolean> {
-    const s = this.#sessions.get(workspaceId);
+  async hasSession(projectId: string): Promise<boolean> {
+    const s = this.#sessions.get(projectId);
     return !!s && !s.closed && s.term !== null;
   }
 
   async create(spec: SessionSpec): Promise<SessionHandle> {
-    const { workspaceId } = spec;
-    if (await this.hasSession(workspaceId)) {
+    const { projectId } = spec;
+    if (await this.hasSession(projectId)) {
       // Idempotent: reuse the live PTY.
-      return { workspaceId, sessionId: `pty-${workspaceId}` };
+      return { projectId, sessionId: `pty-${projectId}` };
     }
 
     // The harness field may carry inline args ("claude --model=opus"); split
@@ -123,12 +123,12 @@ export class NodePtySessionBackend implements SessionBackend {
     // Select the harness profile (extraction-contract §7.2): explicit spec wins,
     // else derive from the command basename ("claude" → CLAUDE_PROFILE).
     const profile = getProfile(spec.harnessProfile ?? commandProfileName(requested), (m) =>
-      log.warn("extract.profile", { workspace: workspaceId, message: m })
+      log.warn("extract.profile", { project: projectId, message: m })
     );
 
     // MCP wiring (mcp-idea-capture §4): mint the per-session token + URL so the
     // launch args can carry them. Unconfigured registry → undefined → markers.
-    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(workspaceId) : undefined;
+    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(projectId) : undefined;
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
     // model default (if any), MCP wiring, and the system-prompt injection seam.
     const requestedArgs = launchArgsForProfile(
@@ -143,7 +143,7 @@ export class NodePtySessionBackend implements SessionBackend {
       launch = resolveLaunch(requested, requestedArgs);
     } catch (err) {
       // The minted token must not outlive a launch that never happened.
-      this.#mcp.removeSession(workspaceId);
+      this.#mcp.removeSession(projectId);
       const message =
         err instanceof LaunchNotFoundError
           ? err.message
@@ -187,7 +187,7 @@ export class NodePtySessionBackend implements SessionBackend {
         // worth a warning; an ordinary scan is debug-level noise.
         onDebug: (event, data) => {
           const level = typeof data.nearMisses === "number" && data.nearMisses > 0 ? "warn" : "debug";
-          log[level](event, { workspace: workspaceId, ...data });
+          log[level](event, { project: projectId, ...data });
         }
       }),
       scoreScanner: new ScoreScanner(scoreSink),
@@ -195,7 +195,7 @@ export class NodePtySessionBackend implements SessionBackend {
       // with a ~500 ms cap during continuous streams and a settle window after
       // a resize. The raw byte stream to the browser is NEVER delayed — only
       // the scan is debounced.
-      gate: new ScanGate({ onScan: () => this.#scanNow(workspaceId) }),
+      gate: new ScanGate({ onScan: () => this.#scanNow(projectId) }),
       writesInFlight: 0,
       profile,
       onData: null,
@@ -206,23 +206,23 @@ export class NodePtySessionBackend implements SessionBackend {
       cols,
       rows
     };
-    this.#sessions.set(workspaceId, session);
+    this.#sessions.set(projectId, session);
 
     term.onData((chunk) => {
-      this.#onData(workspaceId, chunk).catch((err) =>
+      this.#onData(projectId, chunk).catch((err) =>
         log.warn("pty.ondata_error", {
-          workspace: workspaceId,
+          project: projectId,
           message: err instanceof Error ? err.message : String(err)
         })
       );
     });
     term.onExit(({ exitCode }) => {
       session.closed = true;
-      log.info("session.pty_exit", { workspace: workspaceId, code: exitCode });
+      log.info("session.pty_exit", { project: projectId, code: exitCode });
     });
 
-    log.info("session.created", { workspace: workspaceId, command: launch.cmd, pid: term.pid });
-    return { workspaceId, sessionId: `pty-${workspaceId}` };
+    log.info("session.created", { project: projectId, command: launch.cmd, pid: term.pid });
+    return { projectId, sessionId: `pty-${projectId}` };
   }
 
   /**
@@ -230,8 +230,8 @@ export class NodePtySessionBackend implements SessionBackend {
    * a real PTY a trailing carriage return submits the line, so the text is
    * written with one appended if absent.
    */
-  async submitPrompt(workspaceId: string, text: string): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+  async submitPrompt(projectId: string, text: string): Promise<void> {
+    const session = this.#sessions.get(projectId);
     if (!session || session.closed || !session.term) return;
     try {
       session.term.write(/[\r\n]$/.test(text) ? text : text + "\r");
@@ -241,15 +241,15 @@ export class NodePtySessionBackend implements SessionBackend {
   }
 
   async attach(
-    workspaceId: string,
+    projectId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
     onError: (message: string) => void
   ): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+    const session = this.#sessions.get(projectId);
     if (!session) {
-      onError(`No session for workspace "${workspaceId}" to attach to.`);
+      onError(`No session for project "${projectId}" to attach to.`);
       return;
     }
     session.onData = onData;
@@ -258,13 +258,13 @@ export class NodePtySessionBackend implements SessionBackend {
     session.onError = onError;
     // Route the MCP tool path into this attachment (mcp-idea-capture §6) —
     // shared sinks, same WS callbacks. No-op for markers-only sessions.
-    this.#mcp.attachSession(workspaceId, {
+    this.#mcp.attachSession(projectId, {
       ideaSink: session.ideaSink,
       scoreSink: session.scoreSink,
       onIdea,
       onScore
     });
-    log.info("session.attached", { workspace: workspaceId });
+    log.info("session.attached", { project: projectId });
   }
 
   /**
@@ -276,8 +276,8 @@ export class NodePtySessionBackend implements SessionBackend {
    * §1.1). Rendering (screen.write) stays per-chunk so the screen never lags;
    * only the SCAN waits for quiescence.
    */
-  async #onData(workspaceId: string, chunk: string): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+  async #onData(projectId: string, chunk: string): Promise<void> {
+    const session = this.#sessions.get(projectId);
     if (!session) return;
 
     // 1) Raw bytes → the browser terminal, verbatim and immediately.
@@ -303,8 +303,8 @@ export class NodePtySessionBackend implements SessionBackend {
    * `finally` re-arms the gate, so the scan re-runs against a settled screen
    * instead of snapshotting half-applied bytes.
    */
-  #scanNow(workspaceId: string): void {
-    const session = this.#sessions.get(workspaceId);
+  #scanNow(projectId: string): void {
+    const session = this.#sessions.get(projectId);
     if (!session || session.closed) return;
     if (session.writesInFlight > 0) return; // re-armed by the pending write's finally
     if (!session.profile.supportsIdeaContract) return;
@@ -312,10 +312,10 @@ export class NodePtySessionBackend implements SessionBackend {
     const snapshot = session.screen.snapshotAll();
     // Scanner hit on an MCP-wired session = the primed agent lapsed back to
     // marker lines — warn so the lapse is measurable (mcp-idea-capture §6).
-    const mcpWired = this.#mcp.isRegistered(workspaceId);
+    const mcpWired = this.#mcp.isRegistered(projectId);
     for (const idea of session.scanner.scan(snapshot)) {
       log[mcpWired ? "warn" : "info"](mcpWired ? "idea.fallback_scan" : "idea.extracted", {
-        workspace: workspaceId,
+        project: projectId,
         kind: idea.kind ?? "",
         title: idea.title,
         body: idea.body.slice(0, 120)
@@ -325,7 +325,7 @@ export class NodePtySessionBackend implements SessionBackend {
     // Triage scores (#60) come off the same rendered buffer.
     for (const score of session.scoreScanner.scan(snapshot)) {
       log.info("score.extracted", {
-        workspace: workspaceId,
+        project: projectId,
         ref: score.ref,
         impact: score.impact,
         effort: score.effort
@@ -342,8 +342,8 @@ export class NodePtySessionBackend implements SessionBackend {
     if (session.scanner.pendingConfirmation > 0) session.gate.activity();
   }
 
-  async sendInput(workspaceId: string, data: string): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+  async sendInput(projectId: string, data: string): Promise<void> {
+    const session = this.#sessions.get(projectId);
     if (!session || session.closed || !session.term) return;
     // Raw passthrough: xterm.js sends the exact keystrokes (incl. the carriage
     // return that submits a line), so the bytes are written through unchanged.
@@ -354,8 +354,8 @@ export class NodePtySessionBackend implements SessionBackend {
     }
   }
 
-  async resize(workspaceId: string, cols: number, rows: number): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+  async resize(projectId: string, cols: number, rows: number): Promise<void> {
+    const session = this.#sessions.get(projectId);
     if (!session || session.closed || !session.term) return;
     session.cols = cols;
     session.rows = rows;
@@ -372,8 +372,8 @@ export class NodePtySessionBackend implements SessionBackend {
     session.gate.resized();
   }
 
-  detach(workspaceId: string): void {
-    const session = this.#sessions.get(workspaceId);
+  detach(projectId: string): void {
+    const session = this.#sessions.get(projectId);
     if (!session) return;
     // Stop streaming to the (now gone) client but leave the PTY alive so a
     // reconnect within this process lifetime can resume (design §5.2).
@@ -385,12 +385,12 @@ export class NodePtySessionBackend implements SessionBackend {
     // next chunk after a reattach re-arms it.
     session.gate.cancel();
     // Tool calls get "session not attached" until reattach; the token lives on.
-    this.#mcp.detachSession(workspaceId);
-    log.info("session.detached", { workspace: workspaceId });
+    this.#mcp.detachSession(projectId);
+    log.info("session.detached", { project: projectId });
   }
 
-  async kill(workspaceId: string): Promise<void> {
-    const session = this.#sessions.get(workspaceId);
+  async kill(projectId: string): Promise<void> {
+    const session = this.#sessions.get(projectId);
     if (!session) return;
     // Skip `term.kill()` if the PTY has already exited (onExit set `closed`):
     // node-pty's Windows kill queries the console process list and throws on an
@@ -406,9 +406,9 @@ export class NodePtySessionBackend implements SessionBackend {
         // already dead
       }
     }
-    this.#sessions.delete(workspaceId);
+    this.#sessions.delete(projectId);
     // Forget the MCP routing entirely — the session's URL 404s from here on.
-    this.#mcp.removeSession(workspaceId);
-    log.info("session.killed", { workspace: workspaceId });
+    this.#mcp.removeSession(projectId);
+    log.info("session.killed", { project: projectId });
   }
 }

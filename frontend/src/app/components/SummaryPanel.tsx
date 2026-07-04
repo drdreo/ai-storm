@@ -15,12 +15,12 @@ export function SummaryPanel({
   open,
   onOpenChange,
   summary,
-  workspaceName
+  projectName
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   summary: ConvergentSummary | null;
-  workspaceName?: string;
+  projectName?: string;
 }) {
   const markdown = summary ? summaryToMarkdown(summary) : "";
 
@@ -30,7 +30,7 @@ export function SummaryPanel({
 
   const download = () => {
     if (!markdown) return;
-    const slug = (workspaceName ?? "board")
+    const slug = (projectName ?? "board")
       .trim()
       .replace(/[^\w-]+/g, "-")
       .toLowerCase();

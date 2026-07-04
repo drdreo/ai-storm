@@ -8,8 +8,8 @@ import { test, expect } from "../fixtures/shell";
 test.describe("empty states", () => {
   test("canvas shows the first-run onboarding overlay", async ({ shell, page }) => {
     await shell.goto();
-    // Fresh workspace → no idea cards → the teaching overlay is visible.
-    await shell.createWorkspace();
+    // Fresh project → no idea cards → the teaching overlay is visible.
+    await shell.createProject();
 
     await expect(page.getByRole("heading", { name: "Start your storm" })).toBeVisible();
     await expect(page.getByText("Press to drop your first idea card")).toBeVisible();

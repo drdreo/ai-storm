@@ -1,9 +1,9 @@
-/** Frontend-local presentation helpers for the shared workspace domain model (PRD §3.4). */
+/** Frontend-local presentation helpers for the shared project domain model (PRD §3.4). */
 
 import { DEFAULT_MODE_ID, type TerminalConfig } from "@ai-storm/shared";
 
 /** Fixed accent palette (Tailwind 500s) — kept small so swatches stay distinguishable. */
-export const WORKSPACE_COLORS = [
+export const PROJECT_COLORS = [
   "#f43f5e", // rose
   "#f97316", // orange
   "#eab308", // yellow
@@ -15,14 +15,14 @@ export const WORKSPACE_COLORS = [
   "#ec4899" // pink
 ] as const;
 
-/** Deterministic default accent color, stable for a given workspace id. */
-export function defaultWorkspaceColor(id: string): string {
+/** Deterministic default accent color, stable for a given project id. */
+export function defaultProjectColor(id: string): string {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 31 + id.charCodeAt(i)) | 0;
   }
-  const index = Math.abs(hash) % WORKSPACE_COLORS.length;
-  return WORKSPACE_COLORS[index];
+  const index = Math.abs(hash) % PROJECT_COLORS.length;
+  return PROJECT_COLORS[index];
 }
 
 export function defaultTerminalConfig(): TerminalConfig {

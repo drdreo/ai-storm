@@ -621,7 +621,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
   it("appends the harness's system-prompt flag + prime text to a fresh claude launch", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws1", command: "claude", prime: PRIME });
+    await backend.create({ projectId: "ws1", command: "claude", prime: PRIME });
 
     const launch = fake.sessions.get("ai-storm-ws1")?.launch ?? "";
     expect(launch).toContain("--model");
@@ -635,7 +635,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
   it("appends the system-prompt flag to a fresh pi launch without forcing a model", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws2", command: "pi", prime: PRIME });
+    await backend.create({ projectId: "ws2", command: "pi", prime: PRIME });
 
     const launch = fake.sessions.get("ai-storm-ws2")?.launch ?? "";
     expect(launch).not.toContain("--model");
@@ -647,7 +647,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
     await backend.create({
-      workspaceId: "ws2",
+      projectId: "ws2",
       command: "pi",
       args: ["--model", "openai/gpt-4o"],
       prime: PRIME
@@ -661,7 +661,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
   it("injects Codex developer instructions, disables alternate screen, and selects spark medium", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws4", command: "codex", prime: PRIME });
+    await backend.create({ projectId: "ws4", command: "codex", prime: PRIME });
 
     const launch = fake.sessions.get("ai-storm-ws4")?.launch ?? "";
     expect(launch).toContain("--no-alt-screen");
@@ -679,7 +679,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
     await backend.create({
-      workspaceId: "ws5",
+      projectId: "ws5",
       command: "codex",
       args: ["--no-alt-screen", "--model", "gpt-5.5", "-c", 'model_reasoning_effort="high"'],
       prime: PRIME
@@ -697,17 +697,17 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
   it("reuses an existing session as-is (no second new-session, already primed at launch)", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws1", command: "claude", prime: PRIME });
+    await backend.create({ projectId: "ws1", command: "claude", prime: PRIME });
     expect(fake.count("new-session")).toBe(1);
 
-    await backend.create({ workspaceId: "ws1", command: "claude", prime: PRIME });
+    await backend.create({ projectId: "ws1", command: "claude", prime: PRIME });
     expect(fake.count("new-session")).toBe(1); // reused, not recreated
   });
 
   it("never adds the system-prompt flag for a non-contract harness (bash)", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
-    await backend.create({ workspaceId: "ws3", command: "bash", prime: PRIME });
+    await backend.create({ projectId: "ws3", command: "bash", prime: PRIME });
     const launch = fake.sessions.get("ai-storm-ws3")?.launch ?? "";
     expect(launch).not.toContain("--append-system-prompt");
   });
@@ -725,7 +725,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
       const tmux = async (...args: string[]): Promise<string> =>
         args[0] === "capture-pane" ? pane : fake.tmux(...args);
       const backend = new TmuxSessionBackend({ tmux, sleep: async () => {} });
-      await backend.create({ workspaceId: "wsR", command: "claude", prime: PRIME });
+      await backend.create({ projectId: "wsR", command: "claude", prime: PRIME });
 
       const ideas: Idea[] = [];
       await backend.attach(

@@ -24,43 +24,43 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { Folder, WorkspaceMeta } from "@ai-storm/shared";
+import type { Folder, ProjectMeta } from "@ai-storm/shared";
 import { downloadFile } from "../core/download-file";
-import { exportFileSlug, parseExportBundle } from "../core/workspace-portable";
+import { exportFileSlug, parseExportBundle } from "../core/project-portable";
 import { ingestion } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
-import { useWorkspaceStore, workspace } from "../stores/workspace.store";
+import { useProjectStore, project } from "../stores/project.store";
 import { SettingsDialog } from "./SettingsDialog";
 import { SidebarDialogs } from "./sidebar/SidebarDialogs";
 import { SortableFolderGroup, UngroupedDropZone } from "./sidebar/SidebarFolderGroup";
-import { StatusDot, SortableWorkspaceRow } from "./sidebar/SidebarWorkspaceRow";
+import { StatusDot, SortableProjectRow } from "./sidebar/SidebarProjectRow";
 import { useSidebarDnd } from "./sidebar/useSidebarDnd";
 
 /**
  * Global navigation sidebar (PRD §3.4), built on shadcn's app-sidebar
  * composition: an inset, icon-collapsible Sidebar with a branded header, a
- * collapsible "Workspaces" group whose action (+) creates a workspace, a rail
+ * collapsible "Projects" group whose action (+) creates a project, a rail
  * toggle, and a settings footer. Entries are stock
  * SidebarMenuButtons (default styling + the built-in active indicator). The
  * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  *
  * Ordering is user-controlled via drag & drop (#128, {@link useSidebarDnd}):
- * folders sort among folders, workspaces sort within and across containers
+ * folders sort among folders, projects sort within and across containers
  * (folder ↔ top level), persisted as fractional-index keys on the registry
  * CRDT. Rows/folder groups/dialogs are split into `./sidebar/*` — this file is
  * just the layout + the state that spans all of them (rename/delete targets).
  */
 export function Sidebar() {
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const folders = useWorkspaceStore((s) => s.folders);
-  const activeId = useWorkspaceStore((s) => s.activeId);
+  const projects = useProjectStore((s) => s.projects);
+  const folders = useProjectStore((s) => s.folders);
+  const activeId = useProjectStore((s) => s.activeId);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<WorkspaceMeta | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProjectMeta | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const dnd = useSidebarDnd(workspaces, folders);
+  const dnd = useSidebarDnd(projects, folders);
 
   /**
    * Focus (and select) the freshly-rendered inline rename input. Deferred a
@@ -90,23 +90,23 @@ export function Sidebar() {
   };
 
   const add = () => {
-    const id = workspace.create("Untitled Project");
-    workspace.setActive(id);
+    const id = project.create("Untitled Project");
+    project.setActive(id);
   };
 
   const addFolder = () => {
     keepRenameFocusRef.current = true;
-    setEditingId(workspace.createFolder("New Folder"));
+    setEditingId(project.createFolder("New Folder"));
   };
 
-  const commitRename = (ws: WorkspaceMeta, value: string) => {
+  const commitRename = (ws: ProjectMeta, value: string) => {
     if (editingId !== ws.id) return;
     const title = value.trim();
-    if (title && title !== ws.title) workspace.rename(ws.id, title);
+    if (title && title !== ws.title) project.rename(ws.id, title);
     setEditingId(null);
   };
 
-  const onRenameKey = (e: React.KeyboardEvent<HTMLInputElement>, ws: WorkspaceMeta) => {
+  const onRenameKey = (e: React.KeyboardEvent<HTMLInputElement>, ws: ProjectMeta) => {
     if (e.key === "Enter") {
       e.preventDefault();
       commitRename(ws, e.currentTarget.value);
@@ -119,7 +119,7 @@ export function Sidebar() {
   const commitFolderRename = (folder: Folder, value: string) => {
     if (editingId !== folder.id) return;
     const title = value.trim();
-    if (title && title !== folder.title) workspace.renameFolder(folder.id, title);
+    if (title && title !== folder.title) project.renameFolder(folder.id, title);
     setEditingId(null);
   };
 
@@ -133,33 +133,33 @@ export function Sidebar() {
     }
   };
 
-  // Deleting a workspace drops its canvas + IndexedDB store for good, so the
+  // Deleting a project drops its canvas + IndexedDB store for good, so the
   // kebab only *requests* deletion (opens a themed confirm dialog, audit H5);
   // the irreversible work runs on explicit confirm, never on window.confirm.
   const confirmDelete = () => {
     if (!deleteTarget) return;
     ingestion.detach(deleteTarget.id);
-    void workspace.remove(deleteTarget.id);
+    void project.remove(deleteTarget.id);
     setDeleteTarget(null);
   };
 
-  // Deleting a folder only drops the container — its workspaces (and their
+  // Deleting a folder only drops the container — its projects (and their
   // canvases) survive, falling back to the sidebar's top level.
   const confirmDeleteFolder = () => {
     if (!deleteFolderTarget) return;
-    workspace.removeFolder(deleteFolderTarget.id);
+    project.removeFolder(deleteFolderTarget.id);
     setDeleteFolderTarget(null);
   };
 
-  // Export switches onto the target workspace first (a live editor is needed to
+  // Export switches onto the target project first (a live editor is needed to
   // read the board), then downloads its portable JSON bundle (#105).
-  const exportWorkspace = async (ws: WorkspaceMeta) => {
-    const bundle = await workspace.exportBundle(ws.id);
+  const exportProject = async (ws: ProjectMeta) => {
+    const bundle = await project.exportBundle(ws.id);
     if (!bundle) return;
-    downloadFile(`${exportFileSlug(ws.title)}-workspace.json`, JSON.stringify(bundle, null, 2), "application/json");
+    downloadFile(`${exportFileSlug(ws.title)}-project.json`, JSON.stringify(bundle, null, 2), "application/json");
   };
 
-  const importWorkspace = () => importInputRef.current?.click();
+  const importProject = () => importInputRef.current?.click();
 
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -167,14 +167,14 @@ export function Sidebar() {
     if (!file) return;
     try {
       const bundle = parseExportBundle(await file.text());
-      await workspace.importBundle(bundle);
+      await project.importBundle(bundle);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     }
   };
 
-  const renderRow = (ws: WorkspaceMeta) => (
-    <SortableWorkspaceRow
+  const renderRow = (ws: ProjectMeta) => (
+    <SortableProjectRow
       key={ws.id}
       ws={ws}
       isActive={ws.id === activeId}
@@ -185,11 +185,11 @@ export function Sidebar() {
       onRenameKey={onRenameKey}
       renameInputRef={renameInputRef}
       onRequestDelete={setDeleteTarget}
-      onExport={(ws) => void exportWorkspace(ws)}
+      onExport={(ws) => void exportProject(ws)}
     />
   );
 
-  const ungrouped = workspaces.filter((w) => dnd.containerOf(w) === null);
+  const ungrouped = projects.filter((w) => dnd.containerOf(w) === null);
 
   return (
     <UISidebar variant="inset" collapsible="icon">
@@ -204,7 +204,7 @@ export function Sidebar() {
                 <img src="/assets/logo.png" alt="" className="size-8 rounded-lg" />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="truncate font-semibold">ai-storm</span>
-                  <span className="truncate text-xs text-muted-foreground">brainstorm workspace</span>
+                  <span className="truncate text-xs text-muted-foreground">brainstorm project</span>
                 </div>
               </div>
             </SidebarMenuButton>
@@ -217,17 +217,17 @@ export function Sidebar() {
           <SidebarGroup>
             <SidebarGroupLabel asChild>
               <CollapsibleTrigger className="w-full">
-                Workspaces
+                Projects
                 <ChevronDown className="ml-1 size-3.5 transition-transform group-data-[state=closed]/collapsible:-rotate-90" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
             <SidebarGroupAction
-              title="Import workspace"
-              aria-label="Import workspace"
-              onClick={importWorkspace}
+              title="Import project"
+              aria-label="Import project"
+              onClick={importProject}
               className="right-7"
             >
-              <Upload /> <span className="sr-only">Import workspace</span>
+              <Upload /> <span className="sr-only">Import project</span>
             </SidebarGroupAction>
             <input
               ref={importInputRef}
@@ -238,8 +238,8 @@ export function Sidebar() {
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarGroupAction title="New…" aria-label="New workspace or folder">
-                  <Plus /> <span className="sr-only">New workspace or folder</span>
+                <SidebarGroupAction title="New…" aria-label="New project or folder">
+                  <Plus /> <span className="sr-only">New project or folder</span>
                 </SidebarGroupAction>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -249,7 +249,7 @@ export function Sidebar() {
                 onCloseAutoFocus={onNewMenuCloseAutoFocus}
               >
                 <DropdownMenuItem onSelect={add}>
-                  <Plus className="size-4" /> New workspace
+                  <Plus className="size-4" /> New project
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={addFolder}>
                   <FolderPlus className="size-4" /> New folder
@@ -269,7 +269,7 @@ export function Sidebar() {
                   <SidebarMenu>
                     <SortableContext items={folders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                       {folders.map((folder) => {
-                        const children = workspaces.filter((w) => w.folderId === folder.id);
+                        const children = projects.filter((w) => w.folderId === folder.id);
                         return (
                           <SortableFolderGroup
                             key={folder.id}
@@ -289,7 +289,7 @@ export function Sidebar() {
                     </SortableContext>
                     <SortableContext items={ungrouped.map((w) => w.id)} strategy={verticalListSortingStrategy}>
                       {ungrouped.map(renderRow)}
-                      {ungrouped.length === 0 && dnd.drag?.kind === "workspace" && <UngroupedDropZone />}
+                      {ungrouped.length === 0 && dnd.drag?.kind === "project" && <UngroupedDropZone />}
                     </SortableContext>
                   </SidebarMenu>
 

@@ -28,24 +28,24 @@ test.describe("dialogs", () => {
 
   test("delete confirm requires explicit confirmation", async ({ shell, page }) => {
     await shell.goto();
-    await shell.createWorkspace();
-    const before = await shell.workspaceRows.count();
-    const target = shell.workspaceRows.last();
+    await shell.createProject();
+    const before = await shell.projectRows.count();
+    const target = shell.projectRows.last();
 
     await target.getByRole("button", { name: /^Manage / }).click();
     await page.getByRole("menuitem", { name: "Delete" }).click();
 
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("heading", { name: "Delete workspace?" })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: "Delete project?" })).toBeVisible();
 
-    // Cancel leaves the workspace intact (no destructive window.confirm path).
+    // Cancel leaves the project intact (no destructive window.confirm path).
     await dialog.getByRole("button", { name: "Cancel" }).click();
-    await expect(shell.workspaceRows).toHaveCount(before);
+    await expect(shell.projectRows).toHaveCount(before);
 
-    // Re-open and confirm — only an explicit "Delete workspace" removes it.
+    // Re-open and confirm — only an explicit "Delete project" removes it.
     await target.getByRole("button", { name: /^Manage / }).click();
     await page.getByRole("menuitem", { name: "Delete" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Delete workspace" }).click();
-    await expect(shell.workspaceRows).toHaveCount(before - 1);
+    await page.getByRole("dialog").getByRole("button", { name: "Delete project" }).click();
+    await expect(shell.projectRows).toHaveCount(before - 1);
   });
 });

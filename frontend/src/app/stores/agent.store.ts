@@ -42,7 +42,7 @@ export interface AgentRun {
  *   the local orchestrator subprocess with a spec/PRD-shaped payload and streams
  *   the generated artifact back into the store for the SpecPanel.
  *
- * Per-workspace run lifecycle is held in the `runs` record of this Zustand store.
+ * Per-project run lifecycle is held in the `runs` record of this Zustand store.
  */
 
 interface AgentState {
@@ -53,28 +53,28 @@ export const useAgentStore = create<AgentState>(() => ({ runs: {} }));
 
 const subscribed = new Set<string>();
 
-function setRun(workspaceId: string, run: AgentRun | null): void {
-  useAgentStore.setState((s) => ({ runs: { ...s.runs, [workspaceId]: run } }));
+function setRun(projectId: string, run: AgentRun | null): void {
+  useAgentStore.setState((s) => ({ runs: { ...s.runs, [projectId]: run } }));
 }
 
-function getRun(workspaceId: string): AgentRun | null {
-  return useAgentStore.getState().runs[workspaceId] ?? null;
+function getRun(projectId: string): AgentRun | null {
+  return useAgentStore.getState().runs[projectId] ?? null;
 }
 
-function ensureSubscription(workspaceId: string): void {
-  if (subscribed.has(workspaceId)) return;
-  subscribed.add(workspaceId);
-  backend.subscribe(workspaceId, (msg) => {
+function ensureSubscription(projectId: string): void {
+  if (subscribed.has(projectId)) return;
+  subscribed.add(projectId);
+  backend.subscribe(projectId, (msg) => {
     if (msg.type === "agent-artifacts") {
-      const run = getRun(workspaceId);
-      if (run) setRun(workspaceId, { ...run, artifacts: msg.artifacts });
+      const run = getRun(projectId);
+      if (run) setRun(projectId, { ...run, artifacts: msg.artifacts });
       return;
     }
     if (msg.type !== "agent-status") return;
-    const cur = getRun(workspaceId) ?? { status: "spawned", output: "" };
+    const cur = getRun(projectId) ?? { status: "spawned", output: "" };
     switch (msg.status) {
       case "spawned":
-        setRun(workspaceId, {
+        setRun(projectId, {
           status: "running",
           pid: msg.pid,
           output: "",
@@ -86,14 +86,14 @@ function ensureSubscription(workspaceId: string): void {
         break;
       case "stdout":
       case "stderr":
-        setRun(workspaceId, { ...cur, status: "running", output: cur.output + (msg.data ?? "") });
+        setRun(projectId, { ...cur, status: "running", output: cur.output + (msg.data ?? "") });
         break;
       case "exit":
-        setRun(workspaceId, { ...cur, status: "exit", code: msg.code });
+        setRun(projectId, { ...cur, status: "exit", code: msg.code });
         break;
       case "error":
-        log.error("agent.run_error", { workspace: workspaceId, data: msg.data });
-        setRun(workspaceId, { ...cur, status: "error", output: cur.output + (msg.data ?? "") });
+        log.error("agent.run_error", { project: projectId, data: msg.data });
+        setRun(projectId, { ...cur, status: "error", output: cur.output + (msg.data ?? "") });
         break;
     }
   });
@@ -117,23 +117,18 @@ export const agent = {
    *
    * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
-  generateSpec(
-    workspaceId: string,
-    config: TerminalConfig,
-    format: SpecFormat = "prd",
-    opts: SpecOptions = {}
-  ): boolean {
-    const payload = frameSpec(canvas.serializeForHandoff(workspaceId), format, opts);
+  generateSpec(projectId: string, config: TerminalConfig, format: SpecFormat = "prd", opts: SpecOptions = {}): boolean {
+    const payload = frameSpec(canvas.serializeForHandoff(projectId), format, opts);
     if (!payload) return false;
     const command = config.agentCommand?.trim() || "claude";
 
-    ensureSubscription(workspaceId);
-    setRun(workspaceId, { status: "spawned", output: "", kind: "spec", format });
+    ensureSubscription(projectId);
+    setRun(projectId, { status: "spawned", output: "", kind: "spec", format });
 
     backend.connect();
     backend.send({
       type: "agent",
-      workspaceId,
+      projectId,
       command,
       args: config.agentArgs ?? [],
       payload,
@@ -156,17 +151,17 @@ export const agent = {
    *   the text is empty.
    */
   discussText(
-    workspaceId: string,
+    projectId: string,
     text: string,
     intent: PromptIntent = "discuss",
     sourceRefs: readonly string[] = []
   ): boolean {
-    if (!ingestion.isAttached(workspaceId)) return false;
+    if (!ingestion.isAttached(projectId)) return false;
     const prompt = framePrompt(text.trim() ? text : "", intent, sourceRefs);
     if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
-    ingestion.sendInput(workspaceId, prompt);
-    ingestion.focusTerminal(workspaceId);
+    ingestion.sendInput(projectId, prompt);
+    ingestion.focusTerminal(projectId);
     return true;
   },
 
@@ -180,14 +175,14 @@ export const agent = {
    * @returns `true` if a triage prompt was submitted; `false` if no session is
    *   attached or the board is empty.
    */
-  triage(workspaceId: string): boolean {
-    if (!ingestion.isAttached(workspaceId)) return false;
-    const prompt = frameTriage(canvas.serializeForTriage(workspaceId));
+  triage(projectId: string): boolean {
+    if (!ingestion.isAttached(projectId)) return false;
+    const prompt = frameTriage(canvas.serializeForTriage(projectId));
     if (!prompt) return false;
     // Trailing '\r' submits it — a triage pass is a complete request, not an
     // editable seam like the card verbs.
-    ingestion.sendInput(workspaceId, prompt + "\r");
-    ingestion.focusTerminal(workspaceId);
+    ingestion.sendInput(projectId, prompt + "\r");
+    ingestion.focusTerminal(projectId);
     return true;
   }
 };

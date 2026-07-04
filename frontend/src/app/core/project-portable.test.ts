@@ -1,15 +1,15 @@
 /**
- * Tests for the pure workspace export/import bundle (#105) — no tldraw Editor
+ * Tests for the pure project export/import bundle (#105) — no tldraw Editor
  * involved, so it runs in the plain Node test env.
  */
 import { describe, it, expect } from "vitest";
-import type { WorkspaceMeta } from "@ai-storm/shared";
-import { buildExportBundle, exportFileSlug, parseExportBundle } from "./workspace-portable";
+import type { ProjectMeta } from "@ai-storm/shared";
+import { buildExportBundle, exportFileSlug, parseExportBundle } from "./project-portable";
 import { defaultTerminalConfig } from "./models";
 
-const meta: WorkspaceMeta = {
+const meta: ProjectMeta = {
   id: "ws_1",
-  title: "My Workspace",
+  title: "My Project",
   status: "idle",
   createdAt: 0,
   lastActiveAt: 0,
@@ -36,8 +36,8 @@ describe("buildExportBundle / parseExportBundle roundtrip", () => {
     const bundle = buildExportBundle(meta, board);
     const parsed = parseExportBundle(JSON.stringify(bundle));
     expect(parsed).toEqual(bundle);
-    expect(parsed.workspace.title).toBe("My Workspace");
-    expect(parsed.workspace.color).toBe("#f43f5e");
+    expect(parsed.project.title).toBe("My Project");
+    expect(parsed.project.color).toBe("#f43f5e");
   });
 });
 
@@ -53,28 +53,28 @@ describe("parseExportBundle validation", () => {
   it("rejects an unsupported version", () => {
     const bundle = buildExportBundle(meta, { cards: [], edges: [] });
     const bad = { ...bundle, version: 2 };
-    expect(() => parseExportBundle(JSON.stringify(bad))).toThrow(/unsupported workspace file version/i);
+    expect(() => parseExportBundle(JSON.stringify(bad))).toThrow(/unsupported project file version/i);
   });
 
-  it("rejects a bundle missing workspace metadata", () => {
+  it("rejects a bundle missing project metadata", () => {
     expect(() => parseExportBundle(JSON.stringify({ version: 1, board: { cards: [], edges: [] } }))).toThrow(
       /not a recognizable/i
     );
   });
 
   it("rejects a bundle with a malformed board", () => {
-    const bad = { version: 1, workspace: { title: "x", terminal: {} }, board: { cards: "nope" } };
+    const bad = { version: 1, project: { title: "x", terminal: {} }, board: { cards: "nope" } };
     expect(() => parseExportBundle(JSON.stringify(bad))).toThrow(/not a recognizable/i);
   });
 });
 
 describe("exportFileSlug", () => {
   it("slugifies a title", () => {
-    expect(exportFileSlug("  My Cool Workspace!! ")).toBe("my-cool-workspace");
+    expect(exportFileSlug("  My Cool Project!! ")).toBe("my-cool-project");
   });
 
-  it('falls back to "workspace" for an empty/symbol-only title', () => {
-    expect(exportFileSlug("   ")).toBe("workspace");
-    expect(exportFileSlug("!!!")).toBe("workspace");
+  it('falls back to "project" for an empty/symbol-only title', () => {
+    expect(exportFileSlug("   ")).toBe("project");
+    expect(exportFileSlug("!!!")).toBe("project");
   });
 });

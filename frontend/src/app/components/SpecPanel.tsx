@@ -30,30 +30,30 @@ function initialFormat(): SpecFormat {
  * The format picker (#110) frames the generation as a PRD, an implementation plan,
  * GitHub issues, or agent task prompts — dispatch happens HERE via `onGenerate`
  * (the toolbar verb just opens the panel), so switching format and re-running is
- * one interaction. The panel never touches workspace/terminal config itself; the
+ * one interaction. The panel never touches project/terminal config itself; the
  * parent owns the dispatch.
  *
- * It subscribes to the workspace's agent run directly, so it re-renders on every
+ * It subscribes to the project's agent run directly, so it re-renders on every
  * stream chunk without re-rendering the canvas. Only `kind: 'spec'` runs surface
  * here; a generic "Send to agent" dispatch streams into the control hub instead.
  */
 export function SpecPanel({
   open,
   onOpenChange,
-  workspaceId,
-  workspaceName,
+  projectId,
+  projectName,
   boardEmpty,
   onGenerate
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workspaceId?: string;
-  workspaceName?: string;
+  projectId?: string;
+  projectName?: string;
   /** The board has no cards to hand off — Generate is gated with why-copy. */
   boardEmpty: boolean;
   onGenerate: (format: SpecFormat, opts: SpecOptions) => void;
 }) {
-  const run = useAgentStore((s) => (workspaceId ? (s.runs[workspaceId] ?? null) : null));
+  const run = useAgentStore((s) => (projectId ? (s.runs[projectId] ?? null) : null));
   const spec = run?.kind === "spec" ? run : null;
   const markdown = spec?.output ?? "";
   const done = spec?.status === "exit" || spec?.status === "error";
@@ -87,7 +87,7 @@ export function SpecPanel({
 
   const download = () => {
     if (!markdown) return;
-    const slug = (workspaceName ?? "board")
+    const slug = (projectName ?? "board")
       .trim()
       .replace(/[^\w-]+/g, "-")
       .toLowerCase();

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { useWorkspaceStore, selectActive } from "../stores/workspace.store";
+import { useProjectStore, selectActive } from "../stores/project.store";
 import { useIngestionStore } from "../stores/ingestion.store";
 import { useBackendStore } from "../stores/backend.store";
 import { sessionIndicator, type SessionTone } from "../core/session-status";
@@ -17,7 +17,7 @@ export const TONE_DOT: Record<SessionTone, string> = {
  * one indication, two densities.
  */
 export function SessionStatusDot() {
-  const ws = useWorkspaceStore(selectActive);
+  const ws = useProjectStore(selectActive);
   const connState = useBackendStore((s) => s.state);
   const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false));
 

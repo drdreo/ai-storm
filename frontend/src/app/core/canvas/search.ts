@@ -4,7 +4,7 @@
  * Deliberately tldraw-free (like {@link ./filter} and {@link ../idea-descriptors})
  * so it is Node-unit-testable in isolation: it takes a flat list of
  * {@link SearchableIdea}s — gathered from the live editor AND every other
- * workspace's persisted board (see {@link ../../stores/canvas.store}) — a query
+ * project's persisted board (see {@link ../../stores/canvas.store}) — a query
  * string, and a structured {@link IdeaSearchFilter}, and returns ranked results.
  *
  * Keyword matching is AND-over-tokens (every whitespace-separated token must hit
@@ -18,13 +18,13 @@ import type { Origin } from "./idea-card";
 
 /**
  * One idea flattened into the shape the search index reads. Sourced from either
- * the mounted editor's cards (fresh) or a non-mounted workspace's persisted
- * tldraw store, so a result always knows which workspace to open and which card
+ * the mounted editor's cards (fresh) or a non-mounted project's persisted
+ * tldraw store, so a result always knows which project to open and which card
  * (`ref`) to reveal.
  */
 export interface SearchableIdea {
-  workspaceId: string;
-  workspaceTitle: string;
+  projectId: string;
+  projectTitle: string;
   /**
    * The tldraw shape id — stable across reloads (it's the persisted record key),
    * so it's the reliable handle {@link canvas.focusIdea} navigates by, even for a
@@ -115,11 +115,11 @@ export function matchesIdeaFilter(idea: SearchableIdea, filter: IdeaSearchFilter
 }
 
 // Field weights: a title hit is worth far more than a body hit, and the kind /
-// workspace name sit in between (a "risk" or a workspace-name search is meaningful
+// project name sit in between (a "risk" or a project-name search is meaningful
 // but weaker than a title match).
 const WEIGHT_TITLE = 8;
 const WEIGHT_KIND = 4;
-const WEIGHT_WORKSPACE = 3;
+const WEIGHT_PROJECT = 3;
 const WEIGHT_BODY = 2;
 /** Bonus when the whole query is a prefix of the title (an exact-ish hit). */
 const PREFIX_BONUS = 6;
@@ -136,7 +136,7 @@ function tokenize(query: string): string[] {
 function scoreIdea(idea: SearchableIdea, tokens: string[]): number {
   const title = idea.title.toLowerCase();
   const kind = idea.kind.toLowerCase();
-  const workspace = idea.workspaceTitle.toLowerCase();
+  const project = idea.projectTitle.toLowerCase();
   const body = idea.body.toLowerCase();
 
   let score = 0;
@@ -144,7 +144,7 @@ function scoreIdea(idea: SearchableIdea, tokens: string[]): number {
     let best = 0;
     if (title.includes(token)) best = WEIGHT_TITLE;
     else if (kind.includes(token)) best = WEIGHT_KIND;
-    else if (workspace.includes(token)) best = WEIGHT_WORKSPACE;
+    else if (project.includes(token)) best = WEIGHT_PROJECT;
     else if (body.includes(token)) best = WEIGHT_BODY;
     if (best === 0) return 0; // an unmatched token disqualifies the idea
     score += best;

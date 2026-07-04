@@ -14,22 +14,22 @@ import { cn } from "@/lib/utils";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Check, MoreHorizontal } from "lucide-react";
-import type { Folder, WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
-import { defaultWorkspaceColor, WORKSPACE_COLORS } from "../../core/models";
-import { workspace } from "../../stores/workspace.store";
+import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
+import { defaultProjectColor, PROJECT_COLORS } from "../../core/models";
+import { project } from "../../stores/project.store";
 import type { DragKind } from "./useSidebarDnd";
 
-/** Hover explanation for the workspace status badge (the ringed accent dot). */
-const STATUS_HINT: Record<WorkspaceStatus, string> = {
+/** Hover explanation for the project status badge (the ringed accent dot). */
+const STATUS_HINT: Record<ProjectStatus, string> = {
   idle: "No session running",
   active: "Session live",
   streaming: "Session live — agent responding",
-  error: "Session error — open the workspace for details"
+  error: "Session error — open the project for details"
 };
 
-/** The workspace status/accent dot, shared by the row and the drag overlay. */
-export function StatusDot({ ws }: { ws: WorkspaceMeta }) {
-  const accent = ws.color ?? defaultWorkspaceColor(ws.id);
+/** The project status/accent dot, shared by the row and the drag overlay. */
+export function StatusDot({ ws }: { ws: ProjectMeta }) {
+  const accent = ws.color ?? defaultProjectColor(ws.id);
   return (
     <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
       <span
@@ -45,21 +45,21 @@ export function StatusDot({ ws }: { ws: WorkspaceMeta }) {
   );
 }
 
-export interface WorkspaceRowProps {
-  ws: WorkspaceMeta;
+export interface ProjectRowProps {
+  ws: ProjectMeta;
   isActive: boolean;
   isEditing: boolean;
   folders: Folder[];
   onStartRename: (id: string) => void;
-  onCommitRename: (ws: WorkspaceMeta, value: string) => void;
-  onRenameKey: (e: React.KeyboardEvent<HTMLInputElement>, ws: WorkspaceMeta) => void;
+  onCommitRename: (ws: ProjectMeta, value: string) => void;
+  onRenameKey: (e: React.KeyboardEvent<HTMLInputElement>, ws: ProjectMeta) => void;
   renameInputRef: (el: HTMLInputElement | null) => void;
-  onRequestDelete: (ws: WorkspaceMeta) => void;
-  onExport: (ws: WorkspaceMeta) => void;
+  onRequestDelete: (ws: ProjectMeta) => void;
+  onExport: (ws: ProjectMeta) => void;
 }
 
 /**
- * A single sortable workspace row (status dot, inline rename, kebab). Shared
+ * A single sortable project row (status dot, inline rename, kebab). Shared
  * between the top-level list and the rows nested inside a folder group.
  *
  * Drag ergonomics (#128 DnD): the whole row is a pointer drag source (with a
@@ -67,11 +67,11 @@ export interface WorkspaceRowProps {
  * grabbing the row itself is discoverable enough that a dedicated grip icon
  * would just be extra chrome.
  */
-export function SortableWorkspaceRow(props: WorkspaceRowProps) {
+export function SortableProjectRow(props: ProjectRowProps) {
   const { ws, isActive, isEditing, folders } = props;
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ws.id,
-    data: { kind: "workspace" satisfies DragKind },
+    data: { kind: "project" satisfies DragKind },
     disabled: isEditing
   });
   const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition };
@@ -82,7 +82,7 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
         <SidebarInput
           ref={props.renameInputRef}
           defaultValue={ws.title}
-          aria-label="Rename workspace"
+          aria-label="Rename project"
           onKeyDown={(e) => props.onRenameKey(e, ws)}
           onBlur={(e) => props.onCommitRename(ws, e.currentTarget.value)}
         />
@@ -90,7 +90,7 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
     );
   }
 
-  const accent = ws.color ?? defaultWorkspaceColor(ws.id);
+  const accent = ws.color ?? defaultProjectColor(ws.id);
   return (
     // "group/ws-row", not the ambient "group/menu-item" every SidebarMenuItem
     // carries: a row nested inside a folder is a DOM descendant of the
@@ -101,7 +101,7 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
     <SidebarMenuItem ref={setNodeRef} style={style} className={cn("group/ws-row", isDragging && "opacity-40")}>
       <SidebarMenuButton
         isActive={isActive}
-        onClick={() => workspace.setActive(ws.id)}
+        onClick={() => project.setActive(ws.id)}
         onDoubleClick={() => props.onStartRename(ws.id)}
         onPointerDown={listeners?.onPointerDown as React.PointerEventHandler<HTMLButtonElement> | undefined}
         tooltip={ws.status === "idle" ? ws.title : `${ws.title} · ${STATUS_HINT[ws.status]}`}
@@ -126,14 +126,14 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
             <DropdownMenuSubTrigger>Color</DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent className="min-w-0 p-2">
-                <div className="grid grid-cols-5 gap-1.5" role="group" aria-label="Workspace color">
-                  {WORKSPACE_COLORS.map((c) => (
+                <div className="grid grid-cols-5 gap-1.5" role="group" aria-label="Project color">
+                  {PROJECT_COLORS.map((c) => (
                     <button
                       key={c}
                       type="button"
                       aria-label={`Set color ${c}`}
                       aria-pressed={accent === c}
-                      onClick={() => workspace.setColor(ws.id, c)}
+                      onClick={() => project.setColor(ws.id, c)}
                       className={cn(
                         "size-5 rounded-full ring-offset-2 ring-offset-popover transition-shadow",
                         accent === c && "ring-2 ring-foreground"
@@ -149,13 +149,13 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
             <DropdownMenuSubTrigger>Move to folder</DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent className="min-w-[156px]">
-                <DropdownMenuItem onSelect={() => workspace.moveToFolder(ws.id, null)}>
+                <DropdownMenuItem onSelect={() => project.moveToFolder(ws.id, null)}>
                   {!ws.folderId && <Check className="size-3.5" />}
                   <span className={cn(!ws.folderId && "font-medium")}>No folder</span>
                 </DropdownMenuItem>
                 {folders.length > 0 && <DropdownMenuSeparator />}
                 {folders.map((f) => (
-                  <DropdownMenuItem key={f.id} onSelect={() => workspace.moveToFolder(ws.id, f.id)}>
+                  <DropdownMenuItem key={f.id} onSelect={() => project.moveToFolder(ws.id, f.id)}>
                     {ws.folderId === f.id && <Check className="size-3.5" />}
                     <span className={cn("truncate", ws.folderId === f.id && "font-medium")}>{f.title}</span>
                   </DropdownMenuItem>

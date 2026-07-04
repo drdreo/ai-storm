@@ -16,7 +16,7 @@ interface Harness {
   sendInput: ReturnType<typeof vi.fn>;
   focusTerminal: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
-  /** Push a backend message to the store's workspace subscription. */
+  /** Push a backend message to the store's project subscription. */
   receive: (msg: ServerMessage) => void;
 }
 
@@ -140,7 +140,7 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
     h.useAgentStore.setState({ runs: {} });
     h.receive({
       type: "agent-status",
-      workspaceId: "ws1",
+      projectId: "ws1",
       status: "spawned",
       pid: 1,
       format: "issues"
@@ -152,7 +152,7 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
     h.agent.generateSpec("ws1", config, "issues", { createIssues: true });
     h.receive({
       type: "agent-status",
-      workspaceId: "ws1",
+      projectId: "ws1",
       status: "spawned",
       pid: 1,
       format: "issues"
@@ -164,8 +164,8 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
         url: "https://github.com/acme/app/issues/12"
       }
     ];
-    h.receive({ type: "agent-artifacts", workspaceId: "ws1", artifacts });
-    h.receive({ type: "agent-status", workspaceId: "ws1", status: "exit", code: 0 });
+    h.receive({ type: "agent-artifacts", projectId: "ws1", artifacts });
+    h.receive({ type: "agent-status", projectId: "ws1", status: "exit", code: 0 });
     const run = h.useAgentStore.getState().runs["ws1"];
     expect(run?.status).toBe("exit");
     expect(run?.artifacts).toEqual(artifacts);

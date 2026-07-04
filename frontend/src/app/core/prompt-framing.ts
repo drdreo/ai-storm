@@ -128,7 +128,7 @@ export interface SpecOptions {
    * `issues` format only: instruct the agent to actually run `gh issue create`
    * per issue (side effects are opt-in — off means ready-to-file drafts). The
    * tool permission is granted per-run by the backend's vetted `create-issues`
-   * capability (#120), not by the workspace's global agent args; `gh` auth is
+   * capability (#120), not by the project's global agent args; `gh` auth is
    * still the user's — the framing asks for a graceful drafts fallback when the
    * command can't create.
    */

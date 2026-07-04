@@ -98,7 +98,7 @@ export function killAgentTree(child: ChildProcess): void {
 }
 
 export function runAgent(
-  workspaceId: string,
+  projectId: string,
   spec: AgentSpec,
   emit: AgentEmitter,
   emitArtifacts?: ArtifactEmitter,
@@ -112,9 +112,9 @@ export function runAgent(
   // pathological sizes before allocating anything (#142).
   const payloadBytes = Buffer.byteLength(spec.payload, "utf8");
   if (payloadBytes > maxPayloadBytes) {
-    log.warn("agent.payload_too_large", { workspace: workspaceId, bytes: payloadBytes, cap: maxPayloadBytes });
+    log.warn("agent.payload_too_large", { project: projectId, bytes: payloadBytes, cap: maxPayloadBytes });
     emit({
-      workspaceId,
+      projectId,
       status: "error",
       data: `Agent payload too large (${payloadBytes} bytes; limit ${maxPayloadBytes}).`
     });
@@ -128,12 +128,12 @@ export function runAgent(
   const requestedArgs = [...(spec.args ?? []), ...caps.args];
   for (const cap of caps.rejected) {
     log.warn("agent.capability_rejected", {
-      workspace: workspaceId,
+      project: projectId,
       command: spec.command,
       capability: cap
     });
     emit({
-      workspaceId,
+      projectId,
       status: "stderr",
       data: `[ai-storm] Ignored requested capability "${cap}": no vetted permission mapping for command "${spec.command}".\n`
     });
@@ -149,11 +149,11 @@ export function runAgent(
     launch = resolveLaunch(spec.command, requestedArgs, { strict: true });
   } catch (err) {
     log.error("agent.resolve_failed", {
-      workspace: workspaceId,
+      project: projectId,
       command: spec.command,
       error: err instanceof Error ? err.message : String(err)
     });
-    emit({ workspaceId, status: "error", data: err instanceof Error ? err.message : String(err) });
+    emit({ projectId, status: "error", data: err instanceof Error ? err.message : String(err) });
     return null;
   }
 
@@ -167,12 +167,12 @@ export function runAgent(
 
   child.on("error", (err) => {
     log.error("agent.spawn_failed", {
-      workspace: workspaceId,
+      project: projectId,
       command: spec.command,
       error: err.message
     });
     emit({
-      workspaceId,
+      projectId,
       status: "error",
       data: `Failed to spawn "${spec.command}": ${err.message}`
     });
@@ -189,12 +189,12 @@ export function runAgent(
 
   child.on("spawn", () => {
     log.info("agent.spawned", {
-      workspace: workspaceId,
+      project: projectId,
       command: spec.command,
       pid: child.pid ?? -1,
       format: spec.format ?? ""
     });
-    emit({ workspaceId, status: "spawned", pid: child.pid ?? -1, format: spec.format });
+    emit({ projectId, status: "spawned", pid: child.pid ?? -1, format: spec.format });
   });
 
   // Wall-clock ceiling (#142): a hung or runaway harness must not live forever
@@ -202,9 +202,9 @@ export function runAgent(
   let killedFor: "timeout" | "output-cap" | null = null;
   const timer = setTimeout(() => {
     killedFor = "timeout";
-    log.warn("agent.timeout", { workspace: workspaceId, command: spec.command, timeoutMs });
+    log.warn("agent.timeout", { project: projectId, command: spec.command, timeoutMs });
     emit({
-      workspaceId,
+      projectId,
       status: "stderr",
       data:
         `[ai-storm] Agent run exceeded the ${Math.round(timeoutMs / 1000)}s time limit; killing it. ` +
@@ -226,9 +226,9 @@ export function runAgent(
     outputBytes += chunk.length;
     if (outputBytes > maxOutputBytes && killedFor === null) {
       killedFor = "output-cap";
-      log.warn("agent.output_capped", { workspace: workspaceId, command: spec.command, cap: maxOutputBytes });
+      log.warn("agent.output_capped", { project: projectId, command: spec.command, cap: maxOutputBytes });
       emit({
-        workspaceId,
+        projectId,
         status: "stderr",
         data: `[ai-storm] Agent run exceeded the ${maxOutputBytes}-byte output limit; killing it.\n`
       });
@@ -244,18 +244,18 @@ export function runAgent(
     if (captureArtifacts && captured.length < MAX_CAPTURE_BYTES) {
       captured += d.slice(0, MAX_CAPTURE_BYTES - captured.length);
     }
-    emit({ workspaceId, status: "stdout", data: d });
+    emit({ projectId, status: "stdout", data: d });
     noteOutput(d);
   });
   child.stderr?.on("data", (d: string) => {
-    emit({ workspaceId, status: "stderr", data: d });
+    emit({ projectId, status: "stderr", data: d });
     noteOutput(d);
   });
 
   child.on("close", (code) => {
     clearTimeout(timer);
     log.info("agent.exit", {
-      workspace: workspaceId,
+      project: projectId,
       command: spec.command,
       code: code ?? -1,
       killedFor: killedFor ?? ""
@@ -264,7 +264,7 @@ export function runAgent(
       const artifacts = parseIssueArtifacts(captured);
       if (artifacts.length > 0) emitArtifacts(artifacts);
     }
-    emit({ workspaceId, status: "exit", code: code ?? -1 });
+    emit({ projectId, status: "exit", code: code ?? -1 });
   });
 
   return child;

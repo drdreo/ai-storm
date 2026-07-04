@@ -2,17 +2,17 @@
  * Wire protocol shared between the Node backend and the web client.
  *
  * Canonical single source of truth: both `ai-storm-backend` and
- * `ai-storm-frontend` import this module via the `@ai-storm/shared` workspace
+ * `ai-storm-frontend` import this module via the `@ai-storm/shared` project
  * dependency. There is no longer a hand-maintained frontend mirror.
  *
  * All messages are JSON encoded and exchanged over the local-only WebSocket
- * loop described in PRD §4.2. Every message is keyed by `workspaceId` so a
- * single socket can multiplex the strictly-isolated workspaces from PRD §3.4.
+ * loop described in PRD §4.2. Every message is keyed by `projectId` so a
+ * single socket can multiplex the strictly-isolated projects from PRD §3.4.
  *
- * The backend hosts each workspace's AI harness inside a durable, named,
+ * The backend hosts each project's AI harness inside a durable, named,
  * connection-independent session (tmux on POSIX, an in-process node-pty on
  * Windows — see `docs/design/ai-session-layer.md`). It streams two independent
- * surfaces per workspace:
+ * surfaces per project:
  *  - `data` — the raw PTY byte stream, rendered by xterm.js in the browser, so
  *    the conversation surface is a real terminal (display is xterm's job, not
  *    ours). Bytes are base64-encoded to survive control characters intact.
@@ -26,7 +26,7 @@
  */
 
 export * from "./modes.js";
-export * from "./workspace.js";
+export * from "./project.js";
 
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =
@@ -39,14 +39,14 @@ export type ClientMessage =
   | AgentMessage;
 
 /**
- * Ensure the durable session for a workspace exists and start streaming its
+ * Ensure the durable session for a project exists and start streaming its
  * extracted responses to this client. Idempotent (PRD §3.5): if the session is
  * already running (e.g. after a browser refresh or backend restart), the
  * backend re-attaches the response stream instead of respawning the harness.
  */
 export interface AttachMessage {
   type: "attach";
-  workspaceId: string;
+  projectId: string;
   /**
    * The interactive harness command to host, e.g. "claude" or "codex". Optional; defaults
    * to the configured harness. Never a headless/print flag — the real
@@ -76,35 +76,35 @@ export interface AttachMessage {
   background?: string;
 }
 
-/** Send a prompt to the workspace's session (delivered to the harness stdin). */
+/** Send a prompt to the project's session (delivered to the harness stdin). */
 export interface InputMessage {
   type: "input";
-  workspaceId: string;
+  projectId: string;
   data: string;
 }
 
 /** Inform the session of a new viewport size; re-anchors extraction width. */
 export interface ResizeMessage {
   type: "resize";
-  workspaceId: string;
+  projectId: string;
   cols: number;
   rows: number;
 }
 
 /**
- * Stop streaming responses for a workspace but LEAVE the durable session alive
- * (browser refresh, socket loss, workspace hot-switch). The session can be
+ * Stop streaming responses for a project but LEAVE the durable session alive
+ * (browser refresh, socket loss, project hot-switch). The session can be
  * reattached later (PRD §3.5).
  */
 export interface DetachMessage {
   type: "detach";
-  workspaceId: string;
+  projectId: string;
 }
 
-/** Terminate and clean up a workspace's session entirely (PRD §5.2 teardown). */
+/** Terminate and clean up a project's session entirely (PRD §5.2 teardown). */
 export interface KillMessage {
   type: "kill";
-  workspaceId: string;
+  projectId: string;
 }
 
 /**
@@ -113,7 +113,7 @@ export interface KillMessage {
  */
 export interface ContextMessage {
   type: "context";
-  workspaceId: string;
+  projectId: string;
   document: string;
 }
 
@@ -130,14 +130,14 @@ export type SpecFormat = "prd" | "plan" | "issues" | "tasks";
  * by name, and the backend maps it to a hardcoded, command-specific flag (see
  * `backend/src/agent/capabilities.ts`). Only `create-issues` exists today: it
  * scopes `gh issue create` permission to the single run that opted in, instead
- * of the user baking it into the workspace's global agent args.
+ * of the user baking it into the project's global agent args.
  */
 export type AgentCapability = "create-issues";
 
 /** Downstream agent execution hook (PRD §3.6). */
 export interface AgentMessage {
   type: "agent";
-  workspaceId: string;
+  projectId: string;
   /** The orchestrator command to invoke, e.g. "claude" or "aider". */
   command: string;
   /** Static arguments preceding the payload. */
@@ -170,7 +170,7 @@ export type ServerMessage =
 /** Lifecycle of a durable session, decoupled from a specific connection. */
 export interface SessionStatusMessage {
   type: "session-status";
-  workspaceId: string;
+  projectId: string;
   status: "created" | "attached" | "idle" | "responding" | "killed";
 }
 
@@ -273,19 +273,19 @@ export interface Score {
  */
 export interface ScoreMessage {
   type: "score";
-  workspaceId: string;
+  projectId: string;
   score: Score;
 }
 
 /**
- * Raw PTY output for a workspace's session — streamed to the browser's xterm.js
+ * Raw PTY output for a project's session — streamed to the browser's xterm.js
  * terminal verbatim (the conversation surface). `data` is base64-encoded so the
  * control bytes of a cursor-addressed TUI survive JSON transport unchanged; the
  * client decodes it and writes the bytes straight into the terminal.
  */
 export interface DataMessage {
   type: "data";
-  workspaceId: string;
+  projectId: string;
   /** Base64-encoded raw PTY bytes. */
   data: string;
 }
@@ -298,21 +298,21 @@ export interface DataMessage {
  */
 export interface IdeaMessage {
   type: "idea";
-  workspaceId: string;
+  projectId: string;
   idea: Idea;
 }
 
 /** The durable session ended unexpectedly (e.g. killed externally). */
 export interface ExitMessage {
   type: "exit";
-  workspaceId: string;
+  projectId: string;
   code: number;
 }
 
 /** Lifecycle updates for a downstream agent subprocess (PRD §3.6). */
 export interface AgentStatusMessage {
   type: "agent-status";
-  workspaceId: string;
+  projectId: string;
   status: "spawned" | "stdout" | "stderr" | "exit" | "error";
   pid?: number;
   data?: string;
@@ -344,14 +344,14 @@ export interface AgentArtifact {
  */
 export interface AgentArtifactsMessage {
   type: "agent-artifacts";
-  workspaceId: string;
+  projectId: string;
   artifacts: AgentArtifact[];
 }
 
-/** A recoverable error scoped to a workspace (or the connection). */
+/** A recoverable error scoped to a project (or the connection). */
 export interface ErrorMessage {
   type: "error";
-  workspaceId?: string;
+  projectId?: string;
   message: string;
 }
 
@@ -386,8 +386,8 @@ export function parseClientMessage(raw: string): ClientMessage {
   if (typeof msg !== "object" || msg === null || !("type" in msg)) {
     throw new Error("Malformed message: missing `type`");
   }
-  if (msg.type !== "attach" && !("workspaceId" in msg)) {
-    throw new Error("Malformed message: missing `workspaceId`");
+  if (msg.type !== "attach" && !("projectId" in msg)) {
+    throw new Error("Malformed message: missing `projectId`");
   }
 
   // Per-type field validation so malformed payloads are rejected here with a
@@ -395,7 +395,7 @@ export function parseClientMessage(raw: string): ClientMessage {
   const m = msg as unknown as Record<string, unknown>;
   switch (msg.type) {
     case "attach":
-      requireString(m, "workspaceId", "attach");
+      requireString(m, "projectId", "attach");
       requireOptionalString(m, "shell", "attach");
       requireOptionalStringArray(m, "args", "attach");
       requireOptionalString(m, "cwd", "attach");
@@ -411,7 +411,7 @@ export function parseClientMessage(raw: string): ClientMessage {
       break;
     case "detach":
     case "kill":
-      // workspaceId checked above; nothing else required.
+      // projectId checked above; nothing else required.
       break;
     case "context":
       requireString(m, "document", "context");

@@ -1,12 +1,12 @@
 /**
- * Cross-workspace idea gathering (#124) — the read side that lets Ctrl+K search
- * ideas in workspaces that aren't the mounted one.
+ * Cross-project idea gathering (#124) — the read side that lets Ctrl+K search
+ * ideas in projects that aren't the mounted one.
  *
- * Only the active workspace has a live tldraw `Editor`; every other workspace's
+ * Only the active project has a live tldraw `Editor`; every other project's
  * board lives in its own IndexedDB store (see {@link CanvasIsland}'s
  * `persistenceKey`). tldraw persists each store as `TLDRAW_DOCUMENT_v2<key>` with
  * a `records` object store holding every record (LocalIndexedDb, pinned to tldraw
- * 5.x — the same layout {@link canvas.removeWorkspace} deletes). We open it
+ * 5.x — the same layout {@link canvas.removeProject} deletes). We open it
  * READ-ONLY and pull the `idea-card` shape records straight out, so search sees a
  * non-mounted board without the flicker/cost of switching onto it.
  *
@@ -37,15 +37,15 @@ interface PersistedShapeRecord {
  * the editor or straight out of IndexedDB.
  */
 export function toSearchableIdea(
-  workspaceId: string,
-  workspaceTitle: string,
+  projectId: string,
+  projectTitle: string,
   shapeId: string,
   props: { kind?: string; title?: string; body?: string; origin?: Origin; superseded?: boolean },
   meta: IdeaCardMeta
 ): SearchableIdea {
   return {
-    workspaceId,
-    workspaceTitle,
+    projectId,
+    projectTitle,
     shapeId,
     ref: meta.ref,
     kind: props.kind ?? "",
@@ -59,32 +59,32 @@ export function toSearchableIdea(
   };
 }
 
-function dbName(workspaceId: string): string {
-  return `${STORE_PREFIX}${PERSISTENCE_PREFIX}${workspaceId}`;
+function dbName(projectId: string): string {
+  return `${STORE_PREFIX}${PERSISTENCE_PREFIX}${projectId}`;
 }
 
 /**
- * Whether a workspace's board DB already exists — so we never open (and thereby
- * CREATE) an empty store for a workspace that has never been mounted. Uses
+ * Whether a project's board DB already exists — so we never open (and thereby
+ * CREATE) an empty store for a project that has never been mounted. Uses
  * `indexedDB.databases()` where available (Chromium — this app's target per the
  * ConPTY/Chrome stack); falls back to `true` (attempt the open) when the API is
  * missing, which at worst leaves an empty store behind.
  */
-async function boardDbExists(workspaceId: string): Promise<boolean> {
+async function boardDbExists(projectId: string): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false;
   if (typeof indexedDB.databases !== "function") return true;
   try {
     const names = (await indexedDB.databases()).map((d) => d.name);
-    return names.includes(dbName(workspaceId));
+    return names.includes(dbName(projectId));
   } catch {
     return true;
   }
 }
 
-function openBoardDb(workspaceId: string): Promise<IDBDatabase | null> {
+function openBoardDb(projectId: string): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
     let created = false;
-    const request = indexedDB.open(dbName(workspaceId));
+    const request = indexedDB.open(dbName(projectId));
     // A version bump we didn't ask for means the DB didn't exist — bail rather
     // than stand up an empty store tldraw would then own.
     request.onupgradeneeded = () => {
@@ -117,19 +117,19 @@ function readAllRecords(db: IDBDatabase): Promise<PersistedShapeRecord[]> {
 }
 
 /**
- * Read a non-mounted workspace's persisted idea cards as {@link SearchableIdea}s
+ * Read a non-mounted project's persisted idea cards as {@link SearchableIdea}s
  * (#124). Best-effort: any failure (missing DB, blocked open, older schema)
  * yields `[]` so a single unreadable board never breaks search.
  */
-export async function readPersistedIdeas(workspaceId: string, workspaceTitle: string): Promise<SearchableIdea[]> {
-  if (!(await boardDbExists(workspaceId))) return [];
-  const db = await openBoardDb(workspaceId);
+export async function readPersistedIdeas(projectId: string, projectTitle: string): Promise<SearchableIdea[]> {
+  if (!(await boardDbExists(projectId))) return [];
+  const db = await openBoardDb(projectId);
   if (!db) return [];
   try {
     const records = await readAllRecords(db);
     return records
       .filter((r) => r.typeName === "shape" && r.type === "idea-card" && typeof r.id === "string")
-      .map((r) => toSearchableIdea(workspaceId, workspaceTitle, r.id!, r.props ?? {}, r.meta ?? {}));
+      .map((r) => toSearchableIdea(projectId, projectTitle, r.id!, r.props ?? {}, r.meta ?? {}));
   } finally {
     db.close();
   }

@@ -7,22 +7,22 @@ import {
   type DragStartEvent
 } from "@dnd-kit/core";
 import { useState } from "react";
-import type { Folder, WorkspaceMeta } from "@ai-storm/shared";
+import type { Folder, ProjectMeta } from "@ai-storm/shared";
 import { computeOrder, orderAfterAll } from "../../core/sidebar-order";
-import { workspace } from "../../stores/workspace.store";
+import { project } from "../../stores/project.store";
 
 /** Droppable id for the top-level (ungrouped) zone when it has no rows. */
 export const UNGROUPED_ZONE = "__ungrouped__";
 
-export type DragKind = "workspace" | "folder";
+export type DragKind = "project" | "folder";
 
 /**
  * Sidebar drag-and-drop (#128): reorder folders among folders, reorder
- * workspaces within a container, or drag a workspace across containers
+ * projects within a container, or drag a project across containers
  * (folder ↔ top level). Wraps dnd-kit's sensors + drag-end math so
  * {@link Sidebar} only wires up `DndContext`/`SortableContext` markup.
  */
-export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
+export function useSidebarDnd(projects: ProjectMeta[], folders: Folder[]) {
   const [drag, setDrag] = useState<{ kind: DragKind; id: string } | null>(null);
 
   // Distance threshold keeps plain click (activate) and double-click (rename)
@@ -31,8 +31,8 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
   // handle for a KeyboardSensor to attach to.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
-  /** A workspace's effective container: its folder id, or null (top level). */
-  const containerOf = (ws: WorkspaceMeta): string | null =>
+  /** A project's effective container: its folder id, or null (top level). */
+  const containerOf = (ws: ProjectMeta): string | null =>
     ws.folderId && folders.some((f) => f.id === ws.folderId) ? ws.folderId : null;
 
   const onDragStart = (e: DragStartEvent) => {
@@ -48,9 +48,9 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
 
     if (active.data.current?.kind === "folder") {
       const folderId = String(active.id);
-      // Folders only reorder among folders: a workspace target maps to its
+      // Folders only reorder among folders: a project target maps to its
       // containing folder; an ungrouped target means "past the last folder".
-      const overWs = workspaces.find((w) => w.id === overId);
+      const overWs = projects.find((w) => w.id === overId);
       const targetId = folders.some((f) => f.id === overId) ? overId : overWs ? containerOf(overWs) : null;
       if (targetId === folderId) return;
       const siblings = folders.filter((f) => f.id !== folderId);
@@ -60,25 +60,25 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
             folders.findIndex((f) => f.id === targetId)
           )
         : orderAfterAll(siblings);
-      workspace.reorderFolder(folderId, order);
+      project.reorderFolder(folderId, order);
       return;
     }
 
-    // Workspace drag: within a container, into a folder, or back to top level.
+    // Project drag: within a container, into a folder, or back to top level.
     const wsId = String(active.id);
     const appendTo = (container: string | null) => {
-      const siblings = workspaces.filter((w) => containerOf(w) === container && w.id !== wsId);
-      workspace.moveWorkspace(wsId, container, orderAfterAll(siblings));
+      const siblings = projects.filter((w) => containerOf(w) === container && w.id !== wsId);
+      project.moveProject(wsId, container, orderAfterAll(siblings));
     };
 
     if (overId === UNGROUPED_ZONE) return appendTo(null);
     if (folders.some((f) => f.id === overId)) return appendTo(overId);
 
-    const overWs = workspaces.find((w) => w.id === overId);
-    const activeWs = workspaces.find((w) => w.id === wsId);
+    const overWs = projects.find((w) => w.id === overId);
+    const activeWs = projects.find((w) => w.id === wsId);
     if (!overWs || !activeWs) return;
     const target = containerOf(overWs);
-    const items = workspaces.filter((w) => containerOf(w) === target);
+    const items = projects.filter((w) => containerOf(w) === target);
     const siblings = items.filter((w) => w.id !== wsId);
     // Same container follows arrayMove semantics (the index of the hovered row
     // in the full list is where the moved row lands once its old slot closes);
@@ -87,7 +87,7 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
       containerOf(activeWs) === target
         ? items.findIndex((w) => w.id === overId)
         : siblings.findIndex((w) => w.id === overId);
-    workspace.moveWorkspace(wsId, target, computeOrder(siblings, dropIndex));
+    project.moveProject(wsId, target, computeOrder(siblings, dropIndex));
   };
 
   return {
@@ -98,7 +98,7 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
     onDragEnd,
     onDragCancel: () => setDrag(null),
     containerOf,
-    draggedWs: drag?.kind === "workspace" ? workspaces.find((w) => w.id === drag.id) : undefined,
+    draggedWs: drag?.kind === "project" ? projects.find((w) => w.id === drag.id) : undefined,
     draggedFolder: drag?.kind === "folder" ? folders.find((f) => f.id === drag.id) : undefined
   };
 }

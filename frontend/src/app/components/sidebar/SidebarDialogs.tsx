@@ -8,11 +8,11 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
-import type { Folder, WorkspaceMeta } from "@ai-storm/shared";
+import type { Folder, ProjectMeta } from "@ai-storm/shared";
 
 export interface SidebarDialogsProps {
-  deleteTarget: WorkspaceMeta | null;
-  onDeleteTargetChange: (target: WorkspaceMeta | null) => void;
+  deleteTarget: ProjectMeta | null;
+  onDeleteTargetChange: (target: ProjectMeta | null) => void;
   onConfirmDelete: () => void;
   deleteFolderTarget: Folder | null;
   onDeleteFolderTargetChange: (target: Folder | null) => void;
@@ -22,7 +22,7 @@ export interface SidebarDialogsProps {
 }
 
 /**
- * The Sidebar's confirm/error dialogs (delete workspace, delete folder, import
+ * The Sidebar's confirm/error dialogs (delete project, delete folder, import
  * failed) — split out since they're pure presentation over parent-owned state,
  * no drag-and-drop or CRDT concerns of their own.
  */
@@ -33,7 +33,7 @@ export function SidebarDialogs(props: SidebarDialogsProps) {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && props.onDeleteTargetChange(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete workspace?</DialogTitle>
+            <DialogTitle>Delete project?</DialogTitle>
             <DialogDescription>
               “{deleteTarget?.title}” and its canvas will be permanently deleted. This can’t be undone.
             </DialogDescription>
@@ -45,7 +45,7 @@ export function SidebarDialogs(props: SidebarDialogsProps) {
               </Button>
             </DialogClose>
             <Button variant="destructive" size="sm" onClick={props.onConfirmDelete}>
-              Delete workspace
+              Delete project
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -56,7 +56,7 @@ export function SidebarDialogs(props: SidebarDialogsProps) {
           <DialogHeader>
             <DialogTitle>Delete folder?</DialogTitle>
             <DialogDescription>
-              “{deleteFolderTarget?.title}” will be removed. Its workspaces are kept and moved back to the top level.
+              “{deleteFolderTarget?.title}” will be removed. Its projects are kept and moved back to the top level.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

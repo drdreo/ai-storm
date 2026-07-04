@@ -14,7 +14,7 @@ import { agent } from "../stores/agent.store";
 import { canvas, useCanvasStore } from "../stores/canvas.store";
 import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
-import { selectActive, useWorkspaceStore, workspace } from "../stores/workspace.store";
+import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./BoardCommandPalette";
 import { SpecPanel } from "./SpecPanel";
 import { SummaryPanel } from "./SummaryPanel";
@@ -65,15 +65,15 @@ function ToolbarVerb({
 }
 
 /**
- * Structural Workspace Canvas (PRD §3.1, §4.1). Hosts the tldraw canvas (the
+ * Structural Project Canvas (PRD §3.1, §4.1). Hosts the tldraw canvas (the
  * React {@link CanvasIsland}) as the single spatial surface (PD-011). The pane
  * is a shadcn toolbar of agent macros (PRD §3.6) over the canvas, which it
  * renders directly (PD-016). The card filter (#21) lives inside the canvas
  * itself (top-right), not in this toolbar.
  */
 export function CanvasPane() {
-  const active = useWorkspaceStore(selectActive);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const active = useProjectStore(selectActive);
+  const projects = useProjectStore((s) => s.projects);
   const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false));
   useCanvasStore((s) => s.ideasTick);
   // Convergence panel (#28): the summary is regenerated each time it opens — a
@@ -87,32 +87,32 @@ export function CanvasPane() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const focusMode = useUiStore((s) => s.focusMode);
   // Full-text search index (#124): gathered fresh each time the palette opens —
-  // the mounted board read live, every other workspace from its persisted store.
+  // the mounted board read live, every other project from its persisted store.
   const [searchIdeas, setSearchIdeas] = useState<readonly SearchableIdea[]>([]);
 
   // Bidirectional canvas (#13, #15): when a card verb fires, frame the card's
-  // text and type it into the active workspace's live terminal. Registered once;
-  // reads the latest active workspace at fire time.
+  // text and type it into the active project's live terminal. Registered once;
+  // reads the latest active project at fire time.
   useEffect(() => {
     canvas.onCardVerb((text, intent, sourceRefs) => {
-      const ws = selectActive(useWorkspaceStore.getState());
+      const ws = selectActive(useProjectStore.getState());
       if (ws) agent.discussText(ws.id, text, intent, sourceRefs);
     });
   }, []);
 
-  // Gather the cross-workspace idea index whenever the palette opens (#124). A
+  // Gather the cross-project idea index whenever the palette opens (#124). A
   // stale-guard drops the result if the palette closed before the async read
   // (persisted-board reads hit IndexedDB) resolved.
   useEffect(() => {
     if (!paletteOpen) return;
     let live = true;
-    canvas.collectSearchIdeas(workspaces.map((w) => ({ id: w.id, title: w.title }))).then((ideas) => {
+    canvas.collectSearchIdeas(projects.map((w) => ({ id: w.id, title: w.title }))).then((ideas) => {
       if (live) setSearchIdeas(ideas);
     });
     return () => {
       live = false;
     };
-  }, [paletteOpen, workspaces]);
+  }, [paletteOpen, projects]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -141,7 +141,7 @@ export function CanvasPane() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [paletteOpen]);
 
-  // React to workspace switches — rebind the tldraw island (PRD §3.4). Done at
+  // React to project switches — rebind the tldraw island (PRD §3.4). Done at
   // render time (idempotent) so the controller's active id is set BEFORE the
   // freshly-keyed CanvasIsland mounts and `onEditorMount` drains its queue.
   if (active) canvas.switchTo(active.id);
@@ -228,7 +228,7 @@ export function CanvasPane() {
         {active && (
           <CanvasIsland
             key={active.id}
-            workspaceId={active.id}
+            projectId={active.id}
             bridge={canvas.bridge}
             emptyStateActions={emptyStateActions}
             sessionAttached={attached}
@@ -236,13 +236,13 @@ export function CanvasPane() {
         )}
       </div>
 
-      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} workspaceName={active?.title} />
+      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
 
       <SpecPanel
         open={specOpen}
         onOpenChange={setSpecOpen}
-        workspaceId={active?.id}
-        workspaceName={active?.title}
+        projectId={active?.id}
+        projectName={active?.title}
         boardEmpty={specBoardEmpty}
         onGenerate={generateSpec}
       />
@@ -251,7 +251,7 @@ export function CanvasPane() {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         active={active}
-        workspaces={workspaces}
+        projects={projects}
         attached={attached}
         board={boardState}
         onNewIdea={() => active && canvas.createIdea(active.id)}
@@ -274,11 +274,11 @@ export function CanvasPane() {
           })
         }
         onOpenSettings={ui.openSettings}
-        onSwitchWorkspace={workspace.setActive}
+        onSwitchProject={project.setActive}
         focusMode={focusMode}
         onToggleFocusMode={ui.toggleFocusMode}
         searchIdeas={searchIdeas}
-        onRevealIdea={(workspaceId, shapeId) => void workspace.revealIdea(workspaceId, shapeId)}
+        onRevealIdea={(projectId, shapeId) => void project.revealIdea(projectId, shapeId)}
       />
     </div>
   );

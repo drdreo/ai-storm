@@ -7,7 +7,7 @@
  * keeps the executor's trust model intact (only static backend-owned strings
  * reach the command line) while scoping side effects like `gh issue create`
  * to the single run that opted in, instead of the user baking the permission
- * into the workspace's global agent args (where it would apply to EVERY
+ * into the project's global agent args (where it would apply to EVERY
  * hand-off).
  *
  * The table is deliberately tiny: one capability, one recognized command.

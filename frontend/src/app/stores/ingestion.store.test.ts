@@ -5,7 +5,7 @@
  *  - `idea` → canvas.applyIdeas via the render scheduler.
  *
  * Ported from the Angular spec. The collaborator stores (canvas, backend,
- * workspace) are mocked so the store runs in the plain Node test env; a fresh
+ * project) are mocked so the store runs in the plain Node test env; a fresh
  * module instance per test (`vi.resetModules()`) keeps the singleton's pipeline
  * maps isolated between cases.
  */
@@ -33,13 +33,13 @@ async function makeStore() {
       send: () => {}
     }
   }));
-  vi.doMock("./workspace.store", () => ({ workspace: { setStatus: vi.fn() } }));
+  vi.doMock("./project.store", () => ({ project: { setStatus: vi.fn() } }));
 
   const { ingestion } = await import("./ingestion.store");
   ingestion.attach("ws1", { agentCommand: "claude" } as never);
   const emitIdea = (idea: { title: string; body: string; kind?: string }) =>
-    listener?.({ type: "idea", workspaceId: "ws1", idea });
-  const emitData = (data: string) => listener?.({ type: "data", workspaceId: "ws1", data });
+    listener?.({ type: "idea", projectId: "ws1", idea });
+  const emitData = (data: string) => listener?.({ type: "data", projectId: "ws1", data });
   return { ingestion, applyIdeas, emitIdea, emitData };
 }
 

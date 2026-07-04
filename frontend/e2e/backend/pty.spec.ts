@@ -8,16 +8,16 @@ import { test, expect } from "../fixtures/shell";
  *
  * Validates the in-browser runtime the unit/build steps can't:
  *   - a real PTY session round-trips through ConPTY (data → xterm → input)
- *   - hot-switch preserves a workspace's terminal scrollback (PRD §3.4)
+ *   - hot-switch preserves a project's terminal scrollback (PRD §3.4)
  */
 test.describe("PTY session", () => {
   test("round-trips terminal output and survives hot-switch", async ({ shell, page }) => {
     test.slow(); // a real shell spawn + echo takes several seconds.
     await shell.goto();
 
-    await shell.createWorkspace();
-    const newRow = shell.workspaceRows.last();
-    await shell.renameWorkspace(newRow, "Untitled Project", "PTY QA");
+    await shell.createProject();
+    const newRow = shell.projectRows.last();
+    await shell.renameProject(newRow, "Untitled Project", "PTY QA");
 
     // powershell avoids depending on the `claude` CLI being installed.
     const harness = page.getByPlaceholder("claude");
@@ -33,8 +33,8 @@ test.describe("PTY session", () => {
     await expect(page.locator(".xterm-rows")).toContainText("pw-roundtrip-42", { timeout: 15_000 });
 
     // Hot-switch away and back; the durable session's scrollback must survive.
-    await shell.workspaceRows.first().locator('[data-sidebar="menu-button"]').click();
-    await shell.workspaceRows.last().locator('[data-sidebar="menu-button"]').click();
+    await shell.projectRows.first().locator('[data-sidebar="menu-button"]').click();
+    await shell.projectRows.last().locator('[data-sidebar="menu-button"]').click();
     await expect(page.locator(".xterm-rows")).toContainText("pw-roundtrip-42", { timeout: 10_000 });
   });
 });

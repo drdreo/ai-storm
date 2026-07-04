@@ -1,5 +1,5 @@
 /**
- * The MCP capture endpoint — `POST /mcp/:workspaceId/:token` (mcp-idea-capture
+ * The MCP capture endpoint — `POST /mcp/:projectId/:token` (mcp-idea-capture
  * design §§3–4): a minimal, sessionless MCP server over the Streamable HTTP
  * transport, exposing the two capture tools (`capture_idea`, `capture_score`)
  * so the agent delivers ideas as schema-validated JSON tool calls instead of
@@ -237,7 +237,7 @@ function initializeResult(params: Record<string, unknown> | undefined) {
 function handleToolCall(
   id: RpcId,
   params: Record<string, unknown> | undefined,
-  workspaceId: string,
+  projectId: string,
   session: McpSession
 ) {
   const name = params?.name;
@@ -264,7 +264,7 @@ function handleToolCall(
       const ref = session.mintRef();
       idea.id = ref; // the canvas honours Idea.id as the card's meta.ref (§3.3)
       log.info("idea.captured", {
-        workspace: workspaceId,
+        project: projectId,
         ref,
         kind: idea.kind ?? "",
         title: idea.title
@@ -277,7 +277,7 @@ function handleToolCall(
     // through — the deliberate ScoreSink carry-over (§6).
     if (attachment.scoreSink.offer(score)) {
       log.info("score.captured", {
-        workspace: workspaceId,
+        project: projectId,
         ref: score.ref,
         impact: score.impact,
         effort: score.effort
@@ -294,7 +294,7 @@ function handleToolCall(
 interface MethodContext {
   id: RpcId;
   params: Record<string, unknown> | undefined;
-  workspaceId: string;
+  projectId: string;
   session: McpSession;
 }
 
@@ -303,7 +303,7 @@ const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
   initialize: ({ id, params }) => rpcResult(id, initializeResult(params)),
   ping: ({ id }) => rpcResult(id, {}),
   "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS }),
-  "tools/call": ({ id, params, workspaceId, session }) => handleToolCall(id, params, workspaceId, session)
+  "tools/call": ({ id, params, projectId, session }) => handleToolCall(id, params, projectId, session)
 };
 
 /**
@@ -315,15 +315,15 @@ export function mcpRoutes(registry: McpSessionRegistry): Hono {
   const app = new Hono();
 
   // No server-initiated stream in sessionless mode — 405 per Streamable HTTP.
-  app.get("/:workspaceId/:token", (c) => c.text("Method Not Allowed", 405));
+  app.get("/:projectId/:token", (c) => c.text("Method Not Allowed", 405));
 
-  app.post("/:workspaceId/:token", async (c) => {
-    const { workspaceId, token } = c.req.param();
+  app.post("/:projectId/:token", async (c) => {
+    const { projectId, token } = c.req.param();
     // Auth first, before any body is parsed: wrong/missing token and unknown
-    // workspace are the same bare 404 (no information leak — §4.1). Browser
+    // project are the same bare 404 (no information leak — §4.1). Browser
     // cross-site POSTs are additionally fenced by CORS (a JSON POST needs a
     // preflight we never approve) and by the unguessable token itself.
-    const session = registry.resolve(workspaceId, token);
+    const session = registry.resolve(projectId, token);
     if (!session) return c.text("Not found", 404);
 
     let msg: unknown;
@@ -353,7 +353,7 @@ export function mcpRoutes(registry: McpSessionRegistry): Hono {
 
     const handler = METHOD_HANDLERS[method];
     if (!handler) return c.json(rpcError(id, -32601, `Method not found: ${method}`));
-    return c.json(handler({ id, params, workspaceId, session }));
+    return c.json(handler({ id, params, projectId, session }));
   });
 
   return app;
