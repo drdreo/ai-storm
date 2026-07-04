@@ -9,7 +9,14 @@
 
 import { describe, it, expect } from "vitest";
 import type { SpecFormat } from "@ai-storm/shared";
-import { framePrompt, frameTriage, frameSpec, PROMPT_TEMPLATES, SPEC_FORMATS, type PromptIntent } from "./prompt-framing";
+import {
+  framePrompt,
+  frameTriage,
+  frameSpec,
+  PROMPT_TEMPLATES,
+  SPEC_FORMATS,
+  type PromptIntent
+} from "./prompt-framing";
 
 describe("framePrompt", () => {
   it('returns "" for an empty selection', () => {
