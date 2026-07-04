@@ -13,9 +13,12 @@
     "smoke": "pnpm --filter ai-storm-backend smoke",
     "prepare": "pnpm --filter @ai-storm/shared build",
     "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix"
   },
   "devDependencies": {
-    "oxfmt": "^0.57.0"
+    "oxfmt": "^0.57.0",
+    "oxlint": "^1.72.0"
   }
 }

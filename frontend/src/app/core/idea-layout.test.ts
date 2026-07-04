@@ -10,6 +10,7 @@ import {
   layoutMindMap,
   layoutPriorityGrid,
   quadrantOf,
+  clusterIds,
   DEFAULT_MINDMAP,
   DEFAULT_PRIORITY_GRID,
   type LayoutCard,
@@ -200,5 +201,34 @@ describe("layoutPriorityGrid", () => {
     expect(second.y).toBe(first.y);
     expect(third.x).toBe(first.x); // wrapped back to the left
     expect(third.y).toBeGreaterThan(first.y);
+  });
+});
+
+describe("clusterIds", () => {
+  const ids = ["idea", "r1", "r2", "loose1", "loose2"];
+  const edges: LayoutEdge[] = [
+    { from: "r1", to: "idea", relation: "about" },
+    { from: "r2", to: "idea", relation: "about" }
+  ];
+
+  it("returns nothing for an empty selection", () => {
+    expect(clusterIds(ids, edges, new Set())).toEqual(new Set());
+  });
+
+  it("returns the whole cluster when any member is selected", () => {
+    expect(clusterIds(ids, edges, new Set(["r1"]))).toEqual(new Set(["idea", "r1", "r2"]));
+    expect(clusterIds(ids, edges, new Set(["idea"]))).toEqual(new Set(["idea", "r1", "r2"]));
+  });
+
+  it("returns just the card itself when it has no edges", () => {
+    expect(clusterIds(ids, edges, new Set(["loose1"]))).toEqual(new Set(["loose1"]));
+  });
+
+  it("unions the clusters of every selected card", () => {
+    expect(clusterIds(ids, edges, new Set(["r1", "loose2"]))).toEqual(new Set(["idea", "r1", "r2", "loose2"]));
+  });
+
+  it("ignores a selected id absent from `ids`", () => {
+    expect(clusterIds(ids, edges, new Set(["not-a-card"]))).toEqual(new Set());
   });
 });

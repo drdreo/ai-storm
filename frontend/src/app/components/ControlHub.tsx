@@ -104,7 +104,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             <Toolbar.Button asChild>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button size="icon" variant="ghost" aria-label="Collapse control hub" onClick={onCollapse}>
+                  <Button size="icon-sm" variant="ghost" aria-label="Collapse control hub" onClick={onCollapse}>
                     <PanelRightClose className="size-4" />
                   </Button>
                 </TooltipTrigger>

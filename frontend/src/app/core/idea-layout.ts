@@ -118,8 +118,8 @@ function cardSpan(card: LayoutCard, gap: number): number {
   return Math.max(card.w, card.h) + gap;
 }
 
-/** Union-find over the edges: returns each card's component representative. */
-function components(cards: readonly LayoutCard[], edges: readonly LayoutEdge[]): Map<string, string> {
+/** Union-find over the edges: returns each id's component representative. */
+function components(ids: readonly string[], edges: readonly LayoutEdge[]): Map<string, string> {
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     let r = x;
@@ -133,14 +133,39 @@ function components(cards: readonly LayoutCard[], edges: readonly LayoutEdge[]):
     }
     return r;
   };
-  for (const c of cards) parent.set(c.id, c.id);
+  for (const id of ids) parent.set(id, id);
   for (const e of edges) {
     if (!parent.has(e.from) || !parent.has(e.to)) continue;
     parent.set(find(e.from), find(e.to));
   }
   const rep = new Map<string, string>();
-  for (const c of cards) rep.set(c.id, find(c.id));
+  for (const id of ids) rep.set(id, find(id));
   return rep;
+}
+
+/**
+ * Card ids sharing a connected cluster with any of `selectedIds` (#131 focus
+ * mode) — the same union-find grouping {@link layoutMindMap} arranges by, so
+ * focusing reads as "zoom into this cluster." A selected id outside `ids` is
+ * ignored; an empty (or entirely-unmatched) `selectedIds` yields an empty set.
+ */
+export function clusterIds<T extends string>(
+  ids: readonly T[],
+  edges: readonly LayoutEdge[],
+  selectedIds: ReadonlySet<T>
+): Set<T> {
+  const rep = components(ids, edges);
+  const targetReps = new Set<string>();
+  for (const id of selectedIds) {
+    const r = rep.get(id);
+    if (r) targetReps.add(r);
+  }
+  if (targetReps.size === 0) return new Set();
+  const result = new Set<T>();
+  for (const id of ids) {
+    if (targetReps.has(rep.get(id)!)) result.add(id);
+  }
+  return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -306,7 +331,10 @@ export function layoutMindMap(
   const opt = { ...DEFAULT_MINDMAP, ...options };
   if (cards.length === 0) return [];
 
-  const rep = components(cards, edges);
+  const rep = components(
+    cards.map((c) => c.id),
+    edges
+  );
   const groups = new Map<string, LayoutCard[]>();
   for (const c of cards) {
     const key = rep.get(c.id)!;

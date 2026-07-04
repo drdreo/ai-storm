@@ -7,7 +7,7 @@ describe("resolveLaunch strictness", () => {
 
   it("non-strict accepts a multi-line prime arg (PTY session path — #142 regression)", () => {
     expect(() =>
-      resolveLaunch("node", ["--append-system-prompt", "You are in a brainstorming workspace." + NL + "Rules:"]),
+      resolveLaunch("node", ["--append-system-prompt", "You are in a brainstorming workspace." + NL + "Rules:"])
     ).not.toThrow();
   });
 
@@ -51,7 +51,9 @@ describe("tokenizeCommand", () => {
 
 describe("assertNoControlCharacters", () => {
   it("accepts ordinary commands and flags", () => {
-    expect(() => assertNoControlCharacters("claude", ["--model=opus", "--allowedTools", "Bash(gh issue create:*)"])).not.toThrow();
+    expect(() =>
+      assertNoControlCharacters("claude", ["--model=opus", "--allowedTools", "Bash(gh issue create:*)"])
+    ).not.toThrow();
     expect(() => assertNoControlCharacters("C:\\Program Files\\x\\pi.exe", [])).not.toThrow();
   });
 
@@ -69,7 +71,7 @@ describe("assertNoControlCharacters", () => {
 describe("assertCmdSafeTokens", () => {
   it("accepts typical harness flags", () => {
     expect(() =>
-      assertCmdSafeTokens("C:\\npm\\claude.cmd", ["--model=opus", "--allowedTools", "Bash(gh issue create:*)"]),
+      assertCmdSafeTokens("C:\\npm\\claude.cmd", ["--model=opus", "--allowedTools", "Bash(gh issue create:*)"])
     ).not.toThrow();
   });
 
