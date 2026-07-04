@@ -290,6 +290,22 @@ function handleToolCall(
   }
 }
 
+/** Context passed to every registered JSON-RPC method handler. */
+interface MethodContext {
+  id: RpcId;
+  params: Record<string, unknown> | undefined;
+  workspaceId: string;
+  session: McpSession;
+}
+
+/** The sessionless surface (§9/§11): `initialize`, `ping`, `tools/list`, `tools/call`. */
+const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
+  initialize: ({ id, params }) => rpcResult(id, initializeResult(params)),
+  ping: ({ id }) => rpcResult(id, {}),
+  "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS }),
+  "tools/call": ({ id, params, workspaceId, session }) => handleToolCall(id, params, workspaceId, session)
+};
+
 /**
  * Build the `/mcp` sub-app. Mounted by `buildApp` with the process-wide
  * registry; tests mount it with private registries and drive it via
@@ -335,18 +351,9 @@ export function mcpRoutes(registry: McpSessionRegistry): Hono {
       return c.json(rpcError(id, -32600, "Invalid request: missing `method`"), 400);
     }
 
-    switch (method) {
-      case "initialize":
-        return c.json(rpcResult(id, initializeResult(params)));
-      case "ping":
-        return c.json(rpcResult(id, {}));
-      case "tools/list":
-        return c.json(rpcResult(id, { tools: TOOLS }));
-      case "tools/call":
-        return c.json(handleToolCall(id, params, workspaceId, session));
-      default:
-        return c.json(rpcError(id, -32601, `Method not found: ${method}`));
-    }
+    const handler = METHOD_HANDLERS[method];
+    if (!handler) return c.json(rpcError(id, -32601, `Method not found: ${method}`));
+    return c.json(handler({ id, params, workspaceId, session }));
   });
 
   return app;
