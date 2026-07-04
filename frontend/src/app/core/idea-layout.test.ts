@@ -13,6 +13,7 @@ import {
   clusterIds,
   DEFAULT_MINDMAP,
   DEFAULT_PRIORITY_GRID,
+  PRIORITY_QUADRANTS,
   type LayoutCard,
   type LayoutEdge,
   type LayoutPosition,
@@ -156,11 +157,11 @@ describe("layoutPriorityGrid", () => {
   const opt = DEFAULT_PRIORITY_GRID;
 
   it("is a no-op on an empty board", () => {
-    expect(layoutPriorityGrid([])).toEqual([]);
+    expect(layoutPriorityGrid([])).toEqual({ positions: [], frames: [] });
   });
 
   it("places quick wins top-left and big bets in the right column", () => {
-    const positions = layoutPriorityGrid([
+    const { positions } = layoutPriorityGrid([
       scored("win", 5, 1), // quick win: col 0, row 0
       scored("bet", 5, 5) // big bet:   col 1, row 0
     ]);
@@ -174,13 +175,13 @@ describe("layoutPriorityGrid", () => {
   });
 
   it("places low-impact cards in the bottom row", () => {
-    const [fill] = layoutPriorityGrid([scored("fill", 1, 1)]);
+    const [fill] = layoutPriorityGrid([scored("fill", 1, 1)]).positions;
     expect(fill.x).toBe(opt.originX);
     expect(fill.y).toBe(opt.originY + opt.quadH + opt.quadGap);
   });
 
   it("parks unscored cards in a lane below the grid", () => {
-    const positions = layoutPriorityGrid([
+    const { positions } = layoutPriorityGrid([
       scored("win", 5, 1),
       scored("loose") // no scores → parked
     ]);
@@ -191,9 +192,9 @@ describe("layoutPriorityGrid", () => {
   });
 
   it("tiles multiple cards in one quadrant without overlap, wrapping by width", () => {
-    // Many narrow cards in the same quadrant: x advances, then wraps to a new row.
-    const cards = Array.from({ length: 5 }, (_, i) => scored(`q${i}`, 5, 1, 250, 132));
-    const positions = layoutPriorityGrid(cards, { quadW: 600 }); // ~2 per row (250+gap)
+    // 3 wide cards → ⌈√3⌉ = 2 columns: q0/q1 share the top row, q2 wraps below.
+    const cards = Array.from({ length: 3 }, (_, i) => scored(`q${i}`, 5, 1, 500, 132));
+    const { positions } = layoutPriorityGrid(cards);
     const first = positions.find((p) => p.id === "q0")!;
     const second = positions.find((p) => p.id === "q1")!;
     const third = positions.find((p) => p.id === "q2")!;
@@ -201,6 +202,65 @@ describe("layoutPriorityGrid", () => {
     expect(second.y).toBe(first.y);
     expect(third.x).toBe(first.x); // wrapped back to the left
     expect(third.y).toBeGreaterThan(first.y);
+  });
+
+  it("frames all four quadrants with their labels, quick wins top-left", () => {
+    const { frames } = layoutPriorityGrid([scored("win", 5, 1)]);
+    expect(frames.map((f) => f.key)).toEqual(PRIORITY_QUADRANTS.map((q) => q.key));
+    const wins = frames.find((f) => f.key === "quick-wins")!;
+    const sinks = frames.find((f) => f.key === "time-sinks")!;
+    expect(wins.label).toBe("Quick wins");
+    // Quick wins occupies the top-left cell, time sinks the bottom-right; the
+    // frame surrounds the tiling box (the first card tiles at the origin).
+    expect(wins.x).toBeLessThan(sinks.x);
+    expect(wins.y).toBeLessThan(sinks.y);
+    expect(wins.x).toBeLessThan(opt.originX);
+    expect(wins.y).toBeLessThan(opt.originY);
+  });
+
+  it("adds a label-only 'Not triaged' caption only when unscored cards parked", () => {
+    expect(layoutPriorityGrid([scored("win", 5, 1)]).frames.find((f) => f.key === "unscored")).toBeUndefined();
+    const { frames } = layoutPriorityGrid([scored("win", 5, 1), scored("loose")]);
+    const lane = frames.find((f) => f.key === "unscored")!;
+    expect(lane.label).toBe("Not triaged");
+    expect(lane.h).toBe(0); // label-only: the lane's depth depends on its cards
+  });
+
+  it("grows the grid with a crowded quadrant instead of overflowing fixed boxes", () => {
+    // 20 quick wins: the quadrant must widen (≈√20 → 5 columns of 250+28) and
+    // its row must grow to the real tiled height — no card may escape its frame.
+    const many = Array.from({ length: 20 }, (_, i) => scored(`w${i}`, 5, 1));
+    const single = [scored("sink", 1, 5), scored("loose")];
+    const { positions, frames } = layoutPriorityGrid([...many, ...single]);
+    const wins = frames.find((f) => f.key === "quick-wins")!;
+    expect(wins.w).toBeGreaterThan(opt.quadW); // widened past the minimum
+    for (const w of many) {
+      const p = positions.find((q) => q.id === w.id)!;
+      expect(p.x).toBeGreaterThanOrEqual(wins.x);
+      expect(p.x + w.w).toBeLessThanOrEqual(wins.x + wins.w);
+      expect(p.y + w.h).toBeLessThanOrEqual(wins.y + wins.h);
+    }
+    // Frames still form a clean grid: columns aligned, rows below rows, and the
+    // parked lane below everything.
+    const bets = frames.find((f) => f.key === "big-bets")!;
+    const fills = frames.find((f) => f.key === "fill-ins")!;
+    const lane = frames.find((f) => f.key === "unscored")!;
+    expect(wins.x + wins.w).toBeLessThan(bets.x);
+    expect(wins.y + wins.h).toBeLessThan(fills.y);
+    expect(lane.y).toBeGreaterThan(fills.y + fills.h);
+    const loose = positions.find((p) => p.id === "loose")!;
+    expect(loose.y).toBeGreaterThan(lane.y);
+  });
+
+  it("keeps quadrant frames from overlapping even when the top row is tall", () => {
+    // Crowd the TOP row and check the bottom row moves down out of its way.
+    const many = Array.from({ length: 12 }, (_, i) => scored(`b${i}`, 5, 5));
+    const { positions, frames } = layoutPriorityGrid([...many, scored("fill", 1, 1)]);
+    const bets = frames.find((f) => f.key === "big-bets")!;
+    const sinks = frames.find((f) => f.key === "time-sinks")!;
+    expect(bets.y + bets.h).toBeLessThan(sinks.y);
+    const fill = positions.find((p) => p.id === "fill")!;
+    expect(fill.y).toBeGreaterThan(bets.y + bets.h);
   });
 });
 

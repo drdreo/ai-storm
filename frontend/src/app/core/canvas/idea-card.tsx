@@ -120,6 +120,25 @@ const CARD_INK_LIGHT = "#1c1c1c";
 const CARD_INK_DARK = "#e8e8e8";
 /** The gold of the "kept for later" star mark (#29). */
 const STAR_GOLD = "#f5b301";
+/** Warning amber for a low-confidence triage score's chip (#100). */
+const LOW_CONFIDENCE_AMBER = "#e0a712";
+
+/**
+ * One triage score chip (#100) — a small pill in the card's bottom stat strip,
+ * tinted from the card's accent so it stays legible on every card color in both
+ * themes. `color-mix` keeps the fill/outline derived from a single accent —
+ * normally the card's own, but the confidence chip passes
+ * {@link LOW_CONFIDENCE_AMBER} instead when the score is shaky (#100), so a low
+ * rating reads as a warning rather than just another same-colored stat.
+ */
+const scoreChip = (accent: string): React.CSSProperties => ({
+  padding: "1px 7px",
+  borderRadius: 999,
+  lineHeight: 1.5,
+  color: accent,
+  background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${accent} 40%, transparent)`
+});
 
 /**
  * Shared style for the in-edit title/body fields (#72): a borderless, transparent
@@ -225,6 +244,10 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const starred = !!(shape.meta as IdeaCardMeta).starred;
   const score = (shape.meta as IdeaCardMeta).score;
   const editedByUser = !!(shape.meta as IdeaCardMeta).editedByUser;
+  // A confidence of 1-2 (#100) is the agent flagging its own rating as shaky —
+  // the chip flips to a warning amber instead of the card's own accent, rather
+  // than softening the whole card (that read as broken, not "low confidence").
+  const lowConfidence = typeof score?.confidence === "number" && score.confidence <= 2;
   const toggleStar = (e: React.SyntheticEvent) => {
     stopEventPropagation(e);
     editor.updateShape({
@@ -336,26 +359,34 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         </>
       )}
       {score ? (
-        // AI triage score (#60): impact / effort / confidence, pinned to the
-        // bottom so it reads as a stat strip below the idea.
+        // AI triage score (#60/#100): impact / effort / confidence as chips,
+        // pinned to the bottom so they read as a stat strip below the idea —
+        // scannable without hovering; each chip's title spells its axis out.
         <div
-          title={`Impact ${score.impact} · Effort ${score.effort}${
-            score.confidence != null ? ` · Confidence ${score.confidence}` : ""
-          } (AI triage)`}
           style={{
             marginTop: "auto",
             display: "flex",
-            gap: 10,
+            gap: 5,
             fontSize: 10,
             fontWeight: 700,
             letterSpacing: "0.02em",
-            color: accent,
-            opacity: 0.9
+            color: accent
           }}
         >
-          <span>▲ {score.impact}</span>
-          <span>⚒ {score.effort}</span>
-          {score.confidence != null ? <span>◎ {score.confidence}</span> : null}
+          <span title={`Impact ${score.impact}/5 (AI triage)`} style={scoreChip(accent)}>
+            ▲ {score.impact}
+          </span>
+          <span title={`Effort ${score.effort}/5 (AI triage)`} style={scoreChip(accent)}>
+            ⚒ {score.effort}
+          </span>
+          {score.confidence != null ? (
+            <span
+              title={`Confidence ${score.confidence}/5 (AI triage)${lowConfidence ? " — low, treat as tentative" : ""}`}
+              style={scoreChip(lowConfidence ? LOW_CONFIDENCE_AMBER : accent)}
+            >
+              {lowConfidence ? "⚠" : "◎"} {score.confidence}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </HTMLContainer>

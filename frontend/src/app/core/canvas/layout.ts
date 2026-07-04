@@ -4,11 +4,38 @@
  * and the multi-select mark toggle (#29). All take the live `Editor`; all are
  * user-triggered (never auto-rewrite a manual placement).
  */
-import type { Editor, TLShapeId } from "tldraw";
+import { atom, type Atom, Box, type Editor, type TLShapeId } from "tldraw";
 import type { Score } from "@ai-storm/shared";
-import { layoutMindMap, layoutPriorityGrid, type ScoredCard } from "../idea-layout";
+import { layoutMindMap, layoutPriorityGrid, type GridFrame, type ScoredCard } from "../idea-layout";
 import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
+
+/**
+ * Which arrangement the board is currently in (#100): the last arrange action
+ * applied — mind map, or priority grid with its labeled quadrant frames — or
+ * `null` when neither has run (or grid labels were dismissed). Drives the
+ * Arrange menu's checkmarks and, in grid mode, the on-canvas quadrant overlay.
+ */
+export type ActiveBoardLayout = { mode: "mind-map" } | { mode: "grid"; frames: GridFrame[] };
+
+/**
+ * The per-editor active-layout state (#100). Held in a tldraw {@link atom} (so
+ * `track`ed components — the on-canvas overlay and the Arrange menu — react to
+ * it), keyed by editor in a WeakMap: each project's island gets its own, and it
+ * vanishes with the editor on project switch. Set by {@link arrangeMindMap} /
+ * {@link arrangePriorityGrid} (each arrange ends the other's mode), cleared by
+ * the menu's "Hide grid labels".
+ */
+const layoutModes = new WeakMap<Editor, Atom<ActiveBoardLayout | null>>();
+
+export function activeBoardLayout(editor: Editor): Atom<ActiveBoardLayout | null> {
+  let mode = layoutModes.get(editor);
+  if (!mode) {
+    mode = atom<ActiveBoardLayout | null>("activeBoardLayout", null);
+    layoutModes.set(editor, mode);
+  }
+  return mode;
+}
 
 /**
  * Re-flow the idea cards into an organic mind map (#16, PD-014) — the canvas
@@ -38,6 +65,8 @@ export function arrangeMindMap(editor: Editor): void {
   editor.run(() => {
     editor.updateShapes(positions.map((p) => ({ id: p.id as TLShapeId, type: "idea-card" as const, x: p.x, y: p.y })));
   });
+  // The board is now a mind map (#100): checks the menu item, ends grid mode.
+  activeBoardLayout(editor).set({ mode: "mind-map" });
   // Frame the freshly-tidied board so the new grouping is visible at a glance.
   editor.zoomToFit({ animation: { duration: 200 } });
 }
@@ -75,11 +104,19 @@ export function arrangePriorityGrid(editor: Editor): void {
     const score = (c.meta as IdeaCardMeta).score;
     return { id: c.id, w: c.props.w, h: c.props.h, impact: score?.impact, effort: score?.effort };
   });
-  const positions = layoutPriorityGrid(scored);
+  const { positions, frames } = layoutPriorityGrid(scored);
   editor.run(() => {
     editor.updateShapes(positions.map((p) => ({ id: p.id as TLShapeId, type: "idea-card" as const, x: p.x, y: p.y })));
   });
-  editor.zoomToFit({ animation: { duration: 200 } });
+  // Turn priority-grid mode on (#100): the overlay draws the layout's labeled
+  // quadrant frames (sized to what actually tiled, including a "Not triaged"
+  // lane caption only when unscored cards parked there).
+  activeBoardLayout(editor).set({ mode: "grid", frames });
+  // Frame the grid INCLUDING the overlay's labeled boxes (not just the cards, as
+  // zoomToFit would), so the quadrant labels are on screen right after arranging.
+  const bounds = editor.getCurrentPageBounds() ?? new Box(0, 0, 0, 0);
+  const withFrames = frames.reduce((acc, f) => acc.union(new Box(f.x, f.y, f.w, Math.max(f.h, 1))), Box.From(bounds));
+  editor.zoomToBounds(withFrames, { animation: { duration: 200 } });
 }
 
 /**
