@@ -28,6 +28,12 @@ export interface WorkspaceMeta {
    * the workspace sits at the sidebar's top level (ungrouped).
    */
   folderId?: string;
+  /**
+   * Fractional-index sort key ranking this workspace among its siblings in the
+   * same container (its folder, or the ungrouped top level). Assigned lazily —
+   * undefined sorts before keyed items, tie-broken by `createdAt`.
+   */
+  order?: string;
 }
 
 /**
@@ -42,6 +48,8 @@ export interface Folder {
   createdAt: number;
   /** Sidebar group collapse state, persisted so it survives a reload. */
   collapsed?: boolean;
+  /** Fractional-index sort key ranking this folder among all folders. */
+  order?: string;
 }
 
 export interface TerminalConfig {

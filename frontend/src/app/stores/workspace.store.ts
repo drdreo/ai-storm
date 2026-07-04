@@ -4,6 +4,7 @@ import { IndexeddbPersistence } from "y-indexeddb";
 import type { Folder, WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
 import { defaultTerminalConfig, defaultWorkspaceColor } from "../core/models";
+import { compareByOrder, orderAfterAll } from "../core/sidebar-order";
 import { buildExportBundle, type WorkspaceExportBundle } from "../core/workspace-portable";
 import { withSpan } from "../../lib/log";
 
@@ -53,11 +54,39 @@ let folderMap: Y.Map<Folder>;
 function syncFromMap(): void {
   const list: WorkspaceMeta[] = [];
   map.forEach((meta) => list.push(meta));
-  list.sort((a, b) => a.createdAt - b.createdAt);
+  list.sort(compareByOrder);
   const folders: Folder[] = [];
   folderMap.forEach((f) => folders.push(f));
-  folders.sort((a, b) => a.createdAt - b.createdAt);
+  folders.sort(compareByOrder);
   useWorkspaceStore.setState({ workspaces: list, folders });
+}
+
+/**
+ * Self-heal registries persisted before explicit ordering existed (#128 DnD):
+ * if any item lacks an `order` key, re-key the whole collection in its current
+ * sorted order so every later insertion can assume keyed neighbors. Runs once
+ * at boot; after that all writes carry keys.
+ */
+function backfillOrders(): void {
+  const { workspaces, folders } = useWorkspaceStore.getState();
+  registryDoc.transact(() => {
+    if (!workspaces.every((w) => w.order)) {
+      const keyed: WorkspaceMeta[] = [];
+      for (const ws of workspaces) {
+        const next = { ...ws, order: orderAfterAll(keyed) };
+        write(next);
+        keyed.push(next);
+      }
+    }
+    if (!folders.every((f) => f.order)) {
+      const keyed: Folder[] = [];
+      for (const f of folders) {
+        const next = { ...f, order: orderAfterAll(keyed) };
+        writeFolder(next);
+        keyed.push(next);
+      }
+    }
+  });
 }
 
 function write(meta: WorkspaceMeta): void {
@@ -87,6 +116,7 @@ export const workspace = {
       map.observe(() => syncFromMap());
       folderMap.observe(() => syncFromMap());
       syncFromMap();
+      backfillOrders();
 
       const workspaces = useWorkspaceStore.getState().workspaces;
       if (workspaces.length === 0) {
@@ -114,6 +144,7 @@ export const workspace = {
   create(title: string): string {
     const id = `ws_${crypto.randomUUID()}`;
     const now = Date.now();
+    const ungrouped = useWorkspaceStore.getState().workspaces.filter((w) => !w.folderId);
     const meta: WorkspaceMeta = {
       id,
       title,
@@ -121,7 +152,8 @@ export const workspace = {
       createdAt: now,
       lastActiveAt: now,
       terminal: defaultTerminalConfig(),
-      color: defaultWorkspaceColor(id)
+      color: defaultWorkspaceColor(id),
+      order: orderAfterAll(ungrouped)
     };
     write(meta);
     return id;
@@ -148,7 +180,8 @@ export const workspace = {
   /** Create an (initially empty) sidebar folder, returning its id. */
   createFolder(title: string): string {
     const id = `fld_${crypto.randomUUID()}`;
-    writeFolder({ id, title, createdAt: Date.now() });
+    const folders = useWorkspaceStore.getState().folders;
+    writeFolder({ id, title, createdAt: Date.now(), order: orderAfterAll(folders) });
     return id;
   },
 
@@ -175,12 +208,36 @@ export const workspace = {
     });
   },
 
-  /** Move a workspace into a folder, or to the top level when `folderId` is null. */
+  /**
+   * Move a workspace into a folder, or to the top level when `folderId` is
+   * null, appending it after its new siblings (the "Move to folder" menu path).
+   */
   moveToFolder(workspaceId: string, folderId: string | null): void {
     const meta = map.get(workspaceId);
     if (!meta) return;
     const next = folderId ?? undefined;
-    if (meta.folderId !== next) write({ ...meta, folderId: next });
+    if (meta.folderId === next) return;
+    const siblings = useWorkspaceStore
+      .getState()
+      .workspaces.filter((w) => (w.folderId ?? undefined) === next && w.id !== workspaceId);
+    write({ ...meta, folderId: next, order: orderAfterAll(siblings) });
+  },
+
+  /**
+   * Drop a workspace at an explicit position (#128 DnD): re-parents to
+   * `folderId` (null → top level) and sets the fractional sort key in a single
+   * write, so a cross-container drag is one CRDT update.
+   */
+  moveWorkspace(workspaceId: string, folderId: string | null, order: string): void {
+    const meta = map.get(workspaceId);
+    if (!meta) return;
+    write({ ...meta, folderId: folderId ?? undefined, order });
+  },
+
+  /** Drop a folder at an explicit position among folders (#128 DnD). */
+  reorderFolder(folderId: string, order: string): void {
+    const folder = folderMap.get(folderId);
+    if (folder) writeFolder({ ...folder, order });
   },
 
   patchTerminal(id: string, patch: Partial<WorkspaceMeta["terminal"]>): void {
