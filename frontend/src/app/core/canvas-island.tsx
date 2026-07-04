@@ -34,6 +34,7 @@ import {
   useFilterAtom
 } from "./canvas/menus";
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
+import { PriorityGridOverlay } from "./canvas/PriorityGridOverlay";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
 
@@ -108,6 +109,9 @@ export function CanvasIsland({
       // Focus-mode exit (#131) is appended to the native top-left QuickActions,
       // so it never overlaps the main menu and doesn't shift the style panel.
       QuickActions: FocusQuickActions,
+      // Priority-grid quadrant labels (#100) — page-space annotation that pans/
+      // zooms with the cards while the board is arranged as a priority grid.
+      OnTheCanvas: PriorityGridOverlay,
       InFrontOfTheCanvas: () => (
         <>
           <CanvasEmptyState actions={emptyStateActions} />
@@ -129,6 +133,10 @@ export function CanvasIsland({
         options={copyTextOptions}
         components={components}
         onMount={(ed) => {
+          // Debug hook: the mounted project's live tldraw editor, reachable from
+          // the browser console / automation (`window.__editor`) to seed cards,
+          // inspect meta, or drive layouts without an agent session.
+          (window as unknown as Record<string, unknown>).__editor = ed;
           setEditor(ed);
           bridge.onEditorMount(ed);
         }}

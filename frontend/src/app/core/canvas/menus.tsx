@@ -40,7 +40,7 @@ import { serializeCards } from "../canvas-text";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
-import { arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
+import { activeBoardLayout, arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
 import { createUserIdea } from "./idea-tool";
 import { focusedCardIds } from "./focus";
 
@@ -194,6 +194,11 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
   };
 
   const count = filterCount(filter);
+  // Active arrangement (#100): reading the atom inside `track` keeps the
+  // checkmarks and the submenu's "· grid" / "· mind map" cue live while open.
+  const layoutMode = activeBoardLayout(editor).get()?.mode ?? null;
+  const arrangeLabel =
+    layoutMode === "grid" ? "Arrange · grid" : layoutMode === "mind-map" ? "Arrange · mind map" : "Arrange";
   const extraKinds = facets.kinds.filter((k) => !(KNOWN_KINDS as readonly string[]).includes(k));
   const displayKinds = [...KNOWN_KINDS, ...extraKinds];
 
@@ -201,21 +206,37 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
     <DefaultMainMenu>
       <DefaultMainMenuContent />
       <TldrawUiMenuGroup id="ai-storm">
-        <TldrawUiMenuSubmenu id="arrange" label="Arrange" size="small">
+        <TldrawUiMenuSubmenu id="arrange" label={arrangeLabel} size="small">
+          {/* Checkboxes, not plain items (#100): each arrange is a *mode* the
+              board stays in (grid additionally keeps its quadrant labels up), so
+              the menu reflects which one is active. Re-selecting the checked one
+              re-tidies fresh cards. */}
           <TldrawUiMenuGroup id="arrange-layouts">
-            <TldrawUiMenuItem
+            <TldrawUiMenuCheckboxItem
               id="arrange-mind-map"
               label="Mind map · by idea"
+              checked={layoutMode === "mind-map"}
               readonlyOk
               onSelect={() => arrangeMindMap(editor)}
             />
-            <TldrawUiMenuItem
+            <TldrawUiMenuCheckboxItem
               id="arrange-priority-grid"
               label="Priority grid · by score"
+              checked={layoutMode === "grid"}
               readonlyOk
               onSelect={() => arrangePriorityGrid(editor)}
             />
           </TldrawUiMenuGroup>
+          {layoutMode === "grid" && (
+            <TldrawUiMenuGroup id="arrange-grid-exit">
+              <TldrawUiMenuItem
+                id="hide-grid-labels"
+                label="Hide grid labels"
+                readonlyOk
+                onSelect={() => void activeBoardLayout(editor).set(null)}
+              />
+            </TldrawUiMenuGroup>
+          )}
         </TldrawUiMenuSubmenu>
         <TldrawUiMenuSubmenu id="filter" label={count > 0 ? `Filter (${count})` : "Filter"} size="small">
           <TldrawUiMenuGroup id="filter-kind">

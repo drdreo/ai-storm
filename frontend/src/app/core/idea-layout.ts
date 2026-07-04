@@ -455,12 +455,23 @@ export function quadrantOf(impact: number, effort: number, mid = DEFAULT_PRIORIT
   return lowEffort ? "fill-ins" : "time-sinks";
 }
 
-/** Tile a set of cards left-to-right, top-to-bottom inside a box at (x0,y0). */
-function tile(cards: readonly ScoredCard[], x0: number, y0: number, boxW: number, gap: number): LayoutPosition[] {
-  const out: LayoutPosition[] = [];
+/**
+ * Tile a set of cards left-to-right, top-to-bottom inside a box at (x0,y0),
+ * also reporting how tall the tiling came out — the measure the dynamic
+ * quadrant frames are sized from (#100).
+ */
+function tile(
+  cards: readonly ScoredCard[],
+  x0: number,
+  y0: number,
+  boxW: number,
+  gap: number
+): { positions: LayoutPosition[]; height: number } {
+  const positions: LayoutPosition[] = [];
   let cx = x0;
   let cy = y0;
   let rowH = 0;
+  let bottom = y0;
   for (const c of cards) {
     if (cx > x0 && cx + c.w > x0 + boxW) {
       // Wrap to the next row within the box.
@@ -468,11 +479,42 @@ function tile(cards: readonly ScoredCard[], x0: number, y0: number, boxW: number
       cy += rowH + gap;
       rowH = 0;
     }
-    out.push({ id: c.id, x: cx, y: cy });
+    positions.push({ id: c.id, x: cx, y: cy });
     cx += c.w + gap;
     rowH = Math.max(rowH, c.h);
+    bottom = Math.max(bottom, cy + c.h);
   }
-  return out;
+  return { positions, height: bottom - y0 };
+}
+
+/** Breathing room a frame adds around its quadrant's tiling box on each side. */
+const FRAME_PAD = 28;
+/** Extra headroom above the tiling box, reserving space for the frame's label. */
+const FRAME_HEADER = 48;
+
+/**
+ * One labeled overlay region of the priority grid (#100): a quadrant's dashed
+ * box, or the unscored parking lane's caption. World coords, top-left origin —
+ * the same space the cards tile in, inflated so the frame surrounds the cards
+ * instead of hugging them. `h === 0` marks a label-only strip (the lane, whose
+ * depth depends on how many cards park there).
+ */
+export interface GridFrame {
+  key: PriorityQuadrant | "unscored";
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  /** 0 ⇒ label-only (no box) — used for the unscored lane. */
+  h: number;
+}
+
+/** What the priority-grid layout hands the canvas: card targets + overlay frames. */
+export interface PriorityGridLayout {
+  /** Top-left target positions for every card (scored and parked). */
+  positions: LayoutPosition[];
+  /** The labeled quadrant boxes (+ "Not triaged" caption) the overlay draws. */
+  frames: GridFrame[];
 }
 
 /**
@@ -481,16 +523,26 @@ function tile(cards: readonly ScoredCard[], x0: number, y0: number, boxW: number
  * wins (high impact / low effort) top-left, big bets top-right, fill-ins bottom
  * -left, time sinks bottom-right — and tiled within that quadrant's box. Cards
  * missing a score are parked in a full-width lane beneath the grid (so an
- * un-triaged board still arranges cleanly instead of piling at the origin). Pure:
- * returns top-left target positions, mutates nothing — the canvas applies them
- * exactly like {@link layoutMindMap}, and bound edge-arrows follow for free.
+ * un-triaged board still arranges cleanly instead of piling at the origin).
+ *
+ * The geometry is content-aware (#100): the quadrant width grows past
+ * `opt.quadW` when the fullest quadrant needs more columns (≈√n, so a crowded
+ * quadrant stays squarish instead of scrolling into a deep strip), and each
+ * ROW's height grows to whatever its taller quadrant actually tiled — the
+ * returned {@link GridFrame}s trace that real footprint, so the labels never
+ * lie about where a quadrant ends. Columns stay aligned (one width for all
+ * four) to keep the 2×2 reading as a grid.
+ *
+ * Pure: returns top-left target positions + overlay frames, mutates nothing —
+ * the canvas applies positions exactly like {@link layoutMindMap} (bound
+ * edge-arrows follow for free) and draws the frames while grid mode is on.
  */
 export function layoutPriorityGrid(
   cards: readonly ScoredCard[],
   options: Partial<PriorityGridOptions> = {}
-): LayoutPosition[] {
+): PriorityGridLayout {
   const opt = { ...DEFAULT_PRIORITY_GRID, ...options };
-  if (cards.length === 0) return [];
+  if (cards.length === 0) return { positions: [], frames: [] };
 
   const buckets = new Map<PriorityQuadrant, ScoredCard[]>();
   const unscored: ScoredCard[] = [];
@@ -505,20 +557,59 @@ export function layoutPriorityGrid(
     else buckets.set(q, [c]);
   }
 
-  const out: LayoutPosition[] = [];
+  // Content-aware quadrant width: enough columns (≈√n of the fullest bucket,
+  // sized by the widest card) that a crowded quadrant tiles squarish, never
+  // narrower than the configured minimum so a sparse board keeps its shape.
+  const fullest = Math.max(0, ...[...buckets.values()].map((b) => b.length));
+  const widest = Math.max(0, ...cards.map((c) => c.w));
+  const columns = Math.ceil(Math.sqrt(fullest));
+  const quadW = Math.max(opt.quadW, columns * (widest + opt.cardGap) - opt.cardGap);
+
+  // Measure each quadrant's tiling at a local origin first — row heights (and
+  // therefore the bottom row's y) depend on how tall the TOP row came out.
+  const measured = new Map<PriorityQuadrant, { positions: LayoutPosition[]; height: number }>();
   for (const quad of PRIORITY_QUADRANTS) {
     const bucket = buckets.get(quad.key);
-    if (!bucket?.length) continue;
-    const x0 = opt.originX + quad.col * (opt.quadW + opt.quadGap);
-    const y0 = opt.originY + quad.row * (opt.quadH + opt.quadGap);
-    out.push(...tile(bucket, x0, y0, opt.quadW, opt.cardGap));
+    if (bucket?.length) measured.set(quad.key, tile(bucket, 0, 0, quadW, opt.cardGap));
+  }
+  const rowHeight = (row: number) =>
+    Math.max(
+      opt.quadH,
+      ...PRIORITY_QUADRANTS.filter((q) => q.row === row).map((q) => measured.get(q.key)?.height ?? 0)
+    );
+  const rowH = [rowHeight(0), rowHeight(1)];
+  const rowY = [opt.originY, opt.originY + rowH[0] + opt.quadGap];
+
+  const positions: LayoutPosition[] = [];
+  const frames: GridFrame[] = [];
+  for (const quad of PRIORITY_QUADRANTS) {
+    const x0 = opt.originX + quad.col * (quadW + opt.quadGap);
+    const y0 = rowY[quad.row];
+    const m = measured.get(quad.key);
+    if (m) positions.push(...m.positions.map((p) => ({ id: p.id, x: p.x + x0, y: p.y + y0 })));
+    frames.push({
+      key: quad.key,
+      label: quad.label,
+      x: x0 - FRAME_PAD,
+      y: y0 - FRAME_HEADER,
+      w: quadW + 2 * FRAME_PAD,
+      h: rowH[quad.row] + FRAME_HEADER + FRAME_PAD
+    });
   }
 
   if (unscored.length) {
-    const laneY = opt.originY + 2 * opt.quadH + opt.quadGap + opt.parkGap;
-    const laneW = 2 * opt.quadW + opt.quadGap;
-    out.push(...tile(unscored, opt.originX, laneY, laneW, opt.cardGap));
+    const laneY = rowY[1] + rowH[1] + opt.parkGap;
+    const laneW = 2 * quadW + opt.quadGap;
+    positions.push(...tile(unscored, opt.originX, laneY, laneW, opt.cardGap).positions);
+    frames.push({
+      key: "unscored",
+      label: "Not triaged",
+      x: opt.originX - FRAME_PAD,
+      y: laneY - FRAME_HEADER,
+      w: laneW + 2 * FRAME_PAD,
+      h: 0
+    });
   }
 
-  return out;
+  return { positions, frames };
 }
