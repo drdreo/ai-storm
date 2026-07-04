@@ -1,5 +1,5 @@
 import type { Idea, Score } from "@ai-storm/shared";
-import type { Editor } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 import {
   applyIdeas as islandApplyIdeas,
@@ -14,12 +14,14 @@ import {
   serializeForTriage
 } from "../core/canvas-island";
 import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
-import { ideaCards } from "../core/canvas/idea-card";
+import { allIdeaCards, type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
 import { createUserIdea } from "../core/canvas/idea-tool";
 import {
   arrangeMindMap as layoutArrangeMindMap,
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
+import type { SearchableIdea } from "../core/canvas/search";
+import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
 import type { PromptIntent } from "../core/prompt-framing";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
 import type { PortableBoard } from "../core/workspace-portable";
@@ -279,6 +281,47 @@ export const canvas = {
     if (!editor || workspaceId !== activeId) return false;
     islandImportBoard(editor, board);
     bumpIdeasTick();
+    return true;
+  },
+
+  /**
+   * Gather idea cards across ALL workspaces for full-text search (#124). The
+   * mounted workspace is read live off its editor (freshest); every other
+   * workspace is read read-only from its persisted tldraw store, so search spans
+   * boards without switching onto each one. Best-effort per workspace — an
+   * unreadable board contributes nothing rather than failing the whole gather.
+   */
+  async collectSearchIdeas(workspaces: readonly { id: string; title: string }[]): Promise<SearchableIdea[]> {
+    const results = await Promise.all(
+      workspaces.map(async ({ id, title }) => {
+        if (editor && id === activeId) {
+          // All pages, not just the open one — parity with the persisted path.
+          return allIdeaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
+        }
+        return readPersistedIdeas(id, title);
+      })
+    );
+    return results.flat();
+  },
+
+  /**
+   * Reveal a card on the mounted board (#124): select it and pan/zoom the camera
+   * to frame it. Requires the target workspace to be the mounted one — cross-
+   * workspace navigation switches first (see {@link workspace.revealIdea}). The
+   * target is the stable tldraw shape id; returns false when the workspace isn't
+   * mounted or the shape no longer exists (e.g. deleted since the index gather).
+   */
+  focusIdea(workspaceId: string, shapeId: string): boolean {
+    if (!editor || workspaceId !== activeId) return false;
+    const id = shapeId as TLShapeId;
+    if (!editor.getShape(id)) return false;
+    // The card may live on a different tldraw page (boards-within-a-workspace);
+    // switch there first or the select/zoom below would frame the wrong page.
+    const pageId = editor.getAncestorPageId(id);
+    if (pageId && pageId !== editor.getCurrentPageId()) editor.setCurrentPage(pageId);
+    editor.select(id);
+    const bounds = editor.getShapePageBounds(id);
+    if (bounds) editor.zoomToBounds(bounds, { targetZoom: 1, animation: { duration: 300 }, inset: 128 });
     return true;
   },
 

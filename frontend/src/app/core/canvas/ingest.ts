@@ -59,6 +59,8 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
   // minted refs never collide across sessions (idea-graph §4).
   let nextRef = maxRefIndex(editor) + 1;
   let gridIndex = ideaCards(editor).length;
+  // One timestamp for the whole batch — its cards are born together (#124).
+  const createdAt = Date.now();
 
   editor.run(() => {
     for (const idea of ideas) {
@@ -101,7 +103,7 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         type: "idea-card",
         x,
         y,
-        meta: { ref },
+        meta: { ref, createdAt },
         props: {
           w: CARD_W,
           h: CARD_H,

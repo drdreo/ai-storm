@@ -57,7 +57,7 @@ export function SummaryPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {!summary || summary.isEmpty ? (
-              <p className="text-sm text-muted-foreground">No ideas on the board yet — nothing to summarize.</p>
+            <p className="text-sm text-muted-foreground">No ideas on the board yet — nothing to summarize.</p>
           ) : (
             <div className="flex flex-col gap-5 pb-4">
               {summary.themes.length > 0 && (

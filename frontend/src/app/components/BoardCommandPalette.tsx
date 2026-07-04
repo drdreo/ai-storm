@@ -1,3 +1,8 @@
+/**
+ * The board command palette (Ctrl+K, #96) — the view layer only. The action
+ * catalog lives in {@link buildCommandActions}, the facet bar in
+ * {@link IdeaFilterBar}, and the shared types in `command-palette/types`.
+ */
 import {
   CommandDialog,
   CommandEmpty,
@@ -7,38 +12,21 @@ import {
   CommandList,
   CommandShortcut
 } from "@/components/ui/command";
-import {
-  FileOutput,
-  Filter,
-  Grid2X2,
-  LayoutList,
-  ListRestart,
-  Maximize2,
-  Play,
-  Plus,
-  Settings,
-  Sparkles,
-  Square,
-  Workflow,
-  X
-} from "lucide-react";
-import { useMemo } from "react";
+import { Bot, Lightbulb, Star } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { BoardFilter } from "../core/canvas/filter";
+import {
+  EMPTY_IDEA_SEARCH_FILTER,
+  hasActiveIdeaFilter,
+  type IdeaSearchFilter,
+  type SearchableIdea,
+  searchIdeas
+} from "../core/canvas/search";
+import { kindLabel, KNOWN_KINDS, normalizeKind } from "../core/idea-descriptors";
 import type { WorkspaceMeta } from "../core/models";
-
-type CommandIcon = typeof Plus;
-
-interface CommandAction {
-  id: string;
-  group: string;
-  label: string;
-  hint: string;
-  keywords?: readonly string[];
-  icon: CommandIcon;
-  shortcut?: string;
-  disabledReason?: string;
-  run(): void;
-}
+import { buildCommandActions, groupActions } from "./command-palette/actions";
+import { DATE_PRESETS, IdeaFilterBar } from "./command-palette/IdeaFilterBar";
+import type { BoardCommandState, CommandAction } from "./command-palette/types";
 
 interface BoardCommandPaletteProps {
   open: boolean;
@@ -46,23 +34,11 @@ interface BoardCommandPaletteProps {
   active: WorkspaceMeta | null;
   workspaces: readonly WorkspaceMeta[];
   attached: boolean;
-  board: {
-    mounted: boolean;
-    cardCount: number;
-    facets: {
-      hasAi: boolean;
-      hasUser: boolean;
-      hasMarked: boolean;
-      hasSuperseded: boolean;
-      hasTriaged: boolean;
-    };
-    filter: BoardFilter;
-  };
+  board: BoardCommandState;
   onNewIdea(): void;
   onStartSession(): void;
   onStopSession(): void;
   onTriage(): void;
-
   onSummarize(): void;
   onHandoff(): void;
   onArrangeMindMap(): void;
@@ -73,203 +49,65 @@ interface BoardCommandPaletteProps {
   onSwitchWorkspace(workspaceId: string): void;
   focusMode: boolean;
   onToggleFocusMode(): void;
+  /** Ideas gathered across every workspace for full-text search (#124). */
+  searchIdeas: readonly SearchableIdea[];
+  /** Open a search result's workspace and pan/zoom to the card (#124). */
+  onRevealIdea(workspaceId: string, shapeId: string): void;
 }
 
-function hasActiveFilter(filter: BoardFilter): boolean {
-  return (
-    filter.hiddenKinds.size > 0 ||
-    filter.origin !== "all" ||
-    filter.markedOnly ||
-    !filter.showSuperseded ||
-    filter.triagedOnly
-  );
-}
+const MAX_IDEA_RESULTS = 12;
 
 export function BoardCommandPalette(props: BoardCommandPaletteProps) {
-  const noWorkspace = props.active ? undefined : "Create or switch to a workspace first.";
-  const boardUnavailable = noWorkspace ?? (!props.board.mounted ? "The board is still mounting." : undefined);
-  const emptyBoard = boardUnavailable ?? (props.board.cardCount === 0 ? "The board is empty." : undefined);
-  const noSession = noWorkspace ?? (!props.attached ? "Start a session first." : undefined);
-  const noSessionOrEmpty = noSession ?? emptyBoard;
+  // Live search state (#124): the typed query drives cmdk's own filtering AND the
+  // idea search; the facet filter narrows which ideas are candidates.
+  const [query, setQuery] = useState("");
+  const [ideaFilter, setIdeaFilter] = useState<IdeaSearchFilter>(EMPTY_IDEA_SEARCH_FILTER);
+  const [dateIndex, setDateIndex] = useState(0);
 
-  const actions = useMemo<CommandAction[]>(() => {
-    const filter = props.board.filter;
-    const activeFilter = hasActiveFilter(filter);
-
-    return [
-      {
-        id: "new-idea",
-        group: "Board",
-        label: "New idea",
-        hint: "Create a user idea card in the center of the visible board.",
-        icon: Plus,
-        disabledReason: boardUnavailable,
-        run: props.onNewIdea
-      },
-      {
-        id: props.attached ? "stop-session" : "start-session",
-        group: "Session",
-        label: props.attached ? "Stop session" : "Start session",
-        hint: props.attached
-          ? "Stop the attached terminal session for this workspace."
-          : "Attach or resume the terminal session for this workspace.",
-        icon: props.attached ? Square : Play,
-        disabledReason: noWorkspace,
-        run: props.attached ? props.onStopSession : props.onStartSession
-      },
-      {
-        id: "triage",
-        group: "Agent",
-        label: "Triage board",
-        hint: "Ask the live agent to score every idea for impact, effort, and confidence.",
-        keywords: ["rate", "score", "prioritize"],
-        icon: Sparkles,
-        disabledReason: noSessionOrEmpty,
-        run: props.onTriage
-      },
-      {
-        id: "summarize",
-        group: "Agent",
-        label: "Summarize board",
-        hint: "Read the current board into themes, decisions, questions, and highlights.",
-        keywords: ["summary", "converge"],
-        icon: LayoutList,
-        disabledReason: emptyBoard,
-        run: props.onSummarize
-      },
-      {
-        id: "handoff",
-        group: "Agent",
-        label: "Export to format",
-        hint: "Convert your ideas into a structured format like a PRD, GitHub issues, or agent tasks",
-        keywords: ["spec", "prd", "export", "plan", "issues", "tasks"],
-        icon: FileOutput,
-        disabledReason: emptyBoard,
-        run: props.onHandoff
-      },
-      {
-        id: "toggle-focus-mode",
-        group: "View",
-        label: props.focusMode ? "Exit focus mode" : "Focus mode",
-        hint: props.focusMode
-          ? "Return to the full canvas and app chrome."
-            : "Go fullscreen and show only the selected card(s)",
-        keywords: ["fullscreen", "zen", "distraction-free", "cluster"],
-        icon: props.focusMode ? X : Maximize2,
-        shortcut: "Ctrl/⌘ Shift F",
-        disabledReason: boardUnavailable,
-        run: props.onToggleFocusMode
-      },
-      {
-        id: "arrange-mind-map",
-        group: "Arrange",
-        label: "Arrange mind map",
-        hint: "Reflow ideas into the existing relationship-based mind map layout.",
-        keywords: ["layout", "cluster"],
-        icon: Workflow,
-        disabledReason: emptyBoard,
-        run: props.onArrangeMindMap
-      },
-      {
-        id: "arrange-priority-grid",
-        group: "Arrange",
-        label: "Arrange priority grid",
-        hint: "Reflow ideas into the existing impact and effort grid.",
-        keywords: ["layout", "impact", "effort"],
-        icon: Grid2X2,
-        disabledReason: emptyBoard,
-        run: props.onArrangePriorityGrid
-      },
-      {
-        id: "filter-ai",
-        group: "Filters",
-        label: filter.origin === "ai" ? "Show all origins" : "Show AI ideas only",
-        hint: "Toggle the same origin filter used by the canvas Filter menu.",
-        icon: Filter,
-        disabledReason: boardUnavailable ?? (!props.board.facets.hasAi ? "No AI ideas on this board." : undefined),
-        run: () => props.onPatchFilter({ origin: filter.origin === "ai" ? "all" : "ai" })
-      },
-      {
-        id: "filter-user",
-        group: "Filters",
-        label: filter.origin === "user" ? "Show all origins" : "Show user ideas only",
-        hint: "Toggle user-origin idea filtering.",
-        icon: Filter,
-        disabledReason: boardUnavailable ?? (!props.board.facets.hasUser ? "No user ideas on this board." : undefined),
-        run: () => props.onPatchFilter({ origin: filter.origin === "user" ? "all" : "user" })
-      },
-      {
-        id: "filter-marked",
-        group: "Filters",
-        label: filter.markedOnly ? "Show all ideas" : "Show marked ideas only",
-        hint: "Toggle the marked-only board filter.",
-        icon: Filter,
-        disabledReason:
-          boardUnavailable ?? (!props.board.facets.hasMarked ? "No marked ideas on this board." : undefined),
-        run: () => props.onPatchFilter({ markedOnly: !filter.markedOnly })
-      },
-      {
-        id: "filter-triaged",
-        group: "Filters",
-        label: filter.triagedOnly ? "Show all ideas" : "Show triaged ideas only",
-        hint: "Toggle the triaged-only board filter.",
-        icon: Filter,
-        disabledReason:
-          boardUnavailable ?? (!props.board.facets.hasTriaged ? "No triaged ideas on this board yet." : undefined),
-        run: () => props.onPatchFilter({ triagedOnly: !filter.triagedOnly })
-      },
-      {
-        id: "filter-superseded",
-        group: "Filters",
-        label: filter.showSuperseded ? "Hide superseded ideas" : "Show superseded ideas",
-        hint: "Toggle superseded idea visibility.",
-        icon: Filter,
-        disabledReason:
-          boardUnavailable ?? (!props.board.facets.hasSuperseded ? "No superseded ideas on this board." : undefined),
-        run: () => props.onPatchFilter({ showSuperseded: !filter.showSuperseded })
-      },
-      {
-        id: "filter-clear",
-        group: "Filters",
-        label: "Clear filters",
-        hint: "Reset every board filter to visible.",
-        icon: ListRestart,
-        disabledReason: boardUnavailable ?? (!activeFilter ? "No filters are active." : undefined),
-        run: props.onClearFilters
-      },
-      {
-        id: "settings",
-        group: "App",
-        label: "Open settings",
-        hint: "Open appearance settings for this device.",
-        icon: Settings,
-        run: props.onOpenSettings
-      },
-      ...props.workspaces.map<CommandAction>((ws) => ({
-        id: `workspace-${ws.id}`,
-        group: "Workspaces",
-        label: `Switch workspace: ${ws.title}`,
-        hint: `Open ${ws.title}. Current status: ${ws.status}.`,
-        keywords: ["switch workspace", ws.status],
-        icon: Workflow,
-        disabledReason: ws.id === props.active?.id ? "Already viewing this workspace." : undefined,
-        run: () => props.onSwitchWorkspace(ws.id)
-      }))
-    ];
-  }, [boardUnavailable, emptyBoard, noSessionOrEmpty, noWorkspace, props]);
-
-  const groups = useMemo(() => {
-    const order: string[] = [];
-    const byGroup = new Map<string, CommandAction[]>();
-    for (const action of actions) {
-      if (!byGroup.has(action.group)) {
-        order.push(action.group);
-        byGroup.set(action.group, []);
-      }
-      byGroup.get(action.group)!.push(action);
+  // Reset the query and facets each time the palette opens, so a fresh Ctrl+K is
+  // a clean slate rather than resuming the last search.
+  useEffect(() => {
+    if (props.open) {
+      setQuery("");
+      setIdeaFilter(EMPTY_IDEA_SEARCH_FILTER);
+      setDateIndex(0);
     }
-    return order.map((group) => [group, byGroup.get(group)!] as const);
-  }, [actions]);
+  }, [props.open]);
+
+  const datePreset = DATE_PRESETS[dateIndex];
+  const cycleDate = () => {
+    const next = (dateIndex + 1) % DATE_PRESETS.length;
+    setDateIndex(next);
+    const ms = DATE_PRESETS[next].ms;
+    setIdeaFilter((f) => ({ ...f, createdAfter: ms === undefined ? undefined : Date.now() - ms }));
+  };
+
+  // Kinds actually present across the gathered ideas — so the facet bar only
+  // offers kinds a search could match (mirrors the canvas Filter menu's approach).
+  const availableKinds = useMemo(() => {
+    const present = new Set<string>();
+    for (const idea of props.searchIdeas) {
+      const k = normalizeKind(idea.kind);
+      if (k) present.add(k);
+    }
+    return KNOWN_KINDS.filter((k) => present.has(k));
+  }, [props.searchIdeas]);
+
+  // Show the Ideas group whenever the user is searching — a keyword OR any active
+  // facet counts as an intent to browse ideas.
+  const searching = query.trim() !== "" || hasActiveIdeaFilter(ideaFilter);
+  const ideaResults = useMemo(
+    () => (searching ? searchIdeas(props.searchIdeas, query, ideaFilter, MAX_IDEA_RESULTS) : []),
+    [searching, props.searchIdeas, query, ideaFilter]
+  );
+
+  const revealIdea = (idea: SearchableIdea) => {
+    props.onRevealIdea(idea.workspaceId, idea.shapeId);
+    props.onOpenChange(false);
+  };
+
+  const actions = useMemo(() => buildCommandActions(props), [props]);
+  const groups = useMemo(() => groupActions(actions), [actions]);
 
   const run = (action: CommandAction) => {
     if (action.disabledReason) return;
@@ -284,9 +122,44 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
       title="Command palette"
       description="Search and run board commands."
     >
-      <CommandInput placeholder="Search commands..." />
+      <CommandInput placeholder="Search commands and ideas..." value={query} onValueChange={setQuery} />
+      {props.searchIdeas.length > 0 && (
+        <IdeaFilterBar
+          filter={ideaFilter}
+          onChange={setIdeaFilter}
+          availableKinds={availableKinds}
+          datePreset={datePreset}
+          onCycleDate={cycleDate}
+        />
+      )}
       <CommandList>
-        <CommandEmpty>No commands found.</CommandEmpty>
+        <CommandEmpty>No commands or ideas found.</CommandEmpty>
+        {ideaResults.length > 0 && (
+          <CommandGroup heading="Ideas">
+            {ideaResults.map(({ idea }) => {
+              const kind = normalizeKind(idea.kind);
+              const meta = [idea.workspaceTitle, kind ? kindLabel(kind) : null, idea.superseded ? "superseded" : null]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <CommandItem
+                  key={`${idea.workspaceId}:${idea.shapeId}`}
+                  // Value carries the searchable text (so cmdk keeps it) plus a
+                  // unique workspace:shape suffix for stable item identity.
+                  value={[idea.title, idea.body, kind, idea.workspaceTitle, idea.workspaceId, idea.shapeId].join(" ")}
+                  onSelect={() => revealIdea(idea)}
+                >
+                  {idea.origin === "ai" ? <Bot /> : <Lightbulb />}
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{idea.title || "Untitled idea"}</span>
+                    <span className="truncate text-xs text-muted-foreground">{meta}</span>
+                  </div>
+                  {idea.starred ? <Star className="size-3.5 shrink-0 fill-current text-amber-500" /> : null}
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        )}
         {groups.map(([group, groupActions]) => (
           <CommandGroup key={group} heading={group}>
             {groupActions.map((action) => {

@@ -7,27 +7,27 @@
  * and follow the light/dark theme.
  */
 import {
-  ShapeUtil,
-  Rectangle2d,
-  resizeBox,
-  HTMLContainer,
-  T,
-  getColorValue,
-  stopEventPropagation,
-  useEditor,
-  useIsEditing,
-  useColorMode,
   DefaultColorStyle,
   type Editor,
   type Geometry2d,
+  getColorValue,
+  HTMLContainer,
   type RecordProps,
+  Rectangle2d,
+  resizeBox,
+  ShapeUtil,
+  stopEventPropagation,
+  T,
   type TLBaseShape,
   type TLDefaultColorStyle,
   type TLResizeInfo,
-  type TLShapeId
+  type TLShapeId,
+  useColorMode,
+  useEditor,
+  useIsEditing
 } from "tldraw";
-import { kindLabel, normalizeKind, AI_PROVENANCE_BADGE } from "../idea-descriptors";
-import { cardToText, type CardContent } from "../canvas-text";
+import { type CardContent, cardToText } from "../canvas-text";
+import { AI_PROVENANCE_BADGE, kindLabel, normalizeKind } from "../idea-descriptors";
 import { canvasRefIndex } from "./refs";
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
@@ -84,6 +84,13 @@ export interface IdeaCardMeta {
    * `meta` (like `starred`/`score`) so no schema migration.
    */
   editedByUser?: boolean;
+  /**
+   * Epoch ms the card was created (#124) — stamped by the AI ingest path and the
+   * manual "Idea" tool so full-text search can offer a date facet. `meta` (like
+   * `starred`/`score`) so no schema migration; cards made before this landed
+   * simply lack it and are treated as unknown-date by the search filter.
+   */
+  createdAt?: number;
   [key: string]: unknown;
 }
 
@@ -358,6 +365,17 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
 /** Every idea-card shape on the editor's current page. */
 export function ideaCards(editor: Editor): IdeaCardShape[] {
   return editor.getCurrentPageShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
+}
+
+/**
+ * Every idea-card shape across ALL of the editor's pages (#124). Search must see
+ * the whole workspace, not just the open page — this reads the store directly,
+ * mirroring how the persisted-store gather path sees every page's records.
+ */
+export function allIdeaCards(editor: Editor): IdeaCardShape[] {
+  return editor.store
+    .allRecords()
+    .filter((r): r is IdeaCardShape => r.typeName === "shape" && (r as IdeaCardShape).type === "idea-card");
 }
 
 /**
