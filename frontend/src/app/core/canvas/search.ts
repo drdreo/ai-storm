@@ -181,7 +181,7 @@ export function searchIdeas(
 
   scored.sort(
     (a, b) =>
-        b.score - a.score || (b.idea.createdAt ?? 0) - (a.idea.createdAt ?? 0) || a.idea.title.localeCompare(b.idea.title)
+      b.score - a.score || (b.idea.createdAt ?? 0) - (a.idea.createdAt ?? 0) || a.idea.title.localeCompare(b.idea.title)
   );
   return scored.slice(0, limit);
 }

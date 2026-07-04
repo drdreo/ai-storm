@@ -8,28 +8,28 @@ import type { BoardFilter } from "../../core/canvas/filter";
 
 /** One runnable palette entry: what it says, where it groups, and when it's off. */
 export interface CommandAction {
-    id: string;
-    group: string;
-    label: string;
-    hint: string;
-    keywords?: readonly string[];
-    icon: LucideIcon;
-    shortcut?: string;
-    disabledReason?: string;
+  id: string;
+  group: string;
+  label: string;
+  hint: string;
+  keywords?: readonly string[];
+  icon: LucideIcon;
+  shortcut?: string;
+  disabledReason?: string;
 
-    run(): void;
+  run(): void;
 }
 
 /** Live board facts used to explain disabled palette actions (#96). */
 export interface BoardCommandState {
-    mounted: boolean;
-    cardCount: number;
-    facets: {
-        hasAi: boolean;
-        hasUser: boolean;
-        hasMarked: boolean;
-        hasSuperseded: boolean;
-        hasTriaged: boolean;
-    };
-    filter: BoardFilter;
+  mounted: boolean;
+  cardCount: number;
+  facets: {
+    hasAi: boolean;
+    hasUser: boolean;
+    hasMarked: boolean;
+    hasSuperseded: boolean;
+    hasTriaged: boolean;
+  };
+  filter: BoardFilter;
 }

@@ -7,24 +7,24 @@
  * and follow the light/dark theme.
  */
 import {
-    DefaultColorStyle,
-    type Editor,
-    type Geometry2d,
-    getColorValue,
-    HTMLContainer,
-    type RecordProps,
-    Rectangle2d,
-    resizeBox,
-    ShapeUtil,
-    stopEventPropagation,
-    T,
-    type TLBaseShape,
-    type TLDefaultColorStyle,
-    type TLResizeInfo,
-    type TLShapeId,
-    useColorMode,
-    useEditor,
-    useIsEditing
+  DefaultColorStyle,
+  type Editor,
+  type Geometry2d,
+  getColorValue,
+  HTMLContainer,
+  type RecordProps,
+  Rectangle2d,
+  resizeBox,
+  ShapeUtil,
+  stopEventPropagation,
+  T,
+  type TLBaseShape,
+  type TLDefaultColorStyle,
+  type TLResizeInfo,
+  type TLShapeId,
+  useColorMode,
+  useEditor,
+  useIsEditing
 } from "tldraw";
 import { type CardContent, cardToText } from "../canvas-text";
 import { AI_PROVENANCE_BADGE, kindLabel, normalizeKind } from "../idea-descriptors";
@@ -373,9 +373,9 @@ export function ideaCards(editor: Editor): IdeaCardShape[] {
  * mirroring how the persisted-store gather path sees every page's records.
  */
 export function allIdeaCards(editor: Editor): IdeaCardShape[] {
-    return editor.store
-        .allRecords()
-        .filter((r): r is IdeaCardShape => r.typeName === "shape" && (r as IdeaCardShape).type === "idea-card");
+  return editor.store
+    .allRecords()
+    .filter((r): r is IdeaCardShape => r.typeName === "shape" && (r as IdeaCardShape).type === "idea-card");
 }
 
 /**
