@@ -100,16 +100,11 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
               </Tooltip>
             </Toolbar.Button>
           )}
-          <Toolbar.Button asChild>
-            <Button size="sm" variant="outline" onClick={() => ingestion.clearTerminal(ws.id)}>
-              Clear
-            </Button>
-          </Toolbar.Button>
           {onCollapse && (
             <Toolbar.Button asChild>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button size="icon" variant="ghost" aria-label="Collapse control hub" onClick={onCollapse}>
+                  <Button size="icon-sm" variant="ghost" aria-label="Collapse control hub" onClick={onCollapse}>
                     <PanelRightClose className="size-4" />
                   </Button>
                 </TooltipTrigger>

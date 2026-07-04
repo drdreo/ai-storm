@@ -9,6 +9,7 @@
  * - `canvas/ingest`     — `applyIdeas` (the ingestion write-path)
  * - `canvas/serialize`  — board → text/snapshot reads (PRD §3.2/§3.6, #28/#60)
  * - `canvas/filter`     — the multi-facet board filter model (#21)
+ * - `canvas/focus`      — focus-mode's related-cluster computation (#131)
  * - `canvas/layout`     — arrange/grid re-flows + triage score + mark (#16/#60/#29)
  * - `canvas/edges`      — the typed edge graph shared by reads and layouts
  * - `canvas/portable`   — board ↔ portable JSON for workspace export/import (#105)
@@ -24,7 +25,14 @@ import { useThemeStore } from "../stores/theme.store";
 import { IdeaCardShapeUtil } from "./canvas/idea-card";
 import { CardVerbBar, type CardVerbHandler } from "./canvas/CardVerbBar";
 import { CanvasEmptyState, type EmptyStateActions } from "./canvas/CanvasEmptyState";
-import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from "./canvas/menus";
+import {
+  CanvasMainMenu,
+  CanvasContextMenu,
+  FilterApplier,
+  FocusQuickActions,
+  focusModeOverrides,
+  useFilterAtom
+} from "./canvas/menus";
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
@@ -97,6 +105,9 @@ export function CanvasIsland({
       ContextMenu: CanvasContextMenu,
       // Surface the manual "Idea" tool (#31) next to tldraw's native tools.
       Toolbar: IdeaToolbar,
+      // Focus-mode exit (#131) is appended to the native top-left QuickActions,
+      // so it never overlaps the main menu and doesn't shift the style panel.
+      QuickActions: FocusQuickActions,
       InFrontOfTheCanvas: () => (
         <>
           <CanvasEmptyState actions={emptyStateActions} />
@@ -114,7 +125,7 @@ export function CanvasIsland({
         persistenceKey={`ai-storm:ws:${workspaceId}`}
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
-        overrides={ideaToolOverrides}
+        overrides={[ideaToolOverrides, focusModeOverrides]}
         options={copyTextOptions}
         components={components}
         onMount={(ed) => {

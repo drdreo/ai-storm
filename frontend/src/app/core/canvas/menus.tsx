@@ -13,17 +13,22 @@
  * island (see {@link useFilterAtom}) and passed in, so it's per-workspace and resets
  * on board switch with no shared global.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   atom,
   track,
   useEditor,
+  useActions,
   type Atom,
   type Editor,
+  type TLShapeId,
+  type TLUiOverrides,
   DefaultMainMenu,
   DefaultMainMenuContent,
   DefaultContextMenu,
   DefaultContextMenuContent,
+  DefaultQuickActions,
+  DefaultQuickActionsContent,
   type TLUiContextMenuProps,
   TldrawUiMenuGroup,
   TldrawUiMenuSubmenu,
@@ -32,10 +37,12 @@ import {
 } from "tldraw";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
 import { serializeCards } from "../canvas-text";
+import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
 import { arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
 import { createUserIdea } from "./idea-tool";
+import { focusedCardIds } from "./focus";
 
 /**
  * Select every idea card matching `pred` (#106) — the shared engine behind the
@@ -75,24 +82,94 @@ function filterCount(f: BoardFilter): number {
 }
 
 /**
- * Invisible board⇄filter binding (#21): re-applies the filter as per-card opacity
- * whenever the filter or the set of cards changes. Always mounted (it renders
- * `InFrontOfTheCanvas`, not in the menu), so freshly-streamed cards honour the
- * active filter even while the menu is closed. `track` re-runs it on board changes;
- * `cardsKey` keys the effect off card identity (not opacity), so applying the
- * filter — which only touches opacity/lock — can't loop.
+ * Invisible board⇄filter binding (#21, #131): re-applies the filter — and, while
+ * focus mode is on, a further restriction to the selected cluster — as per-card
+ * opacity whenever the filter, focus mode, selection, or the set of cards
+ * changes. Always mounted (it renders `InFrontOfTheCanvas`, not in the menu), so
+ * freshly-streamed cards honour the active filter even while the menu is closed.
+ * `track` re-runs it on board changes; reading the selection only while focus
+ * mode is on means selecting a card doesn't re-render this when focus is off.
+ * `cardsKey`/`focusKey` key the effect off identity (not opacity), so applying
+ * the filter — which only touches opacity/lock — can't loop.
+ *
+ * The focused cluster is captured ONCE, on the moment focus mode turns on, from
+ * whatever is selected then — and then held fixed until focus mode is explicitly
+ * turned off (context menu, exit pill, palette, Escape). It deliberately does
+ * NOT track later selection changes: clicking, right-clicking, or editing a card
+ * inside the focused set must not re-narrow or re-widen the board (that made
+ * cards flicker in and out, and effectively "un-focused" the board while the
+ * chrome stayed hidden). An empty selection on entry captures `null` — the cue
+ * to go fullscreen over the whole board without narrowing.
  */
 export const FilterApplier = track(function FilterApplier({ $filter }: { $filter: FilterAtom }): null {
   const editor = useEditor();
   const filter = $filter.get();
+  const focusMode = useUiStore((s) => s.focusMode);
+  const focusIds = useRef<Set<TLShapeId> | null>(null);
+  const wasFocused = useRef(false);
+  if (focusMode && !wasFocused.current) {
+    // off → on edge: snapshot the cluster around the current selection.
+    focusIds.current = focusedCardIds(editor, new Set(editor.getSelectedShapeIds()));
+  } else if (!focusMode) {
+    focusIds.current = null;
+  }
+  wasFocused.current = focusMode;
+  const active = focusMode ? focusIds.current : null;
   const cardsKey = ideaCards(editor)
     .map((c) => c.id)
     .join(",");
+  const focusKey = active ? [...active].join(",") : "";
   useEffect(() => {
-    applyFilter(editor, filter);
-  }, [editor, filter, cardsKey]);
+    applyFilter(editor, filter, active);
+  }, [editor, filter, cardsKey, focusKey]);
   return null;
 });
+
+/**
+ * Register the focus-mode toggle as a native tldraw **action** (#131), so tldraw's
+ * own keyboard system owns the Ctrl/⌘+Shift+F shortcut — the idiomatic override
+ * (tldraw.dev/reference/tldraw/TLUiOverrides), mirroring how {@link ideaToolOverrides}
+ * binds the Idea tool's `i`. This is the *only* real binding: a `kbd` on a rendered
+ * menu item is a display hint, not a handler (tldraw's `useKeyboardShortcuts` binds
+ * from `actions`/`tools` alone), and the QuickActions item only mounts while focused
+ * — so it could never register the shortcut to *enter*. One action toggles both ways
+ * and works whenever the canvas is focused, replacing the old window keydown handler.
+ */
+export const focusModeOverrides: TLUiOverrides = {
+  actions(_editor, actions) {
+    actions["toggle-focus-mode"] = {
+      id: "toggle-focus-mode",
+      label: "Focus mode",
+      kbd: "cmd+shift+f,ctrl+shift+f",
+      readonlyOk: true,
+      onSelect: () => ui.toggleFocusMode()
+    };
+    return actions;
+  }
+};
+
+/**
+ * The focus-mode exit control (#131), appended to tldraw's native top-left
+ * QuickActions (undo/redo/…) instead of overlaid as an app-chrome button — the
+ * custom-menus pattern (tldraw.dev/examples/custom-menus): keep
+ * {@link DefaultQuickActionsContent} and add our own item. It sits in the native
+ * UI layer, so it never collides with the main menu and — unlike the top-right
+ * `SharePanel` — doesn't shift the style panel. Only shown while focus mode is on;
+ * the shortcut and command palette exit too, but a pointer-only user needs a
+ * visible way back once the app chrome is hidden. Spreads the {@link focusModeOverrides}
+ * action so its handler and the `⌘⇧F` hint come from that single source; only the
+ * label/icon are specialised for the exit direction.
+ */
+export function FocusQuickActions(): React.JSX.Element {
+  const focusMode = useUiStore((s) => s.focusMode);
+  const actions = useActions();
+  return (
+    <DefaultQuickActions>
+      <DefaultQuickActionsContent />
+      {focusMode && <TldrawUiMenuItem {...actions["toggle-focus-mode"]} icon="cross-2" label="Exit focus mode" />}
+    </DefaultQuickActions>
+  );
+}
 
 /**
  * The native main menu (top-left ☰) with our "Arrange" and "Filter" submenus
@@ -233,6 +310,7 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
  */
 export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiContextMenuProps): React.JSX.Element {
   const editor = useEditor();
+  const focusMode = useUiStore((s) => s.focusMode);
   const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
 
@@ -251,10 +329,29 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
     if (text.trim()) void navigator.clipboard?.writeText(text);
   };
 
+  // Focus the selected cards' cluster (#131) — the right-click twin of
+  // Ctrl/⌘+Shift+F and the palette entry. Entering first widens the selection to the whole connected cluster
+  // ({@link focusedCardIds}), then goes fullscreen — {@link FilterApplier} reads
+  // that selection to decide what stays visible. While already focused the same
+  // slot exits instead, since cards remain visible in focus mode and a plain
+  // "Focus cards" here would otherwise silently toggle focus *off*.
+  const focusSelected = () => {
+    if (focusMode) {
+      ui.setFocusMode(false);
+      return;
+    }
+    const focusIds = focusedCardIds(editor, new Set(selectedCards.map((c) => c.id)));
+    if (focusIds) {
+      editor.setSelectedShapes(Array.from(focusIds));
+      ui.setFocusMode(true);
+    }
+  };
+
   return (
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
+          <TldrawUiMenuItem id="focus" label={focusMode ? "Exit focus" : "⤢ Focus cards"} onSelect={focusSelected} />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
           <TldrawUiMenuItem
             id="copy-cards-md"

@@ -8,6 +8,8 @@ import {
   LayoutList,
   Lightbulb,
   ListRestart,
+  Maximize2,
+  X,
   Play,
   Plus,
   Settings,
@@ -80,6 +82,8 @@ interface BoardCommandPaletteProps {
   onClearFilters(): void;
   onOpenSettings(): void;
   onSwitchWorkspace(workspaceId: string): void;
+  focusMode: boolean;
+    onToggleFocusMode(): void;
   /** Ideas gathered across every workspace for full-text search (#124). */
   searchIdeas: readonly SearchableIdea[];
   /** Open a search result's workspace and pan/zoom to the card (#124). */
@@ -292,6 +296,18 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
         icon: FileOutput,
         disabledReason: emptyBoard,
         run: props.onHandoff
+      },
+      {
+        id: "toggle-focus-mode",
+        group: "View",
+        label: props.focusMode ? "Exit focus mode" : "Focus mode",
+        hint: props.focusMode
+          ? "Return to the full canvas and app chrome."
+          : "Go fullscreen and show only the selected card(s)' cluster (#131).",
+        keywords: ["fullscreen", "zen", "distraction-free", "cluster"],
+        icon: props.focusMode ? X : Maximize2,
+        disabledReason: boardUnavailable,
+        run: props.onToggleFocusMode
       },
       {
         id: "arrange-mind-map",

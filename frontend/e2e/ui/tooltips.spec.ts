@@ -26,9 +26,19 @@ test.describe("tooltips", () => {
   test("workspace status badge explains the status on hover", async ({ shell, page }) => {
     await shell.goto();
 
-    const badge = shell.workspaceRows.first().locator('[data-slot="tooltip-trigger"]');
-    await badge.hover();
+    // Collapse the sidebar so the tooltip is visible (it's only shown in collapsed state).
+    // Once collapsed, the per-row "Manage" kebab is hidden (icon-only rail), so
+    // `shell.workspaceRows` (which filters on that kebab) no longer matches —
+    // scope to the Workspaces group's own container instead.
+    await page.locator('[data-slot="sidebar-trigger"]').click();
+    await expect(page.locator('[data-slot="sidebar"][data-state="collapsed"]')).toBeVisible({ timeout: 5000 });
 
-    await expect(page.getByRole("tooltip")).toContainText("No session running");
+    const badge = page.locator('[data-sidebar="content"] [data-sidebar="menu-button"]').first();
+    await badge.hover({ timeout: 5000 });
+
+    // For idle status, only show workspace name (no redundant "No session running" text)
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toContainText(/Untitled|Project/);
+    await expect(tooltip).not.toContainText("No session running");
   });
 });
