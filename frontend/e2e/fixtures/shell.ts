@@ -3,7 +3,7 @@ import { test as base, expect, type Locator, type Page } from "@playwright/test"
 /**
  * Page object for the ai-storm shell (#84). Keeps specs readable by naming the
  * three structural surfaces — sidebar, canvas, control hub — and the handful of
- * interactions the suite drives (create/rename/switch a workspace, open
+ * interactions the suite drives (create/rename/switch a project, open
  * settings). Mirror selectors used by the old `smoke.mjs` so coverage carries
  * over verbatim.
  */
@@ -11,11 +11,11 @@ export class Shell {
   constructor(readonly page: Page) {}
 
   /**
-   * Workspace rows in the sidebar. The brand header and the footer (backend
+   * Project rows in the sidebar. The brand header and the footer (backend
    * status, Settings) are also `data-sidebar="menu-item"` rows, so scope to the
-   * ones carrying a per-row "Manage" kebab — only real workspaces have one.
+   * ones carrying a per-row "Manage" kebab — only real projects have one.
    */
-  get workspaceRows(): Locator {
+  get projectRows(): Locator {
     return this.page
       .locator('[data-sidebar="menu-item"]')
       .filter({ has: this.page.getByRole("button", { name: /^Manage / }) });
@@ -26,8 +26,8 @@ export class Shell {
     return this.page.locator(".tl-container").first();
   }
 
-  get newWorkspaceButton(): Locator {
-    return this.page.getByRole("button", { name: "New workspace" });
+  get newProjectButton(): Locator {
+    return this.page.getByRole("button", { name: "New project" });
   }
 
   /**
@@ -51,28 +51,28 @@ export class Shell {
   async goto(): Promise<void> {
     await this.page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(this.page.getByText("ai-storm", { exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(this.workspaceRows.first()).toBeVisible({ timeout: 10_000 });
+    await expect(this.projectRows.first()).toBeVisible({ timeout: 10_000 });
     await expect(this.canvas).toBeVisible({ timeout: 15_000 });
   }
 
-  /** Create a workspace via the (+) action; resolves once the row count grows. */
-  async createWorkspace(): Promise<void> {
-    const before = await this.workspaceRows.count();
-    await this.newWorkspaceButton.click();
-    await expect(this.workspaceRows).toHaveCount(before + 1);
+  /** Create a project via the (+) action; resolves once the row count grows. */
+  async createProject(): Promise<void> {
+    const before = await this.projectRows.count();
+    await this.newProjectButton.click();
+    await expect(this.projectRows).toHaveCount(before + 1);
   }
 
-  /** Inline-rename a workspace row by double-clicking its label and committing. */
-  async renameWorkspace(row: Locator, from: string, to: string): Promise<void> {
+  /** Inline-rename a project row by double-clicking its label and committing. */
+  async renameProject(row: Locator, from: string, to: string): Promise<void> {
     await row.getByText(from).dblclick();
     // The editing row swaps its content for an input (and drops its "Manage"
     // kebab, so a row-scoped, kebab-filtered locator would stop matching it).
     // Only one rename input exists at a time — target it at the page level.
-    const input = this.page.getByRole("textbox", { name: "Rename workspace" });
+    const input = this.page.getByRole("textbox", { name: "Rename project" });
     await input.waitFor();
     await input.fill(to);
     await input.press("Enter");
-    await expect(this.workspaceRows.getByText(to)).toBeVisible();
+    await expect(this.projectRows.getByText(to)).toBeVisible();
   }
 
   /** Open the appearance Settings dialog from the sidebar footer. */

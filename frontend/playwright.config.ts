@@ -9,7 +9,7 @@ import { defineConfig, devices } from "@playwright/test";
  * on CI's ubuntu boxes):
  *
  *   • `ui`      — backend-free specs (`e2e/ui/**`): boot, shell structure,
- *                 workspace CRUD, IndexedDB naming, theming, dialogs, empty
+ *                 project CRUD, IndexedDB naming, theming, dialogs, empty
  *                 state, tooltips. The app renders fine with the backend closed.
  *   • `backend` — backend-dependent specs (`e2e/backend/**`): the real PTY
  *                 round-trip and hot-switch scrollback. Requires the Node

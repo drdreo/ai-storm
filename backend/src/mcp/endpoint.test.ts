@@ -27,14 +27,14 @@ function setup() {
   return { registry, app };
 }
 
-/** Register + attach a workspace, collecting everything its callbacks emit. */
-function wire(registry: McpSessionRegistry, workspaceId: string) {
-  const target = registry.registerSession(workspaceId)!;
+/** Register + attach a project, collecting everything its callbacks emit. */
+function wire(registry: McpSessionRegistry, projectId: string) {
+  const target = registry.registerSession(projectId)!;
   const ideaSink = new IdeaSink();
   const scoreSink = new ScoreSink();
   const ideas: Idea[] = [];
   const scores: Score[] = [];
-  registry.attachSession(workspaceId, {
+  registry.attachSession(projectId, {
     ideaSink,
     scoreSink,
     onIdea: (i) => ideas.push(i),
@@ -389,7 +389,7 @@ describe("ref round-trip (§9.4)", () => {
     expect(w.scores).toEqual([{ ref: "i1", impact: 4, effort: 2 }]);
   });
 
-  it("refs are session-scoped: a second workspace starts at i1 again", async () => {
+  it("refs are session-scoped: a second project starts at i1 again", async () => {
     const { registry, app } = setup();
     const w1 = wire(registry, "ws1");
     const w2 = wire(registry, "ws2");
@@ -412,11 +412,11 @@ describe("routing & auth (§9.5)", () => {
     });
     expect(res.status).toBe(404);
     expect(w.ideas).toEqual([]);
-    // Unknown workspace is indistinguishable from a wrong token.
+    // Unknown project is indistinguishable from a wrong token.
     expect((await rpc(app, "nope", w.token, "initialize")).status).toBe(404);
   });
 
-  it("routes two concurrent workspaces to their own callbacks", async () => {
+  it("routes two concurrent projects to their own callbacks", async () => {
     const { registry, app } = setup();
     const w1 = wire(registry, "ws1");
     const w2 = wire(registry, "ws2");
@@ -468,7 +468,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const registry = new McpSessionRegistry();
     registry.configure(BASE);
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
-    await backend.create({ workspaceId: "ws1", command: "claude", prime: "p" });
+    await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
     const token = fake.sessions.get("ai-storm-ws1")?.options["@ai_storm_mcp_token"];
     expect(token).toMatch(/^[0-9a-f]{32}$/); // 128-bit randomUUID-derived secret
@@ -483,7 +483,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const registry = new McpSessionRegistry();
     registry.configure(BASE);
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
-    await backend.create({ workspaceId: "ws1", command: "bash" });
+    await backend.create({ projectId: "ws1", command: "bash" });
     expect(fake.sessions.get("ai-storm-ws1")?.options["@ai_storm_mcp_token"]).toBeUndefined();
     expect(fake.sessions.get("ai-storm-ws1")?.launch).not.toContain("--mcp-config");
     expect(registry.isRegistered("ws1")).toBe(false);
@@ -498,7 +498,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
       sleep: async () => {},
       registry: registry1
     });
-    await b1.create({ workspaceId: "ws1", command: "claude", prime: "p" });
+    await b1.create({ projectId: "ws1", command: "claude", prime: "p" });
     const token = fake.sessions.get("ai-storm-ws1")!.options["@ai_storm_mcp_token"];
 
     // "Restart": fresh registry + backend over the same surviving tmux state.
@@ -533,7 +533,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const registry = new McpSessionRegistry();
     registry.configure(BASE);
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
-    await backend.create({ workspaceId: "ws1", command: "claude", prime: "p" });
+    await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
     const ideas: Idea[] = [];
     await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop);

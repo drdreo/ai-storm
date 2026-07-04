@@ -21,7 +21,7 @@ export class LaunchNotFoundError extends Error {
   constructor(command: string) {
     super(
       `Could not find "${command}" on PATH. Is your AI harness installed and ` +
-        `on PATH? You can change the harness command in the workspace settings.`
+        `on PATH? You can change the harness command in the project settings.`
     );
     this.name = "LaunchNotFoundError";
     this.command = command;

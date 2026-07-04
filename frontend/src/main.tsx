@@ -16,7 +16,7 @@ theme.init();
 
 // NOTE: intentionally no <StrictMode>. The app is built around imperative
 // singletons (one multiplexing WebSocket, live xterm.js instances, the tldraw
-// Editor, per-workspace IndexedDB stores). StrictMode's deliberate double
+// Editor, per-project IndexedDB stores). StrictMode's deliberate double
 // mount/unmount in dev would double-open the socket, re-spawn terminals and
 // re-mount tldraw, which these effects are not written to tolerate.
 createRoot(document.getElementById("root")!).render(

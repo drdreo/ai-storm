@@ -17,7 +17,7 @@
  *   detach()  → {@link detachSession} clears the attachment; the token stays
  *               valid (the durable session lives on) but tool calls get a
  *               "session not attached" tool error until the next attach.
- *   kill()    → {@link removeSession} forgets the workspace entirely → 404.
+ *   kill()    → {@link removeSession} forgets the project entirely → 404.
  *   reconcile() (tmux) → {@link restoreSession} re-registers a token read back
  *               from the durable session's `@ai_storm_mcp_token` option (§4.2).
  *
@@ -38,7 +38,7 @@ export const MCP_SERVER_NAME = "ai-storm";
 /** What `create()` gets back: the minted secret and the launch URL embedding it. */
 export interface McpLaunchTarget {
   token: string;
-  /** `http://<host>:<port>/mcp/<workspaceId>/<token>` — workspace identity is
+  /** `http://<host>:<port>/mcp/<projectId>/<token>` — project identity is
    *  structural (it comes from the URL, never from the model — design §4.1). */
   url: string;
 }
@@ -94,14 +94,14 @@ export class McpSessionRegistry {
    * 128-bit secret (design §4.1). Returns undefined when no base URL is
    * configured — the caller then launches without MCP wiring.
    */
-  registerSession(workspaceId: string): McpLaunchTarget | undefined {
+  registerSession(projectId: string): McpLaunchTarget | undefined {
     if (!this.#baseUrl) return undefined;
-    let entry = this.#entries.get(workspaceId);
+    let entry = this.#entries.get(projectId);
     if (!entry) {
       entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
-      this.#entries.set(workspaceId, entry);
+      this.#entries.set(projectId, entry);
     }
-    return { token: entry.token, url: `${this.#baseUrl}/mcp/${workspaceId}/${entry.token}` };
+    return { token: entry.token, url: `${this.#baseUrl}/mcp/${projectId}/${entry.token}` };
   }
 
   /**
@@ -109,40 +109,40 @@ export class McpSessionRegistry {
    * (tmux `@ai_storm_mcp_token`, design §4.2) so the URL baked into its launch
    * args keeps routing after a backend restart.
    */
-  restoreSession(workspaceId: string, token: string): void {
-    if (this.#entries.has(workspaceId)) return; // live entry wins
-    this.#entries.set(workspaceId, { token, attachment: null, nextRef: 1 });
+  restoreSession(projectId: string, token: string): void {
+    if (this.#entries.has(projectId)) return; // live entry wins
+    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
   }
 
   /** Route the tool path into this attachment's sinks/callbacks (no-op if the
-   *  workspace was never MCP-registered — a markers-only session). */
-  attachSession(workspaceId: string, attachment: McpAttachment): void {
-    const entry = this.#entries.get(workspaceId);
+   *  project was never MCP-registered — a markers-only session). */
+  attachSession(projectId: string, attachment: McpAttachment): void {
+    const entry = this.#entries.get(projectId);
     if (entry) entry.attachment = attachment;
   }
 
   /** Detach: keep the token (the durable session lives on), drop the plumbing. */
-  detachSession(workspaceId: string): void {
-    const entry = this.#entries.get(workspaceId);
+  detachSession(projectId: string): void {
+    const entry = this.#entries.get(projectId);
     if (entry) entry.attachment = null;
   }
 
-  /** Kill: forget the workspace — its URL 404s and its `i<n>` counter resets. */
-  removeSession(workspaceId: string): void {
-    this.#entries.delete(workspaceId);
+  /** Kill: forget the project — its URL 404s and its `i<n>` counter resets. */
+  removeSession(projectId: string): void {
+    this.#entries.delete(projectId);
   }
 
   /** True when this session launched MCP-wired (used to flag `idea.fallback_scan`). */
-  isRegistered(workspaceId: string): boolean {
-    return this.#entries.has(workspaceId);
+  isRegistered(projectId: string): boolean {
+    return this.#entries.has(projectId);
   }
 
   /**
-   * Auth + routing lookup for the endpoint. Unknown workspace and wrong token
+   * Auth + routing lookup for the endpoint. Unknown project and wrong token
    * are indistinguishable to the caller (both → undefined → 404, design §4.1).
    */
-  resolve(workspaceId: string, token: string): McpSession | undefined {
-    const entry = this.#entries.get(workspaceId);
+  resolve(projectId: string, token: string): McpSession | undefined {
+    const entry = this.#entries.get(projectId);
     if (!entry || !tokenMatches(entry.token, token)) return undefined;
     return {
       get attachment() {

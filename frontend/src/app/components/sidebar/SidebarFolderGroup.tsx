@@ -18,7 +18,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronRight, Folder as FolderIcon, MoreHorizontal } from "lucide-react";
 import type { Folder } from "@ai-storm/shared";
-import { workspace } from "../../stores/workspace.store";
+import { project } from "../../stores/project.store";
 import type { DragKind } from "./useSidebarDnd";
 import { UNGROUPED_ZONE } from "./useSidebarDnd";
 
@@ -37,9 +37,9 @@ export interface FolderGroupProps {
 /**
  * A sortable, collapsible folder group with its own rename/delete kebab.
  * Collapse state is persisted on the folder meta so it survives a reload
- * (#128). The header doubles as the drop target for moving a workspace into
+ * (#128). The header doubles as the drop target for moving a project into
  * the folder (works while collapsed too); its children form a nested sortable
- * zone. Same drag ergonomics as workspace rows: the header itself is the
+ * zone. Same drag ergonomics as project rows: the header itself is the
  * pointer drag source.
  */
 export function SortableFolderGroup(props: FolderGroupProps) {
@@ -50,14 +50,14 @@ export function SortableFolderGroup(props: FolderGroupProps) {
     disabled: isEditing
   });
   const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition };
-  // Highlight the header as a drop target only when a *workspace* hovers it —
+  // Highlight the header as a drop target only when a *project* hovers it —
   // a hovering folder is just a reorder, not a drop-into.
-  const isDropTarget = isOver && active?.data.current?.kind === "workspace";
+  const isDropTarget = isOver && active?.data.current?.kind === "project";
 
   return (
     <Collapsible
       open={!folder.collapsed}
-      onOpenChange={(open) => workspace.setFolderCollapsed(folder.id, !open)}
+      onOpenChange={(open) => project.setFolderCollapsed(folder.id, !open)}
       className="group/folder"
       asChild
     >
@@ -111,7 +111,7 @@ export function SortableFolderGroup(props: FolderGroupProps) {
               {childIds.length > 0 ? (
                 props.children
               ) : (
-                <li className="px-2 py-1 text-xs text-muted-foreground">Empty — move a workspace here.</li>
+                <li className="px-2 py-1 text-xs text-muted-foreground">Empty — move a project here.</li>
               )}
             </SortableContext>
           </SidebarMenuSub>
@@ -122,7 +122,7 @@ export function SortableFolderGroup(props: FolderGroupProps) {
 }
 
 /**
- * Catch area for dragging a workspace back to the top level when no ungrouped
+ * Catch area for dragging a project back to the top level when no ungrouped
  * rows exist to drop next to (only rendered mid-drag in that state).
  */
 export function UngroupedDropZone() {

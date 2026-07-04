@@ -8,9 +8,9 @@ export type ConnectionState = "connecting" | "open" | "closed";
 /**
  * WebSocket client for the local backend loop (PRD §4.2).
  *
- * Maintains a single socket that multiplexes every workspace. Inbound messages
- * are fanned out to per-workspace subscribers keyed by `workspaceId`, so each
- * isolated workspace (PRD §3.4) only sees its own stream. Auto-reconnects with
+ * Maintains a single socket that multiplexes every project. Inbound messages
+ * are fanned out to per-project subscribers keyed by `projectId`, so each
+ * isolated project (PRD §3.4) only sees its own stream. Auto-reconnects with
  * a bounded backoff so terminal disconnections survive (PRD §3.5).
  *
  * The socket and its handler registries are imperative module singletons (they
@@ -93,7 +93,7 @@ function scheduleReconnect(): void {
 
 function dispatch(msg: ServerMessage): void {
   for (const h of globalHandlers) h(msg);
-  const id = "workspaceId" in msg ? msg.workspaceId : undefined;
+  const id = "projectId" in msg ? msg.projectId : undefined;
   if (id) {
     const set = handlers.get(id);
     if (set) for (const h of set) h(msg);
@@ -114,21 +114,21 @@ export const backend = {
     open();
   },
 
-  /** Subscribe to messages for a specific workspace. Returns an unsubscribe fn. */
-  subscribe(workspaceId: string, handler: ServerMessageHandler): () => void {
-    let set = handlers.get(workspaceId);
+  /** Subscribe to messages for a specific project. Returns an unsubscribe fn. */
+  subscribe(projectId: string, handler: ServerMessageHandler): () => void {
+    let set = handlers.get(projectId);
     if (!set) {
       set = new Set();
-      handlers.set(workspaceId, set);
+      handlers.set(projectId, set);
     }
     set.add(handler);
     return () => {
       set!.delete(handler);
-      if (set!.size === 0) handlers.delete(workspaceId);
+      if (set!.size === 0) handlers.delete(projectId);
     };
   },
 
-  /** Subscribe to every message regardless of workspace (diagnostics). */
+  /** Subscribe to every message regardless of project (diagnostics). */
   subscribeAll(handler: ServerMessageHandler): () => void {
     globalHandlers.add(handler);
     return () => globalHandlers.delete(handler);

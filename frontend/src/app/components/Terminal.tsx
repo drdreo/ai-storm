@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { useWorkspaceStore, selectActive } from "../stores/workspace.store";
+import { useProjectStore, selectActive } from "../stores/project.store";
 import { ingestion } from "../stores/ingestion.store";
 import { useThemeStore } from "../stores/theme.store";
 
-/** One live xterm.js terminal bound to a workspace's session. */
+/** One live xterm.js terminal bound to a project's session. */
 interface Entry {
   term: Xterm;
   fit: FitAddon;
@@ -41,18 +41,18 @@ function getTerminalBackgroundColor(): string {
  * no server-side chat extraction. Keystrokes flow back out via `onData` →
  * `input`. Ideas are handled separately by the canvas.
  *
- * One {@link Xterm} per workspace is kept so each isolated workspace (PRD §3.4)
- * retains its own scrollback; only the active workspace's terminal is attached
+ * One {@link Xterm} per project is kept so each isolated project (PRD §3.4)
+ * retains its own scrollback; only the active project's terminal is attached
  * to the host element, swapped on hot-switch.
  */
 export function Terminal() {
-  const activeId = useWorkspaceStore((s) => selectActive(s)?.id ?? null);
+  const activeId = useProjectStore((s) => selectActive(s)?.id ?? null);
   const hostRef = useRef<HTMLDivElement>(null);
   const entries = useRef(new Map<string, Entry>());
   const resizeObserver = useRef<ResizeObserver | null>(null);
   const shownId = useRef<string | null>(null);
 
-  // Follow the active workspace: show its terminal, creating it on first view.
+  // Follow the active project: show its terminal, creating it on first view.
   useEffect(() => {
     const hostEl = hostRef.current;
     if (!activeId || !hostEl) return;
@@ -84,24 +84,24 @@ export function Terminal() {
     };
   }, []);
 
-  function show(workspaceId: string, hostEl: HTMLElement): void {
-    if (shownId.current === workspaceId && entries.current.get(workspaceId)?.container.parentElement === hostEl) {
+  function show(projectId: string, hostEl: HTMLElement): void {
+    if (shownId.current === projectId && entries.current.get(projectId)?.container.parentElement === hostEl) {
       return;
     }
-    shownId.current = workspaceId;
-    const entry = ensure(workspaceId);
-    // Only the active workspace's terminal is in the DOM.
+    shownId.current = projectId;
+    const entry = ensure(projectId);
+    // Only the active project's terminal is in the DOM.
     hostEl.replaceChildren(entry.container);
     // Open + wire xterm now that its container is attached, so the renderer
     // measures real dimensions (opening on a detached node mis-measures).
-    if (!entry.wired) wire(workspaceId, entry);
+    if (!entry.wired) wire(projectId, entry);
     observe(hostEl);
     // Fit after the swap lands so the container has real dimensions.
-    queueMicrotask(() => fit(workspaceId));
+    queueMicrotask(() => fit(projectId));
   }
 
-  function ensure(workspaceId: string): Entry {
-    const existing = entries.current.get(workspaceId);
+  function ensure(projectId: string): Entry {
+    const existing = entries.current.get(projectId);
     if (existing) return existing;
 
     const container = document.createElement("div");
@@ -126,17 +126,17 @@ export function Terminal() {
       dataDisp: null,
       unregister: null
     };
-    entries.current.set(workspaceId, entry);
+    entries.current.set(projectId, entry);
     return entry;
   }
 
   /** Open the terminal in its (now-attached) container and connect the streams. */
-  function wire(workspaceId: string, entry: Entry): void {
+  function wire(projectId: string, entry: Entry): void {
     entry.term.open(entry.container);
     // Keystrokes → the session's PTY, verbatim.
-    entry.dataDisp = entry.term.onData((d) => ingestion.sendInput(workspaceId, d));
+    entry.dataDisp = entry.term.onData((d) => ingestion.sendInput(projectId, d));
     // Raw bytes from the session → the terminal.
-    entry.unregister = ingestion.registerTerminal(workspaceId, {
+    entry.unregister = ingestion.registerTerminal(projectId, {
       write: (b64) => entry.term.write(decodeBase64(b64)),
       clear: () => entry.term.clear(),
       // Bidirectional canvas (#13): focus the terminal after a framed prompt is
@@ -155,14 +155,14 @@ export function Terminal() {
   }
 
   /** Fit the active terminal to its container and inform the backend (cols/rows). */
-  function fit(workspaceId: string): void {
-    const entry = entries.current.get(workspaceId);
+  function fit(projectId: string): void {
+    const entry = entries.current.get(projectId);
     if (!entry || entry.container.parentElement === null || entry.container.clientWidth === 0) {
       return;
     }
     try {
       entry.fit.fit();
-      ingestion.resize(workspaceId, entry.term.cols, entry.term.rows);
+      ingestion.resize(projectId, entry.term.cols, entry.term.rows);
     } catch {
       // Container not measurable yet; the next ResizeObserver tick retries.
     }

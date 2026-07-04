@@ -369,7 +369,7 @@ export function ideaCards(editor: Editor): IdeaCardShape[] {
 
 /**
  * Every idea-card shape across ALL of the editor's pages (#124). Search must see
- * the whole workspace, not just the open page — this reads the store directly,
+ * the whole project, not just the open page — this reads the store directly,
  * mirroring how the persisted-store gather path sees every page's records.
  */
 export function allIdeaCards(editor: Editor): IdeaCardShape[] {

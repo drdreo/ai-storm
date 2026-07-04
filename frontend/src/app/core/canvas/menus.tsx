@@ -10,7 +10,7 @@
  *
  * The filter selection lives in a tldraw {@link atom} (not React state) because the
  * main-menu content unmounts whenever the menu closes; the atom is created per
- * island (see {@link useFilterAtom}) and passed in, so it's per-workspace and resets
+ * island (see {@link useFilterAtom}) and passed in, so it's per-project and resets
  * on board switch with no shared global.
  */
 import { useEffect, useRef, useState } from "react";
@@ -62,10 +62,10 @@ const isMarked = (c: IdeaCardShape) => !!(c.meta as IdeaCardMeta).starred;
 const isUntriaged = (c: IdeaCardShape) => !(c.meta as IdeaCardMeta).score && !c.props.superseded;
 const isOpenQuestion = (c: IdeaCardShape) => normalizeKind(c.props.kind) === "question" && !c.props.superseded;
 
-/** A workspace's live filter, held in a tldraw signal so it outlives menu open/close. */
+/** A project's live filter, held in a tldraw signal so it outlives menu open/close. */
 export type FilterAtom = Atom<BoardFilter>;
 
-/** A fresh filter atom for the current workspace, discarded when the island remounts. */
+/** A fresh filter atom for the current project, discarded when the island remounts. */
 export function useFilterAtom(): FilterAtom {
   return useState(() => atom<BoardFilter>("boardFilter", EMPTY_FILTER))[0];
 }

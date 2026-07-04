@@ -22,7 +22,7 @@
 
 /** A selectable facilitation method. */
 export interface FacilitationMode {
-  /** Stable id persisted in the workspace config and sent on `attach`. */
+  /** Stable id persisted in the project config and sent on `attach`. */
   id: string;
   /** Human label shown in the mode picker. */
   label: string;

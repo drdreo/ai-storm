@@ -1,12 +1,12 @@
 /**
- * Workspace export/import bundle (#105) — a portable, ref-keyed JSON snapshot of a
- * workspace's metadata and board, independent of the browser profile. The board
+ * Project export/import bundle (#105) — a portable, ref-keyed JSON snapshot of a
+ * project's metadata and board, independent of the browser profile. The board
  * itself is described by {@link PortableBoard} (see `canvas/portable.ts` for the
  * editor-facing read/write side); this module owns the bundle envelope, its
  * validation, and the filename convention, so it stays pure and unit-testable
  * (no tldraw `Editor` involved).
  */
-import type { TerminalConfig, WorkspaceMeta } from "@ai-storm/shared";
+import type { TerminalConfig, ProjectMeta } from "@ai-storm/shared";
 
 export interface PortableCard {
   ref: string;
@@ -29,10 +29,10 @@ export interface PortableBoard {
   edges: PortableEdge[];
 }
 
-export interface WorkspaceExportBundle {
+export interface ProjectExportBundle {
   version: 1;
   exportedAt: number;
-  workspace: {
+  project: {
     title: string;
     color?: string;
     terminal: TerminalConfig;
@@ -42,8 +42,8 @@ export interface WorkspaceExportBundle {
 
 const CURRENT_VERSION = 1;
 
-/** Wrap a workspace's meta + board into the portable envelope. */
-export function buildExportBundle(meta: WorkspaceMeta, board: PortableBoard): WorkspaceExportBundle {
+/** Wrap a project's meta + board into the portable envelope. */
+export function buildExportBundle(meta: ProjectMeta, board: PortableBoard): ProjectExportBundle {
   // `cwd` (#152) is a local filesystem path — meaningless (or worse, wrong) on
   // whatever machine imports this bundle, so it's dropped from the portable
   // terminal config rather than round-tripped.
@@ -51,17 +51,17 @@ export function buildExportBundle(meta: WorkspaceMeta, board: PortableBoard): Wo
   return {
     version: CURRENT_VERSION,
     exportedAt: Date.now(),
-    workspace: { title: meta.title, color: meta.color, terminal: portableTerminal },
+    project: { title: meta.title, color: meta.color, terminal: portableTerminal },
     board
   };
 }
 
 /**
- * Parse and validate a workspace export file (acceptance criterion: invalid or
+ * Parse and validate a project export file (acceptance criterion: invalid or
  * incompatible files show clear errors). Throws a descriptive `Error` — never
  * returns a partially-valid bundle.
  */
-export function parseExportBundle(json: string): WorkspaceExportBundle {
+export function parseExportBundle(json: string): ProjectExportBundle {
   let data: unknown;
   try {
     data = JSON.parse(json);
@@ -69,31 +69,31 @@ export function parseExportBundle(json: string): WorkspaceExportBundle {
     throw new Error("That file is not valid JSON.");
   }
   if (!data || typeof data !== "object") {
-    throw new Error("Not a recognizable ai-storm workspace file.");
+    throw new Error("Not a recognizable ai-storm project file.");
   }
   const bundle = data as Record<string, unknown>;
   if (bundle.version !== CURRENT_VERSION) {
     throw new Error(
-      `Unsupported workspace file version (got ${JSON.stringify(bundle.version)}, expected ${CURRENT_VERSION}).`
+      `Unsupported project file version (got ${JSON.stringify(bundle.version)}, expected ${CURRENT_VERSION}).`
     );
   }
-  const ws = bundle.workspace as Record<string, unknown> | undefined;
+  const ws = bundle.project as Record<string, unknown> | undefined;
   if (!ws || typeof ws.title !== "string" || !ws.terminal || typeof ws.terminal !== "object") {
-    throw new Error("Not a recognizable ai-storm workspace file.");
+    throw new Error("Not a recognizable ai-storm project file.");
   }
   const board = bundle.board as Record<string, unknown> | undefined;
   if (!board || !Array.isArray(board.cards) || !Array.isArray(board.edges)) {
-    throw new Error("Not a recognizable ai-storm workspace file.");
+    throw new Error("Not a recognizable ai-storm project file.");
   }
-  return bundle as unknown as WorkspaceExportBundle;
+  return bundle as unknown as ProjectExportBundle;
 }
 
-/** Filesystem-safe base filename (no extension) for a workspace export. */
+/** Filesystem-safe base filename (no extension) for a project export. */
 export function exportFileSlug(title: string): string {
   const slug = title
     .trim()
     .replace(/[^\w-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return slug || "workspace";
+  return slug || "project";
 }

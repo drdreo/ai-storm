@@ -2,7 +2,7 @@
  * Local-only HTTP + WebSocket server (PRD §4.2), built on Hono.
  *
  * Serves the built Angular client (when present) and exposes a single
- * WebSocket endpoint at `/pty` that multiplexes all workspaces for one client.
+ * WebSocket endpoint at `/pty` that multiplexes all projects for one client.
  * Bound to 127.0.0.1 so the loop never leaves the local sandbox.
  *
  * Sessions are owned by a process-wide `SessionBackend` (tmux on POSIX, node-pty
@@ -39,7 +39,7 @@ const MAX_AGENTS_PER_CONNECTION = 4;
  * single-line `«IDEA»` marker (and fenced form) the backend extracts into
  * canvas ideas.
  */
-const PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply normally in conversation.
+const PRIME_INSTRUCTION = `You are in a brainstorming project. Reply normally in conversation.
 
 Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, emit it on its OWN line in exactly this format, then continue talking normally:
 
@@ -87,7 +87,7 @@ Rules:
  * CLIs offer); the marker scanner still runs underneath as the silent floor
  * (§7), so a tool-call lapse is caught — and logged — not lost.
  */
-const MCP_PRIME_INSTRUCTION = `You are in a brainstorming workspace. Reply normally in conversation.
+const MCP_PRIME_INSTRUCTION = `You are in a brainstorming project. Reply normally in conversation.
 
 Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, call the capture_idea tool: a short title, a description in body (multi-line is fine), and optionally a kind (risk, feature, question, decision).
 
@@ -208,7 +208,7 @@ export function buildApp(config: ServerConfig) {
       const origin = c.req.header("origin");
       const originOk = isOriginAllowed(origin);
 
-      // Workspaces this connection attached to — detached (not killed) on close.
+      // Projects this connection attached to — detached (not killed) on close.
       const attached = new Set<string>();
       // Agent subprocesses spawned by this connection, torn down on disconnect.
       const agents = new Set<ChildProcess>();
@@ -292,10 +292,10 @@ async function dispatch(
 ): Promise<void> {
   switch (msg.type) {
     case "attach": {
-      const { workspaceId } = msg;
+      const { projectId } = msg;
       log.info("attach.request", {
         conn,
-        workspace: workspaceId,
+        project: projectId,
         shell: msg.shell,
         args: (msg.args ?? []).join(" "),
         cwd: msg.cwd,
@@ -308,14 +308,14 @@ async function dispatch(
         // the session always exists by the time `input` is processed (§3.3).
         const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", msg.mode, msg.background);
         log.debug("attach.setup", {
-          workspace: workspaceId,
+          project: projectId,
           harnessProfile,
           mode: msg.mode,
           background: msg.background,
           prime
         });
         await backend.create({
-          workspaceId,
+          projectId,
           command: msg.shell ?? "",
           args: msg.args,
           cwd: msg.cwd,
@@ -324,47 +324,47 @@ async function dispatch(
           harnessProfile,
           prime
         });
-        send({ type: "session-status", workspaceId, status: "created" });
+        send({ type: "session-status", projectId, status: "created" });
         await backend.attach(
-          workspaceId,
+          projectId,
           // Raw PTY bytes → the browser's xterm.js terminal. base64 so the
           // control bytes of a cursor-addressed TUI survive JSON intact. This is
           // the AI's response stream; byte volume is debug-level (would flood).
           (raw) => {
-            log.debug("ai.data", { workspace: workspaceId, bytes: raw.length });
-            send({ type: "data", workspaceId, data: Buffer.from(raw, "utf8").toString("base64") });
+            log.debug("ai.data", { project: projectId, bytes: raw.length });
+            send({ type: "data", projectId, data: Buffer.from(raw, "utf8").toString("base64") });
           },
           // Each newly-extracted idea → the canvas (the meaningful "got a result").
           (idea) => {
             log.info("ai.idea.sent", {
-              workspace: workspaceId,
+              project: projectId,
               kind: idea.kind ?? "",
               title: idea.title,
               body: idea.body.slice(0, 80)
             });
-            send({ type: "idea", workspaceId, idea });
+            send({ type: "idea", projectId, idea });
           },
           // Each newly-extracted triage score → the canvas, updating a card (#60).
           (score) => {
             log.info("ai.score.sent", {
-              workspace: workspaceId,
+              project: projectId,
               ref: score.ref,
               impact: score.impact,
               effort: score.effort
             });
-            send({ type: "score", workspaceId, score });
+            send({ type: "score", projectId, score });
           },
           (message) => {
-            log.warn("session.error", { workspace: workspaceId, message });
-            send({ type: "error", workspaceId, message });
+            log.warn("session.error", { project: projectId, message });
+            send({ type: "error", projectId, message });
           }
         );
-        attached.add(workspaceId);
-        send({ type: "session-status", workspaceId, status: "attached" });
+        attached.add(projectId);
+        send({ type: "session-status", projectId, status: "attached" });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        log.error("attach.error", { workspace: workspaceId, message });
-        send({ type: "error", workspaceId, message });
+        log.error("attach.error", { project: projectId, message });
+        send({ type: "error", projectId, message });
       }
       break;
     }
@@ -374,50 +374,50 @@ async function dispatch(
       // is a real prompt/paste headed to the AI — surface that at info.
       const keystroke = msg.data.length <= 2 && !/[\r\n]/.test(msg.data);
       if (keystroke) {
-        log.debug("ai.keystroke", { workspace: msg.workspaceId, bytes: msg.data.length });
+        log.debug("ai.keystroke", { project: msg.projectId, bytes: msg.data.length });
       } else {
         log.info("ai.input.sent", {
-          workspace: msg.workspaceId,
+          project: msg.projectId,
           bytes: msg.data.length,
           preview: msg.data.replace(/\s+/g, " ").trim().slice(0, 80)
         });
       }
       try {
-        await backend.sendInput(msg.workspaceId, msg.data);
+        await backend.sendInput(msg.projectId, msg.data);
       } catch (err) {
         send({
           type: "error",
-          workspaceId: msg.workspaceId,
+          projectId: msg.projectId,
           message: err instanceof Error ? err.message : String(err)
         });
       }
       break;
     }
     case "resize":
-      log.debug("resize", { workspace: msg.workspaceId, cols: msg.cols, rows: msg.rows });
-      await backend.resize(msg.workspaceId, msg.cols, msg.rows);
+      log.debug("resize", { project: msg.projectId, cols: msg.cols, rows: msg.rows });
+      await backend.resize(msg.projectId, msg.cols, msg.rows);
       break;
     case "detach":
-      log.info("detach", { workspace: msg.workspaceId });
-      backend.detach(msg.workspaceId);
-      attached.delete(msg.workspaceId);
+      log.info("detach", { project: msg.projectId });
+      backend.detach(msg.projectId);
+      attached.delete(msg.projectId);
       break;
     case "kill":
-      log.info("kill", { workspace: msg.workspaceId });
-      await backend.kill(msg.workspaceId);
-      attached.delete(msg.workspaceId);
-      send({ type: "session-status", workspaceId: msg.workspaceId, status: "killed" });
+      log.info("kill", { project: msg.projectId });
+      await backend.kill(msg.projectId);
+      attached.delete(msg.projectId);
+      send({ type: "session-status", projectId: msg.projectId, status: "killed" });
       break;
     case "context":
       // Inject the serialized canvas as contextual memory (PRD §3.2): submitted
       // to the harness as a full prompt (not raw keystrokes — it is multi-line).
-      log.info("ai.context.inject", { workspace: msg.workspaceId, bytes: msg.document.length });
+      log.info("ai.context.inject", { project: msg.projectId, bytes: msg.document.length });
       try {
-        await backend.submitPrompt(msg.workspaceId, msg.document);
+        await backend.submitPrompt(msg.projectId, msg.document);
       } catch (err) {
         send({
           type: "error",
-          workspaceId: msg.workspaceId,
+          projectId: msg.projectId,
           message: err instanceof Error ? err.message : String(err)
         });
       }
@@ -426,17 +426,17 @@ async function dispatch(
       // Concurrency ceiling (#142): each run is a full harness process; an
       // unbounded burst of `agent` messages would fork-bomb the host.
       if (agents.size >= MAX_AGENTS_PER_CONNECTION) {
-        log.warn("agent.concurrency_capped", { conn, workspace: msg.workspaceId, live: agents.size });
+        log.warn("agent.concurrency_capped", { conn, project: msg.projectId, live: agents.size });
         send({
           type: "agent-status",
-          workspaceId: msg.workspaceId,
+          projectId: msg.projectId,
           status: "error",
           data: `Concurrent agent-run limit (${MAX_AGENTS_PER_CONNECTION}) reached; wait for a run to finish.`
         });
         break;
       }
       log.info("agent.dispatch", {
-        workspace: msg.workspaceId,
+        project: msg.projectId,
         command: msg.command,
         args: (msg.args ?? []).join(" "),
         payloadBytes: msg.payload.length,
@@ -445,7 +445,7 @@ async function dispatch(
       });
       {
         const child = runAgent(
-          msg.workspaceId,
+          msg.projectId,
           {
             command: msg.command,
             args: msg.args,
@@ -455,7 +455,7 @@ async function dispatch(
             capabilities: msg.capabilities
           },
           (status) => send({ type: "agent-status", ...status }),
-          (artifacts) => send({ type: "agent-artifacts", workspaceId: msg.workspaceId, artifacts }),
+          (artifacts) => send({ type: "agent-artifacts", projectId: msg.projectId, artifacts }),
           { timeoutMs: config.agentTimeoutMs }
         );
         // Track for connection-scoped teardown; drop once it exits on its own.

@@ -1,64 +1,64 @@
 import { create } from "zustand";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
-import type { Folder, WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
+import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
-import { defaultTerminalConfig, defaultWorkspaceColor } from "../core/models";
+import { defaultTerminalConfig, defaultProjectColor } from "../core/models";
 import { compareByOrder, orderAfterAll } from "../core/sidebar-order";
-import { buildExportBundle, type WorkspaceExportBundle } from "../core/workspace-portable";
+import { buildExportBundle, type ProjectExportBundle } from "../core/project-portable";
 import { withSpan } from "../../lib/log";
 
 const REGISTRY_ROOM = "ai-storm-registry";
-const ACTIVE_KEY = "ai-storm.activeWorkspace";
+const ACTIVE_KEY = "ai-storm.activeProject";
 
 /**
- * Multi-workspace registry & lifecycle (PRD §3.4, §3.5).
+ * Multi-project registry & lifecycle (PRD §3.4, §3.5).
  *
- * Workspace metadata is stored in a dedicated CRDT Y.Doc persisted to its own
+ * Project metadata is stored in a dedicated CRDT Y.Doc persisted to its own
  * IndexedDB store, so every change (title, status) is written immediately and
- * survives crashes. The canvas content for each workspace is owned by the
- * {@link canvas} controller (a tldraw store per workspace). On boot we
- * rehydrate both layers and restore the most recently active workspace exactly
+ * survives crashes. The canvas content for each project is owned by the
+ * {@link canvas} controller (a tldraw store per project). On boot we
+ * rehydrate both layers and restore the most recently active project exactly
  * as it was left.
  *
- * This is a 1:1 port of the Angular `WorkspaceService`: signals → Zustand state,
+ * This is a 1:1 port of the Angular `ProjectService`: signals → Zustand state,
  * the Y.Doc/persistence are imperative module singletons.
  */
 
-interface WorkspaceState {
-  workspaces: WorkspaceMeta[];
+interface ProjectState {
+  projects: ProjectMeta[];
   folders: Folder[];
   activeId: string | null;
   booted: boolean;
 }
 
-export const useWorkspaceStore = create<WorkspaceState>(() => ({
-  workspaces: [],
+export const useProjectStore = create<ProjectState>(() => ({
+  projects: [],
   folders: [],
   activeId: null,
   booted: false
 }));
 
-/** Derived selector: the active workspace meta (or null). */
-export function selectActive(s: WorkspaceState): WorkspaceMeta | null {
-  return s.activeId ? (s.workspaces.find((w) => w.id === s.activeId) ?? null) : null;
+/** Derived selector: the active project meta (or null). */
+export function selectActive(s: ProjectState): ProjectMeta | null {
+  return s.activeId ? (s.projects.find((w) => w.id === s.activeId) ?? null) : null;
 }
 
 // ---- Imperative CRDT singletons (outside React) ----------------------------
 
 const registryDoc = new Y.Doc();
 let registryPersistence: IndexeddbPersistence;
-let map: Y.Map<WorkspaceMeta>;
+let map: Y.Map<ProjectMeta>;
 let folderMap: Y.Map<Folder>;
 
 function syncFromMap(): void {
-  const list: WorkspaceMeta[] = [];
+  const list: ProjectMeta[] = [];
   map.forEach((meta) => list.push(meta));
   list.sort(compareByOrder);
   const folders: Folder[] = [];
   folderMap.forEach((f) => folders.push(f));
   folders.sort(compareByOrder);
-  useWorkspaceStore.setState({ workspaces: list, folders });
+  useProjectStore.setState({ projects: list, folders });
 }
 
 /**
@@ -68,11 +68,11 @@ function syncFromMap(): void {
  * at boot; after that all writes carry keys.
  */
 function backfillOrders(): void {
-  const { workspaces, folders } = useWorkspaceStore.getState();
+  const { projects, folders } = useProjectStore.getState();
   registryDoc.transact(() => {
-    if (!workspaces.every((w) => w.order)) {
-      const keyed: WorkspaceMeta[] = [];
-      for (const ws of workspaces) {
+    if (!projects.every((w) => w.order)) {
+      const keyed: ProjectMeta[] = [];
+      for (const ws of projects) {
         const next = { ...ws, order: orderAfterAll(keyed) };
         write(next);
         keyed.push(next);
@@ -89,7 +89,7 @@ function backfillOrders(): void {
   });
 }
 
-function write(meta: WorkspaceMeta): void {
+function write(meta: ProjectMeta): void {
   // Structured-clone a plain object into the CRDT map (writes immediately).
   map.set(meta.id, { ...meta, terminal: { ...meta.terminal } });
 }
@@ -98,14 +98,14 @@ function writeFolder(folder: Folder): void {
   folderMap.set(folder.id, { ...folder });
 }
 
-export const workspace = {
-  /** Boot sequence (PRD §3.5): rehydrate CRDT stores, restore last workspace. */
+export const project = {
+  /** Boot sequence (PRD §3.5): rehydrate CRDT stores, restore last project. */
   async boot(): Promise<void> {
-    if (useWorkspaceStore.getState().booted) return;
-    await withSpan("workspace.boot", {}, async () => {
+    if (useProjectStore.getState().booted) return;
+    await withSpan("project.boot", {}, async () => {
       await canvas.init();
 
-      map = registryDoc.getMap<WorkspaceMeta>("workspaces");
+      map = registryDoc.getMap<ProjectMeta>("projects");
       folderMap = registryDoc.getMap<Folder>("folders");
       registryPersistence = new IndexeddbPersistence(REGISTRY_ROOM, registryDoc);
       await new Promise<void>((resolve) => {
@@ -118,41 +118,41 @@ export const workspace = {
       syncFromMap();
       backfillOrders();
 
-      const workspaces = useWorkspaceStore.getState().workspaces;
-      if (workspaces.length === 0) {
-        // First run — stand up a starter workspace.
-        const id = workspace.create("Untitled Project");
-        workspace.setActive(id);
+      const projects = useProjectStore.getState().projects;
+      if (projects.length === 0) {
+        // First run — stand up a starter project.
+        const id = project.create("Untitled Project");
+        project.setActive(id);
       } else {
-        // Restore the most recently active workspace.
+        // Restore the most recently active project.
         const stored = localStorage.getItem(ACTIVE_KEY);
-        const exists = stored && workspaces.some((w) => w.id === stored);
-        const fallback = [...workspaces].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
-        workspace.setActive(exists ? stored! : fallback.id);
+        const exists = stored && projects.some((w) => w.id === stored);
+        const fallback = [...projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
+        project.setActive(exists ? stored! : fallback.id);
       }
 
       // Let the canvas settle before rendering the panes (PRD §3.5 boot). tldraw
-      // loads the active workspace's store on mount, so this is a cheap no-op kept
+      // loads the active project's store on mount, so this is a cheap no-op kept
       // for parity / future async restore.
-      const active = useWorkspaceStore.getState().activeId;
+      const active = useProjectStore.getState().activeId;
       if (active) await canvas.ensureReady(active);
 
-      useWorkspaceStore.setState({ booted: true });
+      useProjectStore.setState({ booted: true });
     });
   },
 
   create(title: string): string {
     const id = `ws_${crypto.randomUUID()}`;
     const now = Date.now();
-    const ungrouped = useWorkspaceStore.getState().workspaces.filter((w) => !w.folderId);
-    const meta: WorkspaceMeta = {
+    const ungrouped = useProjectStore.getState().projects.filter((w) => !w.folderId);
+    const meta: ProjectMeta = {
       id,
       title,
       status: "idle",
       createdAt: now,
       lastActiveAt: now,
       terminal: defaultTerminalConfig(),
-      color: defaultWorkspaceColor(id),
+      color: defaultProjectColor(id),
       order: orderAfterAll(ungrouped)
     };
     write(meta);
@@ -165,7 +165,7 @@ export const workspace = {
     write({ ...meta, title });
   },
 
-  setStatus(id: string, status: WorkspaceStatus): void {
+  setStatus(id: string, status: ProjectStatus): void {
     const meta = map.get(id);
     if (meta && meta.status !== status) write({ ...meta, status });
   },
@@ -180,7 +180,7 @@ export const workspace = {
   /** Create an (initially empty) sidebar folder, returning its id. */
   createFolder(title: string): string {
     const id = `fld_${crypto.randomUUID()}`;
-    const folders = useWorkspaceStore.getState().folders;
+    const folders = useProjectStore.getState().folders;
     writeFolder({ id, title, createdAt: Date.now(), order: orderAfterAll(folders) });
     return id;
   },
@@ -196,7 +196,7 @@ export const workspace = {
   },
 
   /**
-   * Delete a folder. Folders are pure containers, so its workspaces are never
+   * Delete a folder. Folders are pure containers, so its projects are never
    * deleted — they fall back to the sidebar's top level (folderId cleared).
    */
   removeFolder(id: string): void {
@@ -209,27 +209,27 @@ export const workspace = {
   },
 
   /**
-   * Move a workspace into a folder, or to the top level when `folderId` is
+   * Move a project into a folder, or to the top level when `folderId` is
    * null, appending it after its new siblings (the "Move to folder" menu path).
    */
-  moveToFolder(workspaceId: string, folderId: string | null): void {
-    const meta = map.get(workspaceId);
+  moveToFolder(projectId: string, folderId: string | null): void {
+    const meta = map.get(projectId);
     if (!meta) return;
     const next = folderId ?? undefined;
     if (meta.folderId === next) return;
-    const siblings = useWorkspaceStore
+    const siblings = useProjectStore
       .getState()
-      .workspaces.filter((w) => (w.folderId ?? undefined) === next && w.id !== workspaceId);
+      .projects.filter((w) => (w.folderId ?? undefined) === next && w.id !== projectId);
     write({ ...meta, folderId: next, order: orderAfterAll(siblings) });
   },
 
   /**
-   * Drop a workspace at an explicit position (#128 DnD): re-parents to
+   * Drop a project at an explicit position (#128 DnD): re-parents to
    * `folderId` (null → top level) and sets the fractional sort key in a single
    * write, so a cross-container drag is one CRDT update.
    */
-  moveWorkspace(workspaceId: string, folderId: string | null, order: string): void {
-    const meta = map.get(workspaceId);
+  moveProject(projectId: string, folderId: string | null, order: string): void {
+    const meta = map.get(projectId);
     if (!meta) return;
     write({ ...meta, folderId: folderId ?? undefined, order });
   },
@@ -240,50 +240,50 @@ export const workspace = {
     if (folder) writeFolder({ ...folder, order });
   },
 
-  patchTerminal(id: string, patch: Partial<WorkspaceMeta["terminal"]>): void {
+  patchTerminal(id: string, patch: Partial<ProjectMeta["terminal"]>): void {
     const meta = map.get(id);
     if (meta) write({ ...meta, terminal: { ...meta.terminal, ...patch } });
   },
 
   setActive(id: string): void {
-    if (useWorkspaceStore.getState().activeId === id) return;
-    useWorkspaceStore.setState({ activeId: id });
+    if (useProjectStore.getState().activeId === id) return;
+    useProjectStore.setState({ activeId: id });
     localStorage.setItem(ACTIVE_KEY, id);
     const meta = map.get(id);
     if (meta) write({ ...meta, lastActiveAt: Date.now() });
   },
 
   async remove(id: string): Promise<void> {
-    const wasActive = useWorkspaceStore.getState().activeId === id;
-    let target = useWorkspaceStore.getState().workspaces.find((w) => w.id !== id) ?? null;
+    const wasActive = useProjectStore.getState().activeId === id;
+    let target = useProjectStore.getState().projects.find((w) => w.id !== id) ?? null;
     if (wasActive && !target) {
-      // Deleting the last workspace — stand up a replacement to switch onto.
-      const fresh = workspace.create("Untitled Project");
+      // Deleting the last project — stand up a replacement to switch onto.
+      const fresh = project.create("Untitled Project");
       target = map.get(fresh) ?? null;
     }
 
-    // When deleting the ACTIVE workspace, switch the canvas onto the target
-    // workspace's store before dropping the deleted one's persisted store.
+    // When deleting the ACTIVE project, switch the canvas onto the target
+    // project's store before dropping the deleted one's persisted store.
     if (wasActive && target) {
       await canvas.ensureReady(target.id);
-      workspace.setActive(target.id);
+      project.setActive(target.id);
       canvas.switchTo(target.id);
     }
 
     map.delete(id);
-    canvas.removeWorkspace(id);
+    canvas.removeProject(id);
   },
 
   /**
-   * Export a workspace to a portable bundle (#105). Reading the board requires a
-   * live editor, so a non-active workspace is switched onto first (an export
-   * click opens/activates that workspace, same as clicking its sidebar row).
+   * Export a project to a portable bundle (#105). Reading the board requires a
+   * live editor, so a non-active project is switched onto first (an export
+   * click opens/activates that project, same as clicking its sidebar row).
    */
-  async exportBundle(id: string): Promise<WorkspaceExportBundle | null> {
+  async exportBundle(id: string): Promise<ProjectExportBundle | null> {
     const meta = map.get(id);
     if (!meta) return null;
-    if (useWorkspaceStore.getState().activeId !== id) {
-      workspace.setActive(id);
+    if (useProjectStore.getState().activeId !== id) {
+      project.setActive(id);
       canvas.switchTo(id);
     }
     await canvas.waitForMount(id);
@@ -293,37 +293,37 @@ export const workspace = {
   },
 
   /**
-   * Open the workspace holding an idea and frame that card (#124) — the landing
-   * action for a full-text search result. Switches onto the target workspace if
+   * Open the project holding an idea and frame that card (#124) — the landing
+   * action for a full-text search result. Switches onto the target project if
    * needed (same path as clicking its sidebar row), waits for its editor to
    * mount, then selects + pans/zooms to the card. Returns false if the shape no
    * longer exists (e.g. the card was deleted since the index was gathered).
    */
-  async revealIdea(workspaceId: string, shapeId: string): Promise<boolean> {
-    if (!map.get(workspaceId)) return false;
-    if (useWorkspaceStore.getState().activeId !== workspaceId) {
-      workspace.setActive(workspaceId);
-      canvas.switchTo(workspaceId);
+  async revealIdea(projectId: string, shapeId: string): Promise<boolean> {
+    if (!map.get(projectId)) return false;
+    if (useProjectStore.getState().activeId !== projectId) {
+      project.setActive(projectId);
+      canvas.switchTo(projectId);
     }
-    await canvas.waitForMount(workspaceId);
-    return canvas.focusIdea(workspaceId, shapeId);
+    await canvas.waitForMount(projectId);
+    return canvas.focusIdea(projectId, shapeId);
   },
 
   /**
-   * Import a bundle as a brand-new workspace (#105) — never overwrites an
-   * existing one. Standing up + activating the workspace mirrors `create` +
+   * Import a bundle as a brand-new project (#105) — never overwrites an
+   * existing one. Standing up + activating the project mirrors `create` +
    * `setActive`; the imported board is rendered once its (fresh, empty) editor
    * mounts.
    */
-  async importBundle(bundle: WorkspaceExportBundle): Promise<string> {
-    const id = workspace.create(bundle.workspace.title);
+  async importBundle(bundle: ProjectExportBundle): Promise<string> {
+    const id = project.create(bundle.project.title);
     const meta = map.get(id)!;
     write({
       ...meta,
-      color: bundle.workspace.color ?? meta.color,
-      terminal: { ...meta.terminal, ...bundle.workspace.terminal }
+      color: bundle.project.color ?? meta.color,
+      terminal: { ...meta.terminal, ...bundle.project.terminal }
     });
-    workspace.setActive(id);
+    project.setActive(id);
     canvas.switchTo(id);
     await canvas.waitForMount(id);
     canvas.importBoard(id, bundle.board);

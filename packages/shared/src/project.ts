@@ -1,17 +1,17 @@
 /**
- * Workspace domain model (PRD §3.4) — shared so the backend can eventually
- * type `workspaceId`-bearing structures against the same shape the frontend
+ * Project domain model (PRD §3.4) — shared so the backend can eventually
+ * type `projectId`-bearing structures against the same shape the frontend
  * persists, instead of the frontend being the sole owner of a cross-cutting
  * concept.
  */
 
-export type WorkspaceStatus = "idle" | "active" | "streaming" | "error";
+export type ProjectStatus = "idle" | "active" | "streaming" | "error";
 
-/** Metadata describing a single isolated project workspace. */
-export interface WorkspaceMeta {
+/** Metadata describing a single isolated project. */
+export interface ProjectMeta {
   id: string;
   title: string;
-  status: WorkspaceStatus;
+  status: ProjectStatus;
   /** Epoch ms of creation. */
   createdAt: number;
   /** Epoch ms of last activity (used for crash-recovery ordering §3.5). */
@@ -24,12 +24,12 @@ export interface WorkspaceMeta {
    */
   color?: string;
   /**
-   * Parent folder id (#128) grouping this workspace in the sidebar. Undefined →
-   * the workspace sits at the sidebar's top level (ungrouped).
+   * Parent folder id (#128) grouping this project in the sidebar. Undefined →
+   * the project sits at the sidebar's top level (ungrouped).
    */
   folderId?: string;
   /**
-   * Fractional-index sort key ranking this workspace among its siblings in the
+   * Fractional-index sort key ranking this project among its siblings in the
    * same container (its folder, or the ungrouped top level). Assigned lazily —
    * undefined sorts before keyed items, tie-broken by `createdAt`.
    */
@@ -37,7 +37,7 @@ export interface WorkspaceMeta {
 }
 
 /**
- * A sidebar folder grouping workspaces for navigation as their number grows
+ * A sidebar folder grouping projects for navigation as their number grows
  * (#128). Folders are pure organisational containers — they hold no canvas or
  * session state, only a title and the collapse state of their sidebar group.
  */

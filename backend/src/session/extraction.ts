@@ -30,7 +30,7 @@ import { ideaIdentityKey, type Idea, type IdeaLink, type IdeaRelation, type Scor
  * anything the model says.
  */
 export interface McpLaunchContext {
-  /** Per-session MCP endpoint: `http://127.0.0.1:<port>/mcp/<workspaceId>/<token>`. */
+  /** Per-session MCP endpoint: `http://127.0.0.1:<port>/mcp/<projectId>/<token>`. */
   url: string;
   /** Logical MCP server name ("ai-storm"); harness tool ids derive from it
    *  (`mcp__<serverName>__capture_idea`). Fixed so `--allowedTools` stays stable. */

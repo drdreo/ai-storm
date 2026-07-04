@@ -3,7 +3,7 @@ import { generateKeyBetween } from "fractional-indexing";
 /**
  * Sidebar ordering (#128 drag & drop) — fractional-index sort keys.
  *
- * Folders and workspaces carry an `order` string (fractional-indexing key);
+ * Folders and projects carry an `order` string (fractional-indexing key);
  * inserting between two neighbors only writes the moved item, which keeps CRDT
  * merge conflicts minimal. Items persisted before this feature have no key and
  * sort first, tie-broken by `createdAt` (self-healed to real keys at boot).

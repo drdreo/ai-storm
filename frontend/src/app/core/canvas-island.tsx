@@ -12,7 +12,7 @@
  * - `canvas/focus`      — focus-mode's related-cluster computation (#131)
  * - `canvas/layout`     — arrange/grid re-flows + triage score + mark (#16/#60/#29)
  * - `canvas/edges`      — the typed edge graph shared by reads and layouts
- * - `canvas/portable`   — board ↔ portable JSON for workspace export/import (#105)
+ * - `canvas/portable`   — board ↔ portable JSON for project export/import (#105)
  * - `canvas/CardVerbBar`, `canvas/menus` — the in-canvas UI
  *
  * "As close to native tldraw as possible": native arrows for edges, the native styles
@@ -37,7 +37,7 @@ import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
 
-// Re-export the editor-driven ports the stores drive against the mounted workspace.
+// Re-export the editor-driven ports the stores drive against the mounted project.
 export { applyIdeas } from "./canvas/ingest";
 export {
   serializeEditor,
@@ -53,33 +53,33 @@ const SHAPE_UTILS = [IdeaCardShapeUtil];
 
 /** The seam between the stores and this React island. */
 export interface CanvasBridge {
-  /** Called once the editor for the mounted workspace is ready. */
+  /** Called once the editor for the mounted project is ready. */
   onEditorMount(editor: Editor): void;
   /** Fired when a card verb (#13/#15) is picked on a selected card. */
   onCardVerb: CardVerbHandler;
-  /** Shares the live per-workspace filter atom with app-level commands (#96). */
+  /** Shares the live per-project filter atom with app-level commands (#96). */
   onFilterMount?(controller: { get(): BoardFilter; set(filter: BoardFilter): void }): () => void;
 }
 
 export function CanvasIsland({
-  workspaceId,
+  projectId,
   bridge,
   emptyStateActions,
   sessionAttached = false
 }: {
-  workspaceId: string;
+  projectId: string;
   bridge: CanvasBridge;
   /** Primary-action handlers for the first-run empty state (#106). */
   emptyStateActions?: EmptyStateActions;
-  /** Whether a live session backs this workspace — gates the card verbs (#106). */
+  /** Whether a live session backs this project — gates the card verbs (#106). */
   sessionAttached?: boolean;
 }): React.JSX.Element {
-  // One store per workspace, keyed by id → its own IndexedDB room (PD-001,
+  // One store per project, keyed by id → its own IndexedDB room (PD-001,
   // local-first; survives reload). Changing `key`/`persistenceKey` remounts
-  // <Tldraw> onto the next workspace's store — the hot-switch of PRD §3.4.
+  // <Tldraw> onto the next project's store — the hot-switch of PRD §3.4.
   //
   // The filter atom is created here, so it's scoped to this island: switching
-  // workspaces remounts CanvasIsland (it's keyed by id in CanvasPane), which
+  // projects remounts CanvasIsland (it's keyed by id in CanvasPane), which
   // discards this atom and mints a fresh one — each board gets its own filter,
   // reset on switch, with no shared global state to clear (#21).
   const $filter = useFilterAtom();
@@ -92,7 +92,7 @@ export function CanvasIsland({
 
   // Mirror the app theme (#77) into tldraw's own color scheme. The preference
   // accepts the same 'light' | 'dark' | 'system' values as our store, so we feed
-  // `mode` straight through once the editor for this workspace has mounted.
+  // `mode` straight through once the editor for this project has mounted.
   const themeMode = useThemeStore((s) => s.mode);
   const [editor, setEditor] = useState<Editor | null>(null);
   useEffect(() => {
@@ -121,8 +121,8 @@ export function CanvasIsland({
   return (
     <div style={{ position: "absolute", inset: 0 }}>
       <Tldraw
-        key={workspaceId}
-        persistenceKey={`ai-storm:ws:${workspaceId}`}
+        key={projectId}
+        persistenceKey={`ai-storm:ws:${projectId}`}
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
         overrides={[ideaToolOverrides, focusModeOverrides]}

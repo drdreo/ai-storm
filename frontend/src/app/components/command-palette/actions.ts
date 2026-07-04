@@ -19,14 +19,14 @@ import {
   Workflow,
   X
 } from "lucide-react";
-import type { WorkspaceMeta } from "@ai-storm/shared";
+import type { ProjectMeta } from "@ai-storm/shared";
 import type { BoardFilter } from "../../core/canvas/filter";
 import type { BoardCommandState, CommandAction } from "./types";
 
 /** Everything the catalog needs: app state plus the callbacks actions invoke. */
 export interface CommandActionContext {
-  active: WorkspaceMeta | null;
-  workspaces: readonly WorkspaceMeta[];
+  active: ProjectMeta | null;
+  projects: readonly ProjectMeta[];
   attached: boolean;
   board: BoardCommandState;
   focusMode: boolean;
@@ -53,7 +53,7 @@ export interface CommandActionContext {
 
   onOpenSettings(): void;
 
-  onSwitchWorkspace(workspaceId: string): void;
+  onSwitchProject(projectId: string): void;
 
   onToggleFocusMode(): void;
 }
@@ -69,10 +69,10 @@ function hasActiveFilter(filter: BoardFilter): boolean {
 }
 
 export function buildCommandActions(ctx: CommandActionContext): CommandAction[] {
-  const noWorkspace = ctx.active ? undefined : "Create or switch to a workspace first.";
-  const boardUnavailable = noWorkspace ?? (!ctx.board.mounted ? "The board is still mounting." : undefined);
+  const noProject = ctx.active ? undefined : "Create or switch to a project first.";
+  const boardUnavailable = noProject ?? (!ctx.board.mounted ? "The board is still mounting." : undefined);
   const emptyBoard = boardUnavailable ?? (ctx.board.cardCount === 0 ? "The board is empty." : undefined);
-  const noSession = noWorkspace ?? (!ctx.attached ? "Start a session first." : undefined);
+  const noSession = noProject ?? (!ctx.attached ? "Start a session first." : undefined);
   const noSessionOrEmpty = noSession ?? emptyBoard;
 
   const filter = ctx.board.filter;
@@ -93,10 +93,10 @@ export function buildCommandActions(ctx: CommandActionContext): CommandAction[] 
       group: "Session",
       label: ctx.attached ? "Stop session" : "Start session",
       hint: ctx.attached
-        ? "Stop the attached terminal session for this workspace."
-        : "Attach or resume the terminal session for this workspace.",
+        ? "Stop the attached terminal session for this project."
+        : "Attach or resume the terminal session for this project.",
       icon: ctx.attached ? Square : Play,
-      disabledReason: noWorkspace,
+      disabledReason: noProject,
       run: ctx.attached ? ctx.onStopSession : ctx.onStartSession
     },
     {
@@ -226,15 +226,15 @@ export function buildCommandActions(ctx: CommandActionContext): CommandAction[] 
       icon: Settings,
       run: ctx.onOpenSettings
     },
-    ...ctx.workspaces.map<CommandAction>((ws) => ({
-      id: `workspace-${ws.id}`,
-      group: "Workspaces",
-      label: `Switch workspace: ${ws.title}`,
+    ...ctx.projects.map<CommandAction>((ws) => ({
+      id: `project-${ws.id}`,
+      group: "Projects",
+      label: `Switch project: ${ws.title}`,
       hint: `Open ${ws.title}. Current status: ${ws.status}.`,
-      keywords: ["switch workspace", ws.status],
+      keywords: ["switch project", ws.status],
       icon: Workflow,
-      disabledReason: ws.id === ctx.active?.id ? "Already viewing this workspace." : undefined,
-      run: () => ctx.onSwitchWorkspace(ws.id)
+      disabledReason: ws.id === ctx.active?.id ? "Already viewing this project." : undefined,
+      run: () => ctx.onSwitchProject(ws.id)
     }))
   ];
 }

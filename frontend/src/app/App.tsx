@@ -3,7 +3,7 @@ import { Loader2, PanelRightOpen } from "lucide-react";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useWorkspaceStore, workspace } from "./stores/workspace.store";
+import { useProjectStore, project } from "./stores/project.store";
 import { backend } from "./stores/backend.store";
 import { useUiStore } from "./stores/ui.store";
 import { Sidebar } from "./components/Sidebar";
@@ -27,12 +27,12 @@ function restoreHubCollapsed(): boolean {
 }
 
 /**
- * Root shell (PRD §3.1): a persistent sidebar, the structural workspace canvas
+ * Root shell (PRD §3.1): a persistent sidebar, the structural project canvas
  * (left pane) and the conversational control hub (right pane). Boots the
  * crash-recovery sequence before rendering the panes.
  */
 export function App() {
-  const booted = useWorkspaceStore((s) => s.booted);
+  const booted = useProjectStore((s) => s.booted);
   const [bootError, setBootError] = useState<string | null>(null);
   const focusMode = useUiStore((s) => s.focusMode);
 
@@ -53,7 +53,7 @@ export function App() {
   // Boot sequence (PRD §3.5), run once on mount.
   useEffect(() => {
     let cancelled = false;
-    workspace
+    project
       .boot()
       .then(() => {
         if (!cancelled) backend.connect();
@@ -92,7 +92,7 @@ export function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
         <Loader2 className="size-7 animate-spin" />
-        <p className="text-sm">{bootError ?? "Restoring workspaces…"}</p>
+        <p className="text-sm">{bootError ?? "Restoring projects…"}</p>
       </div>
     );
   }

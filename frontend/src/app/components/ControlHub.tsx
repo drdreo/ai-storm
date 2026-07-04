@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useWorkspaceStore, selectActive, workspace } from "../stores/workspace.store";
+import { useProjectStore, selectActive, project } from "../stores/project.store";
 import { useIngestionStore, ingestion } from "../stores/ingestion.store";
 import { useBackendStore } from "../stores/backend.store";
 import { sessionIndicator } from "../core/session-status";
@@ -37,7 +37,7 @@ const BACKGROUND_SOFT_CAP = 1500;
  * of the background connection.
  */
 export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
-  const ws = useWorkspaceStore(selectActive);
+  const ws = useProjectStore(selectActive);
   const connState = useBackendStore((s) => s.state);
   const attached = useIngestionStore((s) => (ws ? !!s.attached[ws.id] : false));
   const sessionError = useIngestionStore((s) => (ws ? (s.errors[ws.id] ?? null) : null));
@@ -45,7 +45,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
   // Resume a durable session after a reload / hot-switch (PRD §3.5). `attach` is
   // idempotent: it reconnects to the surviving backend session rather than
   // respawning it. Gated on the persisted live status so visiting a never-started
-  // workspace does not spawn a harness.
+  // project does not spawn a harness.
   useEffect(() => {
     if (!ws) return;
     const wasLive = ws.status === "active" || ws.status === "streaming";
@@ -65,7 +65,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
     fetch("/api/fs/home")
       .then((res) => (res.ok ? (res.json() as Promise<{ home: string }>) : null))
       .then((data) => {
-        if (!cancelled && data?.home) workspace.patchTerminal(id, { cwd: data.home });
+        if (!cancelled && data?.home) project.patchTerminal(id, { cwd: data.home });
       })
       .catch(() => {
         // Offline or no backend yet — leave cwd unset; the picker still works
@@ -194,8 +194,8 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             disabled={attached}
             placeholder="claude, pi, or codex"
             spellCheck={false}
-            onChange={(e) => workspace.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
-            title="The AI CLI launched for this workspace's session (PRD §2). Keystrokes are sent to its PTY."
+            onChange={(e) => project.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
+            title="The AI CLI launched for this project's session (PRD §2). Keystrokes are sent to its PTY."
           />
           <span className="truncate italic">{mode.hint}</span>
           {/* Facilitation mode picker (#61): swaps the priming preset the agent is
@@ -218,7 +218,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             <DropdownMenuContent align="end">
               <DropdownMenuRadioGroup
                 value={mode.id}
-                onValueChange={(id) => workspace.patchTerminal(ws.id, { mode: id })}
+                onValueChange={(id) => project.patchTerminal(ws.id, { mode: id })}
               >
                 {FACILITATION_MODES.map((m) => (
                   <DropdownMenuRadioItem key={m.id} value={m.id} className="flex-col items-start gap-0">
@@ -243,13 +243,13 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             disabled={attached}
             placeholder="~"
             spellCheck={false}
-            onChange={(e) => workspace.patchTerminal(ws.id, { cwd: e.target.value.trim() || undefined })}
+            onChange={(e) => project.patchTerminal(ws.id, { cwd: e.target.value.trim() || undefined })}
             title="Working directory the harness process is spawned in."
           />
           <DirectoryPicker
             value={ws.terminal.cwd}
             disabled={attached}
-            onChange={(path) => workspace.patchTerminal(ws.id, { cwd: path })}
+            onChange={(path) => project.patchTerminal(ws.id, { cwd: path })}
           />
         </div>
 
@@ -273,7 +273,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             disabled={attached}
             spellCheck={true}
             placeholder="e.g. We're a B2B fintech, audience is CFOs, avoid ideas needing new hardware."
-            onChange={(e) => workspace.patchTerminal(ws.id, { background: e.target.value })}
+            onChange={(e) => project.patchTerminal(ws.id, { background: e.target.value })}
             title={attached ? "Baked in at launch. Stop & Start to edit the background context." : undefined}
           />
           <p className="mt-1 italic">Sets the scene for every idea. Locked once you start.</p>

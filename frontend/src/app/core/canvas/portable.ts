@@ -1,6 +1,6 @@
 /**
  * Board ↔ {@link PortableBoard} bridge (#105) — the editor-facing read/write side
- * of workspace export/import. Cards are keyed by their stable short ref (not the
+ * of project export/import. Cards are keyed by their stable short ref (not the
  * tldraw shape id, which is regenerated on import), so a round trip survives
  * moving to a fresh canvas. Mirrors `ingest.ts`'s `applyIdeas` layout/connector
  * logic, but (unlike `applyIdeas`) preserves origin/superseded/starred instead of
@@ -8,7 +8,7 @@
  */
 import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
 import { normalizeKind, kindColor } from "../idea-descriptors";
-import type { PortableBoard } from "../workspace-portable";
+import type { PortableBoard } from "../project-portable";
 import { CARD_W, CARD_H, cardRef, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
 

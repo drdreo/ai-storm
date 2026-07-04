@@ -14,8 +14,8 @@ import {
 
 function idea(over: Partial<SearchableIdea>): SearchableIdea {
   return {
-    workspaceId: "ws1",
-    workspaceTitle: "Project",
+    projectId: "ws1",
+    projectTitle: "Project",
     shapeId: "shape:1",
     ref: "a1",
     kind: "",
@@ -57,8 +57,8 @@ describe("searchIdeas keyword ranking", () => {
     expect(searchIdeas(ideas, "DARK", filter()).map((r) => r.idea.ref)).toEqual(["a3"]);
   });
 
-  it("matches on kind and workspace name", () => {
-    const tagged = [idea({ ref: "a4", kind: "risk", title: "Data loss", workspaceTitle: "Payments" })];
+  it("matches on kind and project name", () => {
+    const tagged = [idea({ ref: "a4", kind: "risk", title: "Data loss", projectTitle: "Payments" })];
     expect(searchIdeas(tagged, "risk", filter())).toHaveLength(1);
     expect(searchIdeas(tagged, "payments", filter())).toHaveLength(1);
   });

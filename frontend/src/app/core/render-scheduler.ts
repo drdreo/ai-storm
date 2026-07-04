@@ -113,7 +113,7 @@ export class RenderScheduler<T> {
     if (this.#back.length > 0) this.#scheduleFrame();
   }
 
-  /** Synchronously flush everything pending (e.g. on workspace switch). */
+  /** Synchronously flush everything pending (e.g. on project switch). */
   flushNow(): void {
     if (this.#frame !== null) {
       this.#cancelFrame(this.#frame);

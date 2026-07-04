@@ -23,7 +23,7 @@ import {
   searchIdeas
 } from "../core/canvas/search";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../core/idea-descriptors";
-import type { WorkspaceMeta } from "@ai-storm/shared";
+import type { ProjectMeta } from "@ai-storm/shared";
 import { buildCommandActions, groupActions } from "./command-palette/actions";
 import { DATE_PRESETS, IdeaFilterBar } from "./command-palette/IdeaFilterBar";
 import type { BoardCommandState, CommandAction } from "./command-palette/types";
@@ -31,8 +31,8 @@ import type { BoardCommandState, CommandAction } from "./command-palette/types";
 interface BoardCommandPaletteProps {
   open: boolean;
   onOpenChange(open: boolean): void;
-  active: WorkspaceMeta | null;
-  workspaces: readonly WorkspaceMeta[];
+  active: ProjectMeta | null;
+  projects: readonly ProjectMeta[];
   attached: boolean;
   board: BoardCommandState;
   onNewIdea(): void;
@@ -46,13 +46,13 @@ interface BoardCommandPaletteProps {
   onPatchFilter(patch: Partial<BoardFilter>): void;
   onClearFilters(): void;
   onOpenSettings(): void;
-  onSwitchWorkspace(workspaceId: string): void;
+  onSwitchProject(projectId: string): void;
   focusMode: boolean;
   onToggleFocusMode(): void;
-  /** Ideas gathered across every workspace for full-text search (#124). */
+  /** Ideas gathered across every project for full-text search (#124). */
   searchIdeas: readonly SearchableIdea[];
-  /** Open a search result's workspace and pan/zoom to the card (#124). */
-  onRevealIdea(workspaceId: string, shapeId: string): void;
+  /** Open a search result's project and pan/zoom to the card (#124). */
+  onRevealIdea(projectId: string, shapeId: string): void;
 }
 
 const MAX_IDEA_RESULTS = 12;
@@ -102,7 +102,7 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
   );
 
   const revealIdea = (idea: SearchableIdea) => {
-    props.onRevealIdea(idea.workspaceId, idea.shapeId);
+    props.onRevealIdea(idea.projectId, idea.shapeId);
     props.onOpenChange(false);
   };
 
@@ -138,15 +138,15 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
           <CommandGroup heading="Ideas">
             {ideaResults.map(({ idea }) => {
               const kind = normalizeKind(idea.kind);
-              const meta = [idea.workspaceTitle, kind ? kindLabel(kind) : null, idea.superseded ? "superseded" : null]
+              const meta = [idea.projectTitle, kind ? kindLabel(kind) : null, idea.superseded ? "superseded" : null]
                 .filter(Boolean)
                 .join(" · ");
               return (
                 <CommandItem
-                  key={`${idea.workspaceId}:${idea.shapeId}`}
+                  key={`${idea.projectId}:${idea.shapeId}`}
                   // Value carries the searchable text (so cmdk keeps it) plus a
-                  // unique workspace:shape suffix for stable item identity.
-                  value={[idea.title, idea.body, kind, idea.workspaceTitle, idea.workspaceId, idea.shapeId].join(" ")}
+                  // unique project:shape suffix for stable item identity.
+                  value={[idea.title, idea.body, kind, idea.projectTitle, idea.projectId, idea.shapeId].join(" ")}
                   onSelect={() => revealIdea(idea)}
                 >
                   {idea.origin === "ai" ? <Bot /> : <Lightbulb />}

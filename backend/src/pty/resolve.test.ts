@@ -7,7 +7,7 @@ describe("resolveLaunch strictness", () => {
 
   it("non-strict accepts a multi-line prime arg (PTY session path — #142 regression)", () => {
     expect(() =>
-      resolveLaunch("node", ["--append-system-prompt", "You are in a brainstorming workspace." + NL + "Rules:"])
+      resolveLaunch("node", ["--append-system-prompt", "You are in a brainstorming project." + NL + "Rules:"])
     ).not.toThrow();
   });
 
