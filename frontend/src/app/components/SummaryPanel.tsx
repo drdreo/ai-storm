@@ -1,14 +1,14 @@
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { decorateTitle, normalizeKind } from "../core/idea-descriptors";
-import { summaryToMarkdown, STANDALONE_THEME, type BoardCard, type ConvergentSummary } from "../core/synthesis";
+import { type BoardCard, type ConvergentSummary, STANDALONE_THEME, summaryToMarkdown } from "../core/summarize.ts";
 
 /**
  * The convergence side panel (#28, PD-015) — a **read-only reading** of the
  * board, never an editable surface (PD-011 holds). It renders the structured
  * {@link ConvergentSummary} (themes → decisions → resolutions → open questions →
  * highlights) and offers the markdown artifact via Copy / Download. The summary
- * is generated on demand by `canvas.synthesize` and passed in; this component is
+ * is generated on demand by `canvas.summarize` and passed in; this component is
  * pure presentation, so it stays out of the canvas store and the tldraw island.
  */
 export function SummaryPanel({
@@ -38,7 +38,7 @@ export function SummaryPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${slug || "board"}-synthesis.md`;
+    a.download = `${slug || "board"}-summary.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -47,7 +47,7 @@ export function SummaryPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle>Board synthesis</SheetTitle>
+          <SheetTitle>Board summary</SheetTitle>
           <SheetDescription>
             {summary && !summary.isEmpty
               ? `${summary.cardCount} ${summary.cardCount === 1 ? "idea" : "ideas"}, read into themes and decisions. A generated reading of the board (#28) — edit on the canvas.`
@@ -57,7 +57,7 @@ export function SummaryPanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">
           {!summary || summary.isEmpty ? (
-            <p className="text-sm text-muted-foreground">No ideas on the board yet — nothing to synthesize.</p>
+              <p className="text-sm text-muted-foreground">No ideas on the board yet — nothing to summarize.</p>
           ) : (
             <div className="flex flex-col gap-5 pb-4">
               {summary.themes.length > 0 && (

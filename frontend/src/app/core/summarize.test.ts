@@ -3,8 +3,8 @@
  * runs in the plain Node test env like the other `core/` modules.
  */
 
-import { describe, it, expect } from "vitest";
-import { synthesizeBoard, summaryToMarkdown, STANDALONE_THEME, type BoardCard, type BoardSnapshot } from "./synthesis";
+import { describe, expect, it } from "vitest";
+import { type BoardCard, type BoardSnapshot, STANDALONE_THEME, summarizeBoard, summaryToMarkdown } from "./summarize";
 
 function card(id: string, over: Partial<BoardCard> = {}): BoardCard {
   return {
@@ -19,9 +19,9 @@ function card(id: string, over: Partial<BoardCard> = {}): BoardCard {
   };
 }
 
-describe("synthesizeBoard", () => {
+describe("summarizeBoard", () => {
   it("reports an empty board", () => {
-    const summary = synthesizeBoard({ cards: [], edges: [] });
+    const summary = summarizeBoard({ cards: [], edges: [] });
     expect(summary.isEmpty).toBe(true);
     expect(summary.cardCount).toBe(0);
     expect(summary.themes).toEqual([]);
@@ -40,7 +40,7 @@ describe("synthesizeBoard", () => {
         { from: "a3", to: "a1", relation: "about" }
       ]
     };
-    const summary = synthesizeBoard(snapshot);
+    const summary = summarizeBoard(snapshot);
     expect(summary.themes).toHaveLength(1);
     expect(summary.themes[0].title).toBe("Offline-first canvas");
     // Main idea first, then the rest in reading order.
@@ -52,7 +52,7 @@ describe("synthesizeBoard", () => {
       cards: [card("a1"), card("a2"), card("b1"), card("b2")],
       edges: [{ from: "a2", to: "a1", relation: "about" }]
     };
-    const summary = synthesizeBoard(snapshot);
+    const summary = summarizeBoard(snapshot);
     expect(summary.themes).toHaveLength(2);
     expect(summary.themes[0].cards).toHaveLength(2); // the real cluster
     const last = summary.themes[summary.themes.length - 1];
@@ -69,7 +69,7 @@ describe("synthesizeBoard", () => {
       ],
       edges: []
     };
-    const summary = synthesizeBoard(snapshot);
+    const summary = summarizeBoard(snapshot);
     expect(summary.decisions.map((c) => c.id)).toEqual(["a1"]);
     expect(summary.openQuestions.map((c) => c.id)).toEqual(["a2"]);
   });
@@ -82,7 +82,7 @@ describe("synthesizeBoard", () => {
       ],
       edges: [{ from: "a1", to: "a2", relation: "supersedes" }]
     };
-    const summary = synthesizeBoard(snapshot);
+    const summary = summarizeBoard(snapshot);
     expect(summary.resolutions).toHaveLength(1);
     expect(summary.resolutions[0].winner.id).toBe("a1");
     expect(summary.resolutions[0].replaced.id).toBe("a2");
@@ -93,15 +93,15 @@ describe("synthesizeBoard", () => {
       cards: [card("a1", { starred: true }), card("a2")],
       edges: []
     };
-    expect(synthesizeBoard(snapshot).highlights.map((c) => c.id)).toEqual(["a1"]);
+    expect(summarizeBoard(snapshot).highlights.map((c) => c.id)).toEqual(["a1"]);
   });
 });
 
 describe("summaryToMarkdown", () => {
   it("renders an empty-board placeholder", () => {
-    const md = summaryToMarkdown(synthesizeBoard({ cards: [], edges: [] }));
-    expect(md).toContain("# Board synthesis");
-    expect(md).toContain("nothing to synthesize");
+    const md = summaryToMarkdown(summarizeBoard({ cards: [], edges: [] }));
+    expect(md).toContain("# Board summary");
+    expect(md).toContain("nothing to summarize");
   });
 
   it("renders themes, decisions, open questions and highlights with kind badges", () => {
@@ -119,7 +119,7 @@ describe("summaryToMarkdown", () => {
       ],
       edges: [{ from: "a2", to: "a1", relation: "about" }]
     };
-    const md = summaryToMarkdown(synthesizeBoard(snapshot));
+    const md = summaryToMarkdown(summarizeBoard(snapshot));
     expect(md).toContain("## Themes");
     expect(md).toContain("### Offline-first canvas");
     expect(md).toContain("- **✨ Feature: Offline-first canvas** — cache ops");
@@ -139,7 +139,7 @@ describe("summaryToMarkdown", () => {
       ],
       edges: [{ from: "a1", to: "a2", relation: "supersedes" }]
     };
-    const md = summaryToMarkdown(synthesizeBoard(snapshot));
+    const md = summaryToMarkdown(summarizeBoard(snapshot));
     expect(md).toContain("## Resolved");
     expect(md).toContain("**Rotate token on attach** replaces ~~Long-lived token~~");
   });

@@ -1,28 +1,28 @@
-import { create } from "zustand";
-import type { Editor } from "tldraw";
 import type { Idea, Score } from "@ai-storm/shared";
-import type { PromptIntent } from "../core/prompt-framing";
+import type { Editor } from "tldraw";
+import { create } from "zustand";
 import {
-  type CanvasBridge,
   applyIdeas as islandApplyIdeas,
-  serializeEditor,
-  serializeForTriage,
-  serializeForHandoff,
   applyScore as islandApplyScore,
-  selectedText,
+  type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
-  importBoard as islandImportBoard
+  importBoard as islandImportBoard,
+  selectedText,
+  serializeEditor,
+  serializeForHandoff,
+  serializeForTriage
 } from "../core/canvas-island";
-import type { PortableBoard } from "../core/workspace-portable";
-import { synthesizeBoard, type ConvergentSummary } from "../core/synthesis";
+import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
+import { ideaCards } from "../core/canvas/idea-card";
 import { createUserIdea } from "../core/canvas/idea-tool";
 import {
   arrangeMindMap as layoutArrangeMindMap,
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
-import { boardFacets, EMPTY_FILTER, type BoardFacets, type BoardFilter } from "../core/canvas/filter";
-import { ideaCards } from "../core/canvas/idea-card";
+import type { PromptIntent } from "../core/prompt-framing";
+import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
+import type { PortableBoard } from "../core/workspace-portable";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -182,14 +182,14 @@ export const canvas = {
   },
 
   /**
-   * Synthesize the active board into a convergent summary (#28, PD-015) — a pure,
+   * Summarize the active board into a convergent summary (#28, PD-015) — a pure,
    * on-demand *reading* of the canvas (themes → decisions → open questions →
    * highlights). Returns `null` when the target workspace isn't the mounted one
    * (no live editor to read). No canvas mutation, no agent round-trip.
    */
-  synthesize(workspaceId: string): ConvergentSummary | null {
+  summarize(workspaceId: string): ConvergentSummary | null {
     if (!editor || workspaceId !== activeId) return null;
-    return synthesizeBoard(collectBoard(editor));
+    return summarizeBoard(collectBoard(editor));
   },
 
   /** Serialize the workspace canvas to normalized markdown (PRD §3.2). */
