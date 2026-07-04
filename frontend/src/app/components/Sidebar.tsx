@@ -1,5 +1,24 @@
-import { useCallback, useRef, useState } from "react";
-import { Plus, MoreHorizontal, ChevronDown, Settings, Upload } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar as UISidebar,
   SidebarContent,
@@ -16,36 +35,16 @@ import {
   SidebarMenuItem,
   SidebarRail
 } from "@/components/ui/sidebar";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuPortal,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useWorkspaceStore, workspace } from "../stores/workspace.store";
-import { ingestion } from "../stores/ingestion.store";
-import { useUiStore, ui } from "../stores/ui.store";
-import { SettingsDialog } from "./SettingsDialog";
-import { WORKSPACE_COLORS, defaultWorkspaceColor, type WorkspaceMeta, type WorkspaceStatus } from "../core/models";
+import { ChevronDown, MoreHorizontal, Plus, Settings, Upload } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { downloadFile } from "../core/download-file";
+import { defaultWorkspaceColor, WORKSPACE_COLORS, type WorkspaceMeta, type WorkspaceStatus } from "../core/models";
 import { exportFileSlug, parseExportBundle } from "../core/workspace-portable";
+import { ingestion } from "../stores/ingestion.store";
+import { ui, useUiStore } from "../stores/ui.store";
+import { useWorkspaceStore, workspace } from "../stores/workspace.store";
+import { SettingsDialog } from "./SettingsDialog";
 
 /** Hover explanation for the workspace status badge (the ringed accent dot). */
 const STATUS_HINT: Record<WorkspaceStatus, string> = {
@@ -207,37 +206,21 @@ export function Sidebar() {
                           isActive={isActive}
                           onClick={() => workspace.setActive(ws.id)}
                           onDoubleClick={() => setEditingId(ws.id)}
+                          tooltip={ws.status === "idle" ? ws.title : `${ws.title} · ${STATUS_HINT[ws.status]}`}
                         >
-                          {/* Accent swatch (#111) doubling as the status badge:
-                              idle is the bare dot, a live session rings it in
-                              status green (pulsing blue while streaming), and
-                              error swaps it for a red square. The ring is offset
-                              so it reads as a bullseye even when accent and ring
-                              hues are close; each state keeps a non-color channel
-                              — structure / motion / shape (WCAG 1.4.1) — and the
-                              sr-only status suffix below reads it out. Its
-                              tooltip carries the workspace name too (not just
-                              the status), since when the rail is collapsed the
-                              swatch fills the whole button and is the only thing
-                              there is to hover (#143). */}
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-                                <span
-                                  className={cn(
-                                    "size-2.5",
-                                    ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
-                                    ws.status === "active" &&
-                                      "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
-                                    ws.status === "streaming" &&
-                                      "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
-                                  )}
-                                  style={ws.status === "error" ? undefined : { backgroundColor: accent }}
-                                />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="right">{`${ws.title} · ${STATUS_HINT[ws.status]}`}</TooltipContent>
-                          </Tooltip>
+                          <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+                            <span
+                              className={cn(
+                                "size-2.5",
+                                ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
+                                ws.status === "active" && "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
+                                ws.status === "streaming" &&
+                                  "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
+                              )}
+                              style={ws.status === "error" ? undefined : { backgroundColor: accent }}
+                            />
+                          </span>
+
                           <span className="truncate">{ws.title}</span>
                           <span className="sr-only">— {ws.status}</span>
                         </SidebarMenuButton>

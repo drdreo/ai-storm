@@ -100,11 +100,6 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
               </Tooltip>
             </Toolbar.Button>
           )}
-          <Toolbar.Button asChild>
-            <Button size="sm" variant="outline" onClick={() => ingestion.clearTerminal(ws.id)}>
-              Clear
-            </Button>
-          </Toolbar.Button>
           {onCollapse && (
             <Toolbar.Button asChild>
               <Tooltip>

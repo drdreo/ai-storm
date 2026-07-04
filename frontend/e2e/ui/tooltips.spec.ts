@@ -29,6 +29,9 @@ test.describe("tooltips", () => {
     const badge = shell.workspaceRows.first().locator('[data-slot="tooltip-trigger"]');
     await badge.hover();
 
-    await expect(page.getByRole("tooltip")).toContainText("No session running");
+    // For idle status, only show workspace name (no redundant "No session running" text)
+    const tooltip = page.getByRole("tooltip");
+    await expect(tooltip).toContainText(/Untitled|Project/);
+    await expect(tooltip).not.toContainText("No session running");
   });
 });
