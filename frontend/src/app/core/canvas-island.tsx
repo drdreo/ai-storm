@@ -25,7 +25,7 @@ import { useThemeStore } from "../stores/theme.store";
 import { IdeaCardShapeUtil } from "./canvas/idea-card";
 import { CardVerbBar, type CardVerbHandler } from "./canvas/CardVerbBar";
 import { CanvasEmptyState, type EmptyStateActions } from "./canvas/CanvasEmptyState";
-import { CanvasMainMenu, CanvasContextMenu, FilterApplier, useFilterAtom } from "./canvas/menus";
+import { CanvasMainMenu, CanvasContextMenu, FilterApplier, FocusQuickActions, useFilterAtom } from "./canvas/menus";
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
@@ -98,6 +98,9 @@ export function CanvasIsland({
       ContextMenu: CanvasContextMenu,
       // Surface the manual "Idea" tool (#31) next to tldraw's native tools.
       Toolbar: IdeaToolbar,
+      // Focus-mode exit (#131) is appended to the native top-left QuickActions,
+      // so it never overlaps the main menu and doesn't shift the style panel.
+      QuickActions: FocusQuickActions,
       InFrontOfTheCanvas: () => (
         <>
           <CanvasEmptyState actions={emptyStateActions} />

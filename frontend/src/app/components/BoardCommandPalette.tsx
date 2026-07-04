@@ -6,7 +6,7 @@ import {
   LayoutList,
   ListRestart,
   Maximize2,
-  Minimize2,
+  X,
   Play,
   Plus,
   Settings,
@@ -152,7 +152,7 @@ export function BoardCommandPalette(props: BoardCommandPaletteProps) {
           ? "Return to the full canvas and app chrome."
           : "Go fullscreen and show only the selected card(s)' cluster (#131).",
         keywords: ["fullscreen", "zen", "distraction-free", "cluster"],
-        icon: props.focusMode ? Minimize2 : Maximize2,
+        icon: props.focusMode ? X : Maximize2,
         disabledReason: boardUnavailable,
         run: props.onToggleFocusMode
       },

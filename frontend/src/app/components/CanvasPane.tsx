@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import * as Toolbar from "@radix-ui/react-toolbar";
-import { Command, Scale, ScrollText, FileOutput, Minimize2 } from "lucide-react";
+import { Command, Scale, ScrollText, FileOutput } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -218,28 +218,6 @@ export function CanvasPane() {
             emptyStateActions={emptyStateActions}
             sessionAttached={attached}
           />
-        )}
-        {focusMode && (
-          // Focus mode's chrome is hidden (#131), so this floating pill is the
-          // one always-visible way back — Escape and the command palette both
-          // exit too, but a pointer-only user needs this. z-[400]: tldraw's own
-          // UI layer (.tlui-layout, e.g. the page bar) sits at z-index 300, so
-          // anything lower renders underneath it.
-          <div className="pointer-events-none absolute left-3 top-3 z-[400]">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="pointer-events-auto shadow-md"
-                  onClick={() => ui.setFocusMode(false)}
-                >
-                  <Minimize2 /> Exit focus
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Back to the full canvas and app (Esc)</TooltipContent>
-            </Tooltip>
-          </div>
         )}
       </div>
 

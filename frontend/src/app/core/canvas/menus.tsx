@@ -25,6 +25,8 @@ import {
   DefaultMainMenuContent,
   DefaultContextMenu,
   DefaultContextMenuContent,
+  DefaultQuickActions,
+  DefaultQuickActionsContent,
   type TLUiContextMenuProps,
   TldrawUiMenuGroup,
   TldrawUiMenuSubmenu,
@@ -120,6 +122,35 @@ export const FilterApplier = track(function FilterApplier({ $filter }: { $filter
   }, [editor, filter, cardsKey, focusKey]);
   return null;
 });
+
+/**
+ * The focus-mode exit control (#131), appended to tldraw's native top-left
+ * QuickActions (undo/redo/…) instead of overlaid as an app-chrome button — the
+ * custom-menus pattern (tldraw.dev/examples/custom-menus): keep
+ * {@link DefaultQuickActionsContent} and add our own item. It sits in the native
+ * UI layer, so it never collides with the main menu and — unlike the top-right
+ * `SharePanel` — doesn't shift the style panel. Only shown while focus mode is
+ * on; Escape and the command palette exit too, but a pointer-only user needs a
+ * visible way back once the app chrome is hidden. Re-renders with the store's
+ * focus flag, so the item appears and disappears with focus mode.
+ */
+export function FocusQuickActions(): React.JSX.Element {
+  const focusMode = useUiStore((s) => s.focusMode);
+  return (
+    <DefaultQuickActions>
+      <DefaultQuickActionsContent />
+      {focusMode && (
+        <TldrawUiMenuItem
+          id="exit-focus"
+          icon="cross-2"
+          kbd="cmd+shift+f,ctrl+shift+f"
+          label="Exit focus mode"
+          onSelect={() => ui.setFocusMode(false)}
+        />
+      )}
+    </DefaultQuickActions>
+  );
+}
 
 /**
  * The native main menu (top-left ☰) with our "Arrange" and "Filter" submenus
