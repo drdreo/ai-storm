@@ -13,7 +13,7 @@ import { SidebarInput, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } f
 import { cn } from "@/lib/utils";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, GripVertical, MoreHorizontal } from "lucide-react";
+import { Check, MoreHorizontal } from "lucide-react";
 import type { Folder, WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
 import { defaultWorkspaceColor, WORKSPACE_COLORS } from "../../core/models";
 import { workspace } from "../../stores/workspace.store";
@@ -63,14 +63,13 @@ export interface WorkspaceRowProps {
  * between the top-level list and the rows nested inside a folder group.
  *
  * Drag ergonomics (#128 DnD): the whole row is a pointer drag source (with a
- * small distance threshold so click/double-click still activate/rename), while
- * a dedicated grip button carries the keyboard + screen-reader drag interaction
- * — putting dnd-kit's key listeners on the row itself would steal Enter/Space
- * from "activate workspace".
+ * small distance threshold so click/double-click still activate/rename) —
+ * grabbing the row itself is discoverable enough that a dedicated grip icon
+ * would just be extra chrome.
  */
 export function SortableWorkspaceRow(props: WorkspaceRowProps) {
   const { ws, isActive, isEditing, folders } = props;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ws.id,
     data: { kind: "workspace" satisfies DragKind },
     disabled: isEditing
@@ -93,7 +92,13 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
 
   const accent = ws.color ?? defaultWorkspaceColor(ws.id);
   return (
-    <SidebarMenuItem ref={setNodeRef} style={style} className={cn(isDragging && "opacity-40")}>
+    // "group/ws-row", not the ambient "group/menu-item" every SidebarMenuItem
+    // carries: a row nested inside a folder is a DOM descendant of the
+    // folder's own li, which *also* carries "menu-item" — so a hover-reveal
+    // keyed to that shared name would fire for this row whenever the folder
+    // box (header or any sibling row) is hovered, not just this row. Scoping
+    // to a name unique to rows means only *this* row's own li can satisfy it.
+    <SidebarMenuItem ref={setNodeRef} style={style} className={cn("group/ws-row", isDragging && "opacity-40")}>
       <SidebarMenuButton
         isActive={isActive}
         onClick={() => workspace.setActive(ws.id)}
@@ -106,19 +111,12 @@ export function SortableWorkspaceRow(props: WorkspaceRowProps) {
         <span className="sr-only">— {ws.status}</span>
       </SidebarMenuButton>
 
-      <SidebarMenuAction
-        showOnHover
-        className="right-6 cursor-grab text-muted-foreground active:cursor-grabbing"
-        aria-label={`Reorder ${ws.title}`}
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical />
-      </SidebarMenuAction>
-
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <SidebarMenuAction showOnHover aria-label={`Manage ${ws.title}`}>
+          <SidebarMenuAction
+            className="opacity-0 group-hover/ws-row:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 md:opacity-0"
+            aria-label={`Manage ${ws.title}`}
+          >
             <MoreHorizontal />
           </SidebarMenuAction>
         </DropdownMenuTrigger>

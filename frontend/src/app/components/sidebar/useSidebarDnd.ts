@@ -1,13 +1,11 @@
 import {
   closestCenter,
-  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent
 } from "@dnd-kit/core";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { useState } from "react";
 import type { Folder, WorkspaceMeta } from "@ai-storm/shared";
 import { computeOrder, orderAfterAll } from "../../core/sidebar-order";
@@ -28,11 +26,10 @@ export function useSidebarDnd(workspaces: WorkspaceMeta[], folders: Folder[]) {
   const [drag, setDrag] = useState<{ kind: DragKind; id: string } | null>(null);
 
   // Distance threshold keeps plain click (activate) and double-click (rename)
-  // working on rows that are also pointer drag sources.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
+  // working on rows that are also pointer drag sources. Pointer-only: rows are
+  // themselves the drag source, so there's no dedicated keyboard-focusable
+  // handle for a KeyboardSensor to attach to.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   /** A workspace's effective container: its folder id, or null (top level). */
   const containerOf = (ws: WorkspaceMeta): string | null =>

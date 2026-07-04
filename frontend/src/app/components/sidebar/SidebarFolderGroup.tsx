@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronRight, Folder as FolderIcon, GripVertical, MoreHorizontal } from "lucide-react";
+import { ChevronRight, Folder as FolderIcon, MoreHorizontal } from "lucide-react";
 import type { Folder } from "@ai-storm/shared";
 import { workspace } from "../../stores/workspace.store";
 import type { DragKind } from "./useSidebarDnd";
@@ -39,12 +39,12 @@ export interface FolderGroupProps {
  * Collapse state is persisted on the folder meta so it survives a reload
  * (#128). The header doubles as the drop target for moving a workspace into
  * the folder (works while collapsed too); its children form a nested sortable
- * zone. Same drag split as workspace rows: pointer on the header, keyboard via
- * the grip.
+ * zone. Same drag ergonomics as workspace rows: the header itself is the
+ * pointer drag source.
  */
 export function SortableFolderGroup(props: FolderGroupProps) {
   const { folder, isEditing, childIds } = props;
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({
+  const { listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({
     id: folder.id,
     data: { kind: "folder" satisfies DragKind },
     disabled: isEditing
@@ -71,7 +71,7 @@ export function SortableFolderGroup(props: FolderGroupProps) {
             onBlur={(e) => props.onCommitRename(folder, e.currentTarget.value)}
           />
         ) : (
-          <>
+          <div className="group/folder-row">
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 onDoubleClick={() => props.onStartRename(folder.id)}
@@ -86,19 +86,12 @@ export function SortableFolderGroup(props: FolderGroupProps) {
               </SidebarMenuButton>
             </CollapsibleTrigger>
 
-            <SidebarMenuAction
-              showOnHover
-              className="right-6 cursor-grab text-muted-foreground active:cursor-grabbing"
-              aria-label={`Reorder folder ${folder.title}`}
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical />
-            </SidebarMenuAction>
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <SidebarMenuAction showOnHover aria-label={`Manage folder ${folder.title}`}>
+                <SidebarMenuAction
+                  className="opacity-0 group-hover/folder-row:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 md:opacity-0"
+                  aria-label={`Manage folder ${folder.title}`}
+                >
                   <MoreHorizontal />
                 </SidebarMenuAction>
               </DropdownMenuTrigger>
@@ -109,7 +102,7 @@ export function SortableFolderGroup(props: FolderGroupProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </>
+          </div>
         )}
 
         <CollapsibleContent>

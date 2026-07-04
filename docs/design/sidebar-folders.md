@@ -19,7 +19,7 @@ Let users organize the sidebar themselves:
 - **Folders** — named containers that group workspaces. Pure organizational containers: no
   canvas or session state of their own, so deleting a folder never deletes its workspaces.
 - **Ordering** — drag to reorder folders, reorder workspaces within a container, and move a
-  workspace between containers (folder ↔ top level). Keyboard-accessible, not just mouse.
+  workspace between containers (folder ↔ top level).
 
 ## 3. Data model
 
@@ -46,9 +46,10 @@ neighbors.
 - The existing "Move to folder" menu item still works (appends to the target container).
 - Drag-and-drop ([`@dnd-kit`](https://dndkit.com/)) adds three interactions on top: reorder
   folders among folders, reorder workspaces within a container, and drag a workspace across
-  containers (including a dedicated drop zone to ungroup when the top level is empty). A grip
-  handle carries the keyboard interaction (space to lift, arrows to move, space to drop) separate
-  from the row's own click-to-activate / double-click-to-rename.
+  containers (including a dedicated drop zone to ungroup when the top level is empty). Pointer-only
+  — the row/header itself is the drag source (a small activation-distance threshold keeps plain
+  click-to-activate and double-click-to-rename working), so there's no separate grip icon
+  competing with the row's own kebab menu for space.
 
 ## 5. Non-goals
 
