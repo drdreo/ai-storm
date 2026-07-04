@@ -19,8 +19,8 @@ import {
   Workflow,
   X
 } from "lucide-react";
+import type { WorkspaceMeta } from "@ai-storm/shared";
 import type { BoardFilter } from "../../core/canvas/filter";
-import type { WorkspaceMeta } from "../../core/models";
 import type { BoardCommandState, CommandAction } from "./types";
 
 /** Everything the catalog needs: app state plus the callbacks actions invoke. */

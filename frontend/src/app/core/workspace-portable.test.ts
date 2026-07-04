@@ -3,8 +3,9 @@
  * involved, so it runs in the plain Node test env.
  */
 import { describe, it, expect } from "vitest";
+import type { WorkspaceMeta } from "@ai-storm/shared";
 import { buildExportBundle, exportFileSlug, parseExportBundle } from "./workspace-portable";
-import { defaultTerminalConfig, type WorkspaceMeta } from "./models";
+import { defaultTerminalConfig } from "./models";
 
 const meta: WorkspaceMeta = {
   id: "ws_1",

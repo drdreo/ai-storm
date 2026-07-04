@@ -7,8 +7,8 @@
  * dot + label answers the real question: "can I start / what's running?"
  */
 
+import type { WorkspaceStatus } from "@ai-storm/shared";
 import type { ConnectionState } from "../stores/backend.store";
-import type { WorkspaceStatus } from "./models";
 
 export type SessionTone = "error" | "pending" | "ok";
 

@@ -38,8 +38,9 @@ import {
 import { cn } from "@/lib/utils";
 import { ChevronDown, MoreHorizontal, Plus, Settings, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import type { WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
 import { downloadFile } from "../core/download-file";
-import { defaultWorkspaceColor, WORKSPACE_COLORS, type WorkspaceMeta, type WorkspaceStatus } from "../core/models";
+import { defaultWorkspaceColor, WORKSPACE_COLORS } from "../core/models";
 import { exportFileSlug, parseExportBundle } from "../core/workspace-portable";
 import { ingestion } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";

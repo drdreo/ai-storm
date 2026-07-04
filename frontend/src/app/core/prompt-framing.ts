@@ -94,15 +94,6 @@ export function frameTriage(board: string): string {
 }
 
 /**
- * The output format of a spec hand-off (#110) — how the board is converged into
- * a generated artifact. Only the prompt framing varies per format; the subprocess
- * seam, WS streaming, and the Copy/Download flow are format-agnostic. The union
- * itself is canonical in `@ai-storm/shared` (#120) — the backend stamps it on
- * run metadata — and re-exported here for the existing UI importers.
- */
-export type { SpecFormat } from "@ai-storm/shared";
-
-/**
  * Per-format descriptors (#110) — the single source for the SpecPanel's picker
  * UI, the status-badge label, and the download filename, so the panel carries no
  * format-specific branching.

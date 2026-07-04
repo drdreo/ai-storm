@@ -28,6 +28,7 @@ import {
   type McpLaunchContext
 } from "./extraction.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
+import { fakeTmux } from "./test-support/fake-tmux.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
 
 /** Build a capture string from screen lines (as `capture-pane -p` would emit). */
@@ -612,44 +613,6 @@ describe("IdeaScanner — near-miss diagnostics", () => {
 });
 
 // ── extraction-contract §9.8 — idempotent priming (mock tmux) ──
-
-/** A minimal in-memory tmux fake: tracks session existence + records new-session. */
-function fakeTmux() {
-  const calls: string[][] = [];
-  const sessions = new Map<string, { launch: string }>();
-  const argAfter = (args: string[], flag: string) => {
-    const i = args.indexOf(flag);
-    return i >= 0 ? args[i + 1] : undefined;
-  };
-  const tmux = async (...args: string[]): Promise<string> => {
-    calls.push(args);
-    const cmd = args[0];
-    const name = argAfter(args, "-t");
-    switch (cmd) {
-      case "has-session":
-        if (!sessions.has(name!)) throw new Error("no such session");
-        return "";
-      case "new-session":
-        // The launch command is the trailing positional arg. Long launches are
-        // written to a temp script, so store the script body for assertions.
-        {
-          const launch = args[args.length - 1];
-          const script = launch.match(/^bash '(.+)'$/)?.[1];
-          sessions.set(argAfter(args, "-s")!, {
-            launch: script ? readFileSync(script, "utf8") : launch
-          });
-        }
-        return "";
-      case "kill-session":
-        sessions.delete(name!);
-        return "";
-      default:
-        return "";
-    }
-  };
-  const count = (cmd: string) => calls.filter((a) => a[0] === cmd).length;
-  return { tmux, sessions, calls, count };
-}
 
 // Short enough to stay inline (long launches go through a temp script file).
 const PRIME = "Emit «IDEA» lines for canvas-worthy ideas.";

@@ -10,8 +10,6 @@
 
 import type { Idea, Score } from "@ai-storm/shared";
 
-export type { Idea, Score };
-
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
   workspaceId: string;

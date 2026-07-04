@@ -7,13 +7,13 @@
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import type { Idea, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction.ts";
 import { TmuxSessionBackend } from "../session/tmux-backend.ts";
+import { fakeTmux } from "../session/test-support/fake-tmux.ts";
 import { log } from "../log.ts";
 
 // ── Harness plumbing ──
@@ -459,61 +459,6 @@ describe("routing & auth (§9.5)", () => {
 });
 
 // ── §9 case 6 — tmux token durability (fake-tmux seam) ──
-
-/**
- * In-memory tmux fake (the extraction-test seam, extended): tracks sessions,
- * their launch command, per-session user options (`set-option`/`show-options`),
- * `list-sessions`, and a settable pane for `capture-pane`.
- */
-function fakeTmux() {
-  const sessions = new Map<string, { launch: string; options: Record<string, string> }>();
-  let pane = "";
-  const argAfter = (args: string[], flag: string) => {
-    const i = args.indexOf(flag);
-    return i >= 0 ? args[i + 1] : undefined;
-  };
-  const tmux = async (...args: string[]): Promise<string> => {
-    const cmd = args[0];
-    const name = argAfter(args, "-t");
-    switch (cmd) {
-      case "has-session":
-        if (!sessions.has(name!)) throw new Error("no such session");
-        return "";
-      case "new-session": {
-        const launch = args[args.length - 1];
-        const script = launch.match(/^bash '(.+)'$/)?.[1];
-        sessions.set(argAfter(args, "-s")!, {
-          launch: script ? readFileSync(script, "utf8") : launch,
-          options: {}
-        });
-        return "";
-      }
-      case "set-option": {
-        const session = sessions.get(name!);
-        if (!session) throw new Error("no such session");
-        // trailing pair: <option> <value>
-        session.options[args[args.length - 2]] = args[args.length - 1];
-        return "";
-      }
-      case "show-options": {
-        const session = sessions.get(name!);
-        if (!session) throw new Error("no such session");
-        return session.options[args[args.length - 1]] ?? "";
-      }
-      case "list-sessions":
-        return [...sessions.keys()].join("\n");
-      case "capture-pane":
-        if (!sessions.has(name!)) throw new Error("no such session");
-        return pane;
-      case "kill-session":
-        sessions.delete(name!);
-        return "";
-      default:
-        return "";
-    }
-  };
-  return { tmux, sessions, setPane: (text: string) => (pane = text) };
-}
 
 const noop = () => {};
 

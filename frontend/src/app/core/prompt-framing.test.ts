@@ -8,14 +8,14 @@
  */
 
 import { describe, it, expect } from "vitest";
+import type { SpecFormat } from "@ai-storm/shared";
 import {
   framePrompt,
   frameTriage,
   frameSpec,
   PROMPT_TEMPLATES,
   SPEC_FORMATS,
-  type PromptIntent,
-  type SpecFormat
+  type PromptIntent
 } from "./prompt-framing";
 
 describe("framePrompt", () => {

@@ -5,9 +5,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import * as Toolbar from "@radix-ui/react-toolbar";
 import { Command, FileOutput, Scale, ScrollText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { SpecFormat } from "@ai-storm/shared";
 import { CanvasIsland } from "../core/canvas-island";
 import type { SearchableIdea } from "../core/canvas/search";
-import type { SpecFormat, SpecOptions } from "../core/prompt-framing";
+import type { SpecOptions } from "../core/prompt-framing";
 import type { ConvergentSummary } from "../core/summarize.ts";
 import { agent } from "../stores/agent.store";
 import { canvas, useCanvasStore } from "../stores/canvas.store";
