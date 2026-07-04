@@ -102,14 +102,10 @@ export function CanvasPane() {
         setPaletteOpen((open) => !open);
         return;
       }
-      // Focus mode (#131): a dedicated super-user shortcut to go fullscreen on
-      // the selected card(s)' cluster, plus Escape as the fast way out (the
-      // floating exit pill below covers pointer users).
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        ui.toggleFocusMode();
-        return;
-      }
+      // Focus mode (#131): the Ctrl/⌘+Shift+F toggle is a native tldraw action
+      // (see `focusModeOverrides`), so tldraw's own keyboard system owns it — we
+      // only keep Escape here as the fast way out, since tldraw's Escape natively
+      // cancels/deselects rather than exiting our app-level focus mode.
       if (event.key === "Escape" && useUiStore.getState().focusMode) {
         // Let a more specific Escape win instead of also exiting focus mode:
         // the palette closing itself, or tldraw canceling a tool / text edit /

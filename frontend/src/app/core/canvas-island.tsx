@@ -25,7 +25,14 @@ import { useThemeStore } from "../stores/theme.store";
 import { IdeaCardShapeUtil } from "./canvas/idea-card";
 import { CardVerbBar, type CardVerbHandler } from "./canvas/CardVerbBar";
 import { CanvasEmptyState, type EmptyStateActions } from "./canvas/CanvasEmptyState";
-import { CanvasMainMenu, CanvasContextMenu, FilterApplier, FocusQuickActions, useFilterAtom } from "./canvas/menus";
+import {
+  CanvasMainMenu,
+  CanvasContextMenu,
+  FilterApplier,
+  FocusQuickActions,
+  focusModeOverrides,
+  useFilterAtom
+} from "./canvas/menus";
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
@@ -118,7 +125,7 @@ export function CanvasIsland({
         persistenceKey={`ai-storm:ws:${workspaceId}`}
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
-        overrides={ideaToolOverrides}
+        overrides={[ideaToolOverrides, focusModeOverrides]}
         options={copyTextOptions}
         components={components}
         onMount={(ed) => {
