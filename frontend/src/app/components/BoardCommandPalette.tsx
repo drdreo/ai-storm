@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
   Bot,
   CalendarClock,
@@ -9,7 +17,6 @@ import {
   Lightbulb,
   ListRestart,
   Maximize2,
-  X,
   Play,
   Plus,
   Settings,
@@ -17,27 +24,20 @@ import {
   Square,
   Star,
   User,
-  Workflow
+  Workflow,
+  X
 } from "lucide-react";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from "@/components/ui/command";
-import { cn } from "@/lib/utils";
-import type { WorkspaceMeta } from "../core/models";
+import { useEffect, useMemo, useState } from "react";
 import type { BoardFilter } from "../core/canvas/filter";
-import { KNOWN_KINDS, kindLabel, normalizeKind } from "../core/idea-descriptors";
 import {
   EMPTY_IDEA_SEARCH_FILTER,
   hasActiveIdeaFilter,
-  searchIdeas,
   type IdeaSearchFilter,
-  type SearchableIdea
+  type SearchableIdea,
+  searchIdeas
 } from "../core/canvas/search";
+import { kindLabel, KNOWN_KINDS, normalizeKind } from "../core/idea-descriptors";
+import type { WorkspaceMeta } from "../core/models";
 
 type CommandIcon = typeof Plus;
 
@@ -83,7 +83,8 @@ interface BoardCommandPaletteProps {
   onOpenSettings(): void;
   onSwitchWorkspace(workspaceId: string): void;
   focusMode: boolean;
-    onToggleFocusMode(): void;
+
+  onToggleFocusMode(): void;
   /** Ideas gathered across every workspace for full-text search (#124). */
   searchIdeas: readonly SearchableIdea[];
   /** Open a search result's workspace and pan/zoom to the card (#124). */
@@ -102,15 +103,7 @@ const DATE_PRESETS = [
 ] as const;
 
 /** A small pressable filter chip — pressed state mirrors an active facet. */
-function FilterChip({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean;
-  onClick(): void;
-  children: React.ReactNode;
-}) {
+function FilterChip({ active, onClick, children }: { active: boolean; onClick(): void; children: React.ReactNode }) {
   return (
     <button
       type="button"

@@ -1,30 +1,30 @@
-import { create } from "zustand";
-import type { Editor, TLShapeId } from "tldraw";
 import type { Idea, Score } from "@ai-storm/shared";
-import type { PromptIntent } from "../core/prompt-framing";
+import type { Editor, TLShapeId } from "tldraw";
+import { create } from "zustand";
 import {
-  type CanvasBridge,
   applyIdeas as islandApplyIdeas,
-  serializeEditor,
-  serializeForTriage,
-  serializeForHandoff,
   applyScore as islandApplyScore,
-  selectedText,
+  type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
-  importBoard as islandImportBoard
+  importBoard as islandImportBoard,
+  selectedText,
+  serializeEditor,
+  serializeForHandoff,
+  serializeForTriage
 } from "../core/canvas-island";
-import type { PortableBoard } from "../core/workspace-portable";
-import { synthesizeBoard, type ConvergentSummary } from "../core/synthesis";
+import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
+import { type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
 import { createUserIdea } from "../core/canvas/idea-tool";
 import {
   arrangeMindMap as layoutArrangeMindMap,
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
-import { boardFacets, EMPTY_FILTER, type BoardFacets, type BoardFilter } from "../core/canvas/filter";
-import { ideaCards, type IdeaCardMeta } from "../core/canvas/idea-card";
 import type { SearchableIdea } from "../core/canvas/search";
 import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
+import type { PromptIntent } from "../core/prompt-framing";
+import { type ConvergentSummary, synthesizeBoard } from "../core/synthesis";
+import type { PortableBoard } from "../core/workspace-portable";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -295,9 +295,7 @@ export const canvas = {
     const results = await Promise.all(
       workspaces.map(async ({ id, title }) => {
         if (editor && id === activeId) {
-          return ideaCards(editor).map((c) =>
-            toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta)
-          );
+          return ideaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
         }
         return readPersistedIdeas(id, title);
       })

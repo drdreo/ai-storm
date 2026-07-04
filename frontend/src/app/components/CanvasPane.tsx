@@ -1,22 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import * as Toolbar from "@radix-ui/react-toolbar";
-import { Command, Scale, ScrollText, FileOutput } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useWorkspaceStore, selectActive, workspace } from "../stores/workspace.store";
-import { canvas, useCanvasStore } from "../stores/canvas.store";
+import * as Toolbar from "@radix-ui/react-toolbar";
+import { Command, FileOutput, Scale, ScrollText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CanvasIsland } from "../core/canvas-island";
+import type { SearchableIdea } from "../core/canvas/search";
+import type { SpecFormat, SpecOptions } from "../core/prompt-framing";
+import type { ConvergentSummary } from "../core/synthesis";
 import { agent } from "../stores/agent.store";
+import { canvas, useCanvasStore } from "../stores/canvas.store";
 import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
-import { CanvasIsland } from "../core/canvas-island";
-import { SummaryPanel } from "./SummaryPanel";
-import { SpecPanel } from "./SpecPanel";
+import { selectActive, useWorkspaceStore, workspace } from "../stores/workspace.store";
 import { BoardCommandPalette } from "./BoardCommandPalette";
-import type { ConvergentSummary } from "../core/synthesis";
-import type { SpecFormat, SpecOptions } from "../core/prompt-framing";
-import type { SearchableIdea } from "../core/canvas/search";
+import { SpecPanel } from "./SpecPanel";
+import { SummaryPanel } from "./SummaryPanel";
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -84,8 +84,8 @@ export function CanvasPane() {
   // is one interaction. Dispatch flows back up through `onGenerate`.
   const [specOpen, setSpecOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-    const focusMode = useUiStore((s) => s.focusMode);
-    // Full-text search index (#124): gathered fresh each time the palette opens —
+  const focusMode = useUiStore((s) => s.focusMode);
+  // Full-text search index (#124): gathered fresh each time the palette opens —
   // the mounted board read live, every other workspace from its persisted store.
   const [searchIdeas, setSearchIdeas] = useState<readonly SearchableIdea[]>([]);
 
