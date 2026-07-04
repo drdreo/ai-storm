@@ -23,7 +23,7 @@ import {
 import type { SearchableIdea } from "../core/canvas/search";
 import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
 import type { PromptIntent } from "../core/prompt-framing";
-import { type ConvergentSummary, synthesizeBoard } from "../core/synthesis";
+import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
 import type { PortableBoard } from "../core/workspace-portable";
 
 /**
@@ -184,14 +184,14 @@ export const canvas = {
   },
 
   /**
-   * Synthesize the active board into a convergent summary (#28, PD-015) — a pure,
+   * Summarize the active board into a convergent summary (#28, PD-015) — a pure,
    * on-demand *reading* of the canvas (themes → decisions → open questions →
    * highlights). Returns `null` when the target workspace isn't the mounted one
    * (no live editor to read). No canvas mutation, no agent round-trip.
    */
-  synthesize(workspaceId: string): ConvergentSummary | null {
+  summarize(workspaceId: string): ConvergentSummary | null {
     if (!editor || workspaceId !== activeId) return null;
-    return synthesizeBoard(collectBoard(editor));
+    return summarizeBoard(collectBoard(editor));
   },
 
   /** Serialize the workspace canvas to normalized markdown (PRD §3.2). */

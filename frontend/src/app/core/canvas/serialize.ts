@@ -5,11 +5,11 @@
  * No mutation here (except `cardRef`'s lazy ref mint); these just read the editor.
  */
 import type { Editor } from "tldraw";
-import { serializeCards, handoffCardsToText } from "../canvas-text";
+import { handoffCardsToText, serializeCards } from "../canvas-text";
 import { isTriageableKind, normalizeKind } from "../idea-descriptors";
-import type { BoardCard, BoardEdge, BoardSnapshot } from "../synthesis";
-import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import type { BoardCard, BoardEdge, BoardSnapshot } from "../summarize.ts";
 import { ideaEdges } from "./edges";
+import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 
 /** Serialize every idea card to a normalized markdown document (PRD §3.2). */
 export function serializeEditor(editor: Editor): string {
