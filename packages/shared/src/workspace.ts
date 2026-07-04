@@ -23,6 +23,25 @@ export interface WorkspaceMeta {
    * frontend's fixed accent palette; undefined → derive a deterministic default.
    */
   color?: string;
+  /**
+   * Parent folder id (#128) grouping this workspace in the sidebar. Undefined →
+   * the workspace sits at the sidebar's top level (ungrouped).
+   */
+  folderId?: string;
+}
+
+/**
+ * A sidebar folder grouping workspaces for navigation as their number grows
+ * (#128). Folders are pure organisational containers — they hold no canvas or
+ * session state, only a title and the collapse state of their sidebar group.
+ */
+export interface Folder {
+  id: string;
+  title: string;
+  /** Epoch ms of creation, used for stable ordering in the sidebar. */
+  createdAt: number;
+  /** Sidebar group collapse state, persisted so it survives a reload. */
+  collapsed?: boolean;
 }
 
 export interface TerminalConfig {

@@ -88,3 +88,58 @@ describe("workspace store — registry lifecycle", () => {
     expect(useWorkspaceStore.getState().activeId).not.toBe(first);
   });
 });
+
+describe("workspace store — folders (#128)", () => {
+  beforeEach(() => {
+    (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
+    (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
+  });
+
+  it("createFolder() adds a folder and renameFolder() updates its title", async () => {
+    const { workspace, useWorkspaceStore } = await bootStore();
+
+    const id = workspace.createFolder("Research");
+    expect(useWorkspaceStore.getState().folders.find((f) => f.id === id)?.title).toBe("Research");
+
+    workspace.renameFolder(id, "Deep Research");
+    expect(useWorkspaceStore.getState().folders.find((f) => f.id === id)?.title).toBe("Deep Research");
+  });
+
+  it("moveToFolder() assigns and clears a workspace's folderId", async () => {
+    const { workspace, useWorkspaceStore } = await bootStore();
+    const wsId = workspace.create("Board");
+    const folderId = workspace.createFolder("Group");
+
+    workspace.moveToFolder(wsId, folderId);
+    expect(useWorkspaceStore.getState().workspaces.find((w) => w.id === wsId)?.folderId).toBe(folderId);
+
+    workspace.moveToFolder(wsId, null);
+    expect(useWorkspaceStore.getState().workspaces.find((w) => w.id === wsId)?.folderId).toBeUndefined();
+  });
+
+  it("setFolderCollapsed() persists the collapse state", async () => {
+    const { workspace, useWorkspaceStore } = await bootStore();
+    const id = workspace.createFolder("Group");
+
+    workspace.setFolderCollapsed(id, true);
+    expect(useWorkspaceStore.getState().folders.find((f) => f.id === id)?.collapsed).toBe(true);
+
+    workspace.setFolderCollapsed(id, false);
+    expect(useWorkspaceStore.getState().folders.find((f) => f.id === id)?.collapsed).toBe(false);
+  });
+
+  it("removeFolder() deletes the folder but keeps its workspaces (moved to top level)", async () => {
+    const { workspace, useWorkspaceStore } = await bootStore();
+    const wsId = workspace.create("Board");
+    const folderId = workspace.createFolder("Group");
+    workspace.moveToFolder(wsId, folderId);
+
+    workspace.removeFolder(folderId);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.folders.find((f) => f.id === folderId)).toBeUndefined();
+    const ws = state.workspaces.find((w) => w.id === wsId);
+    expect(ws).toBeDefined();
+    expect(ws?.folderId).toBeUndefined();
+  });
+});

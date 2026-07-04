@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
-import type { WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
+import type { Folder, WorkspaceMeta, WorkspaceStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
 import { defaultTerminalConfig, defaultWorkspaceColor } from "../core/models";
 import { buildExportBundle, type WorkspaceExportBundle } from "../core/workspace-portable";
@@ -26,12 +26,14 @@ const ACTIVE_KEY = "ai-storm.activeWorkspace";
 
 interface WorkspaceState {
   workspaces: WorkspaceMeta[];
+  folders: Folder[];
   activeId: string | null;
   booted: boolean;
 }
 
 export const useWorkspaceStore = create<WorkspaceState>(() => ({
   workspaces: [],
+  folders: [],
   activeId: null,
   booted: false
 }));
@@ -46,17 +48,25 @@ export function selectActive(s: WorkspaceState): WorkspaceMeta | null {
 const registryDoc = new Y.Doc();
 let registryPersistence: IndexeddbPersistence;
 let map: Y.Map<WorkspaceMeta>;
+let folderMap: Y.Map<Folder>;
 
 function syncFromMap(): void {
   const list: WorkspaceMeta[] = [];
   map.forEach((meta) => list.push(meta));
   list.sort((a, b) => a.createdAt - b.createdAt);
-  useWorkspaceStore.setState({ workspaces: list });
+  const folders: Folder[] = [];
+  folderMap.forEach((f) => folders.push(f));
+  folders.sort((a, b) => a.createdAt - b.createdAt);
+  useWorkspaceStore.setState({ workspaces: list, folders });
 }
 
 function write(meta: WorkspaceMeta): void {
   // Structured-clone a plain object into the CRDT map (writes immediately).
   map.set(meta.id, { ...meta, terminal: { ...meta.terminal } });
+}
+
+function writeFolder(folder: Folder): void {
+  folderMap.set(folder.id, { ...folder });
 }
 
 export const workspace = {
@@ -67,6 +77,7 @@ export const workspace = {
       await canvas.init();
 
       map = registryDoc.getMap<WorkspaceMeta>("workspaces");
+      folderMap = registryDoc.getMap<Folder>("folders");
       registryPersistence = new IndexeddbPersistence(REGISTRY_ROOM, registryDoc);
       await new Promise<void>((resolve) => {
         registryPersistence.once("synced", () => resolve());
@@ -74,6 +85,7 @@ export const workspace = {
 
       // Keep state in sync with the CRDT registry (immediate writes §3.5).
       map.observe(() => syncFromMap());
+      folderMap.observe(() => syncFromMap());
       syncFromMap();
 
       const workspaces = useWorkspaceStore.getState().workspaces;
@@ -129,6 +141,46 @@ export const workspace = {
   setColor(id: string, color: string): void {
     const meta = map.get(id);
     if (meta && meta.color !== color) write({ ...meta, color });
+  },
+
+  // ---- Folders (#128) ------------------------------------------------------
+
+  /** Create an (initially empty) sidebar folder, returning its id. */
+  createFolder(title: string): string {
+    const id = `fld_${crypto.randomUUID()}`;
+    writeFolder({ id, title, createdAt: Date.now() });
+    return id;
+  },
+
+  renameFolder(id: string, title: string): void {
+    const folder = folderMap.get(id);
+    if (folder) writeFolder({ ...folder, title });
+  },
+
+  setFolderCollapsed(id: string, collapsed: boolean): void {
+    const folder = folderMap.get(id);
+    if (folder && !!folder.collapsed !== collapsed) writeFolder({ ...folder, collapsed });
+  },
+
+  /**
+   * Delete a folder. Folders are pure containers, so its workspaces are never
+   * deleted — they fall back to the sidebar's top level (folderId cleared).
+   */
+  removeFolder(id: string): void {
+    registryDoc.transact(() => {
+      map.forEach((meta) => {
+        if (meta.folderId === id) write({ ...meta, folderId: undefined });
+      });
+      folderMap.delete(id);
+    });
+  },
+
+  /** Move a workspace into a folder, or to the top level when `folderId` is null. */
+  moveToFolder(workspaceId: string, folderId: string | null): void {
+    const meta = map.get(workspaceId);
+    if (!meta) return;
+    const next = folderId ?? undefined;
+    if (meta.folderId !== next) write({ ...meta, folderId: next });
   },
 
   patchTerminal(id: string, patch: Partial<WorkspaceMeta["terminal"]>): void {
