@@ -25,16 +25,16 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings, Upload } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { Folder, ProjectMeta } from "@ai-storm/shared";
-import { downloadFile } from "../core/download-file";
-import { exportFileSlug, parseExportBundle } from "../core/project-portable";
-import { ingestion } from "../stores/ingestion.store";
-import { ui, useUiStore } from "../stores/ui.store";
-import { useProjectStore, project } from "../stores/project.store";
-import { SettingsDialog } from "./SettingsDialog";
-import { SidebarDialogs } from "./sidebar/SidebarDialogs";
-import { SortableFolderGroup, UngroupedDropZone } from "./sidebar/SidebarFolderGroup";
-import { StatusDot, SortableProjectRow } from "./sidebar/SidebarProjectRow";
-import { useSidebarDnd } from "./sidebar/useSidebarDnd";
+import { downloadFile } from "../../core/download-file";
+import { exportFileSlug, parseExportBundle } from "../../core/project-portable";
+import { ingestion } from "../../stores/ingestion.store";
+import { ui, useUiStore } from "../../stores/ui.store";
+import { useProjectStore, project } from "../../stores/project.store";
+import { SettingsDialog } from "../SettingsDialog";
+import { SidebarDialogs } from "./SidebarDialogs";
+import { SortableFolderGroup, UngroupedDropZone } from "./SidebarFolderGroup";
+import { StatusDot, SortableProjectRow } from "./SidebarProjectRow";
+import { useSidebarDnd } from "./useSidebarDnd";
 
 /**
  * Global navigation sidebar (PRD §3.4), built on shadcn's app-sidebar
