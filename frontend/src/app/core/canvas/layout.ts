@@ -5,7 +5,7 @@
  * user-triggered (never auto-rewrite a manual placement).
  */
 import { atom, type Atom, Box, type Editor, type TLShapeId } from "tldraw";
-import type { Score } from "@ai-storm/shared";
+import type { Completion, Score } from "@ai-storm/shared";
 import { layoutMindMap, layoutPriorityGrid, type GridFrame, type ScoredCard } from "../idea-layout";
 import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
@@ -142,6 +142,22 @@ export function applyScore(editor: Editor, score: Score): void {
 }
 
 /**
+ * Apply a {@link Completion} (#167) to the card it targets: resolve the ref and
+ * stamp `done` onto its `meta` (the field the card body reads to show the done
+ * state). A completion for an unknown ref is ignored (the card may have been
+ * deleted). Stored on `meta`, so no schema migration and it persists with the
+ * board — exactly like the keep-mark star (#59) and the triage score (#60). The
+ * manual context-menu toggle ({@link markSelectedDone}) writes the same field.
+ */
+export function applyCompletion(editor: Editor, completion: Completion): void {
+  const id = resolveRef(editor, completion.ref);
+  if (!id) return;
+  const shape = editor.getShape(id);
+  if (!shape || shape.type !== "idea-card") return;
+  editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, done: completion.done } });
+}
+
+/**
  * Re-flow the board into a 2×2 impact×effort prioritization grid (#60) — the
  * "Grid" action, a sibling of Arrange (#16/PD-014). Reads each card's triage
  * score off `meta.score` (delivered by the `«SCORE@ref»` contract), bins it into
@@ -189,6 +205,28 @@ export function markSelected(editor: Editor): void {
         id: s.id,
         type: "idea-card" as const,
         meta: { ...s.meta, starred: !allStarred }
+      }))
+    )
+  );
+}
+
+/**
+ * Mark/unmark every selected idea card done (#167) — the manual counterpart to
+ * the MCP `mark_idea_done` tool, wired to the context menu for a single card or a
+ * bulk selection. Toggles as a group like {@link markSelected}: if every selected
+ * card is already done, this reopens them all; otherwise it marks them all done.
+ * No-op when no idea card is selected.
+ */
+export function markSelectedDone(editor: Editor): void {
+  const sel = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
+  if (sel.length === 0) return;
+  const allDone = sel.every((s) => (s.meta as IdeaCardMeta).done);
+  editor.run(() =>
+    editor.updateShapes(
+      sel.map((s) => ({
+        id: s.id,
+        type: "idea-card" as const,
+        meta: { ...s.meta, done: !allDone }
       }))
     )
   );

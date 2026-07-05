@@ -21,7 +21,7 @@
  * control. (AO's own core `tmux.ts` likewise targets by bare session name.)
  */
 
-import type { Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Score } from "@ai-storm/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -359,6 +359,7 @@ export class TmuxSessionBackend implements SessionBackend {
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
+    onCompletion: (completion: Completion) => void,
     onError: (message: string) => void
   ): Promise<void> {
     assertValidProjectId(projectId);
@@ -407,7 +408,7 @@ export class TmuxSessionBackend implements SessionBackend {
     // Route the MCP tool path into THIS attachment (mcp-idea-capture §6):
     // tool-captured ideas dedupe against the same sinks the scanner feeds and
     // emit through the same WS callbacks. No-op for markers-only sessions.
-    this.#mcp.attachSession(projectId, { ideaSink, scoreSink, onIdea, onScore });
+    this.#mcp.attachSession(projectId, { ideaSink, scoreSink, onIdea, onScore, onCompletion });
 
     // SEED the scanner with the current pane and DISCARD the result so ideas
     // already on screen are never re-emitted: this suppresses the echoed priming

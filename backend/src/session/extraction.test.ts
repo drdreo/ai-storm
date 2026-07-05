@@ -733,6 +733,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
         () => {},
         (idea) => ideas.push(idea),
         () => {},
+        () => {},
         () => {}
       );
 

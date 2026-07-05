@@ -19,7 +19,7 @@ type Level = "debug" | "info" | "warn" | "error";
 const LEVELS: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
 /** Active log level — edit this to see/hide lower-severity records. */
-const LOG_LEVEL: Level = "debug";
+const LOG_LEVEL: Level = "info";
 const THRESHOLD = LEVELS[LOG_LEVEL];
 
 const tracer = trace.getTracer("ai-storm-backend", "3.0.0");
