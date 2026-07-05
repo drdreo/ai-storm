@@ -6,8 +6,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-
-
 /** Humanize a millisecond span (seconds → hours). */
 export function formatSpan(ms: number): string {
   const min = Math.round(ms / 60000);
