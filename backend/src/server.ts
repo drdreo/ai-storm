@@ -272,7 +272,7 @@ async function dispatch(
       if (keystroke) {
         log.debug("ai.keystroke", { project: msg.projectId, bytes: msg.data.length });
       } else {
-        log.info("ai.input.sent", {
+        log.debug("ai.input.sent", {
           project: msg.projectId,
           bytes: msg.data.length,
           preview: msg.data.replace(/\s+/g, " ").trim().slice(0, 80)
