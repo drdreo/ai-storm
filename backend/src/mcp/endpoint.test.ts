@@ -11,7 +11,7 @@ import { Hono } from "hono";
 import type { Idea, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
-import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction.ts";
+import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
 import { TmuxSessionBackend } from "../session/tmux-backend.ts";
 import { fakeTmux } from "../session/test-support/fake-tmux.ts";
 import { log } from "../log.ts";

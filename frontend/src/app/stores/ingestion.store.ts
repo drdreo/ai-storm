@@ -1,23 +1,12 @@
 import { create } from "zustand";
-import type { Idea, TerminalConfig } from "@ai-storm/shared";
+import type { Idea, ServerMessage, TerminalConfig } from "@ai-storm/shared";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { project } from "./project.store";
 import { RenderScheduler } from "../core/render-scheduler";
+import { TerminalBinding, type TerminalSink } from "./terminal-binding";
 
-/** Cap on raw bytes buffered before a terminal mounts, so an attached-but-never-
- *  viewed project cannot grow without bound (oldest chunks are dropped). */
-const MAX_BUFFERED_DATA = 256 * 1024;
-
-/** A mounted xterm.js terminal's sink — the component registers these. */
-export interface TerminalSink {
-  /** Write base64-encoded raw PTY bytes to the terminal. */
-  write(dataB64: string): void;
-  /** Clear the terminal's scrollback + viewport. */
-  clear(): void;
-  /** Move keyboard focus into the terminal (bidirectional canvas, #13). */
-  focus?(): void;
-}
+export type { TerminalSink } from "./terminal-binding";
 
 /** Live streaming machinery (exists only while a session is attached). */
 interface Pipeline {
@@ -26,15 +15,6 @@ interface Pipeline {
   /** The attach message, re-sent on socket reopen to resume the session (§3.5). */
   reattach: () => void;
   unsubscribeOpen: () => void;
-}
-
-/** Per-project terminal binding (survives attach/detach cycles). */
-interface TerminalState {
-  /** The mounted terminal's sink, or null until the component registers it. */
-  sink: TerminalSink | null;
-  /** Raw `data` chunks (base64) received before the terminal mounted. */
-  buffer: string[];
-  bufferedBytes: number;
 }
 
 /**
@@ -49,8 +29,8 @@ interface TerminalState {
  *            single batched mutation.
  *
  * Pipelines are independent per project (PRD §3.4) and torn down on detach
- * (PRD §5.2); the lightweight terminal binding persists so a project keeps its
- * terminal across attach/detach cycles.
+ * (PRD §5.2); the lightweight terminal binding (`TerminalBinding`) persists so
+ * a project keeps its terminal across attach/detach cycles.
  *
  * Port note: the only reactive surface is which projects are attached
  * (`attached`), which the control hub reads to flip Start/Stop and the empty
@@ -82,13 +62,13 @@ function setError(projectId: string, message: string | null): void {
 
 // ---- Imperative module state -----------------------------------------------
 
-const terminals = new Map<string, TerminalState>();
+const terminals = new Map<string, TerminalBinding>();
 const active = new Map<string, Pipeline>();
 
-function terminal(projectId: string): TerminalState {
+function terminal(projectId: string): TerminalBinding {
   let t = terminals.get(projectId);
   if (!t) {
-    t = { sink: null, buffer: [], bufferedBytes: 0 };
+    t = new TerminalBinding();
     terminals.set(projectId, t);
   }
   return t;
@@ -104,28 +84,6 @@ function markAttached(projectId: string, on: boolean): void {
   });
 }
 
-/** Forward raw PTY bytes to the terminal (or buffer until it mounts). */
-function ingestData(projectId: string, dataB64: string): void {
-  const t = terminal(projectId);
-  if (t.sink) {
-    t.sink.write(dataB64);
-    return;
-  }
-  t.buffer.push(dataB64);
-  t.bufferedBytes += dataB64.length;
-  // Drop oldest chunks past the cap (a never-viewed session must stay bounded).
-  while (t.bufferedBytes > MAX_BUFFERED_DATA && t.buffer.length > 1) {
-    t.bufferedBytes -= t.buffer.shift()!.length;
-  }
-}
-
-/** Route one extracted idea to the canvas via the render scheduler. */
-function ingestIdea(projectId: string, idea: Idea): void {
-  const p = active.get(projectId);
-  if (!p) return;
-  p.scheduler.enqueueAll([idea]);
-}
-
 function applyStatus(projectId: string, status: string): void {
   switch (status) {
     case "responding":
@@ -138,6 +96,35 @@ function applyStatus(projectId: string, status: string): void {
       break;
     case "killed":
       project.setStatus(projectId, "idle");
+      break;
+  }
+}
+
+/** Route one backend session message to its surface (terminal / canvas / status). */
+function ingestMessage(projectId: string, msg: ServerMessage): void {
+  switch (msg.type) {
+    case "data":
+      terminal(projectId).write(msg.data);
+      break;
+    case "idea":
+      active.get(projectId)?.scheduler.enqueueAll([msg.idea]);
+      break;
+    case "score":
+      // Triage score (#60) → update the target card's meta on the canvas.
+      canvas.applyScore(projectId, msg.score);
+      break;
+    case "session-status":
+      applyStatus(projectId, msg.status);
+      break;
+    case "exit":
+      active.get(projectId)?.scheduler.flushNow();
+      project.setStatus(projectId, "idle");
+      break;
+    case "error":
+      project.setStatus(projectId, "error");
+      // Surface *why* so the user can fix it (e.g. a bad harness command),
+      // rather than seeing only an opaque "error" status.
+      setError(projectId, msg.message);
       break;
   }
 }
@@ -173,33 +160,7 @@ export const ingestion = {
       maxPerFrame: 8
     });
 
-    const unsubscribe = backend.subscribe(projectId, (msg) => {
-      switch (msg.type) {
-        case "data":
-          ingestData(projectId, msg.data);
-          break;
-        case "idea":
-          ingestIdea(projectId, msg.idea);
-          break;
-        case "score":
-          // Triage score (#60) → update the target card's meta on the canvas.
-          canvas.applyScore(projectId, msg.score);
-          break;
-        case "session-status":
-          applyStatus(projectId, msg.status);
-          break;
-        case "exit":
-          active.get(projectId)?.scheduler.flushNow();
-          project.setStatus(projectId, "idle");
-          break;
-        case "error":
-          project.setStatus(projectId, "error");
-          // Surface *why* so the user can fix it (e.g. a bad harness command),
-          // rather than seeing only an opaque "error" status.
-          setError(projectId, msg.message);
-          break;
-      }
-    });
+    const unsubscribe = backend.subscribe(projectId, (msg) => ingestMessage(projectId, msg));
 
     // The interactive session defaults to launching the configured AI harness
     // (e.g. `claude`), so prompts typed in the terminal go to the agent — not to
@@ -236,16 +197,7 @@ export const ingestion = {
    * unbind fn the component calls on teardown.
    */
   registerTerminal(projectId: string, sink: TerminalSink): () => void {
-    const t = terminal(projectId);
-    t.sink = sink;
-    if (t.buffer.length > 0) {
-      for (const chunk of t.buffer) sink.write(chunk);
-      t.buffer = [];
-      t.bufferedBytes = 0;
-    }
-    return () => {
-      if (t.sink === sink) t.sink = null;
-    };
+    return terminal(projectId).bind(sink);
   },
 
   /** Forward raw keystrokes from the terminal to the session's PTY. */
@@ -264,7 +216,7 @@ export const ingestion = {
 
   /** Clear the project's terminal display (does not touch the session). */
   clearTerminal(projectId: string): void {
-    terminals.get(projectId)?.sink?.clear();
+    terminals.get(projectId)?.clear();
   },
 
   /**
@@ -273,7 +225,7 @@ export const ingestion = {
    * without first clicking the terminal. No-op if no terminal is mounted.
    */
   focusTerminal(projectId: string): void {
-    terminals.get(projectId)?.sink?.focus?.();
+    terminals.get(projectId)?.focus();
   },
 
   isAttached(projectId: string): boolean {

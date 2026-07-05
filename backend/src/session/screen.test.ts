@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from "vitest";
 import { TerminalScreen } from "./screen.ts";
-import { IdeaScanner } from "./extraction.ts";
+import { IdeaScanner } from "./extraction/index.ts";
 
 describe("TerminalScreen — reflow-stable logical lines (#38)", () => {
   it("rejoins an auto-wrapped idea so resizing the pane doesn't re-emit it", async () => {

@@ -6,7 +6,7 @@
  * PD-015 is the frame: convergence is a **generated artifact**, not a second
  * authoring surface. This module is the artifact's engine. It is a pure,
  * deterministic *reading* of the canvas — no agent round-trip — so it is instant,
- * reproducible, and unit-testable in the plain Node env (like `idea-layout.ts`
+ * reproducible, and unit-testable in the plain Node env (like `idea-layout/`
  * and `idea-descriptors.ts`, and unlike anything that touches tldraw).
  *
  * The structure the board already carries does the work: the typed edge graph
@@ -120,7 +120,7 @@ function components(snapshot: BoardSnapshot): Map<string, string> {
  * Pick a cluster's *main idea*: the card the most `about` edges point at (the hub
  * everything fans out from), preferring a card that is not itself superseded, with
  * the cluster's reading order as the final tiebreaker. Mirrors the root choice the
- * mind-map layout makes (`idea-layout.ts` placeCluster), so the synthesis names a
+ * mind-map layout makes (`idea-layout/mind-map.ts` placeCluster), so the synthesis names a
  * theme after the same card Arrange would centre it on.
  */
 function mainIdea(cluster: BoardCard[], edges: readonly BoardEdge[]): BoardCard {

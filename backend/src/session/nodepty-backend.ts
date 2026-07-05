@@ -32,7 +32,7 @@ import {
   commandProfileName,
   launchArgsForProfile,
   type HarnessProfile
-} from "./extraction.ts";
+} from "./extraction/index.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
 import type { SessionBackend, SessionHandle, SessionSpec } from "./types.ts";
 

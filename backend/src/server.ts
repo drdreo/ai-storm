@@ -18,7 +18,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { getRuntime } from "./session/runtime.ts";
 import type { SessionBackend } from "./session/types.ts";
-import { commandProfileName, getProfile } from "./session/extraction.ts";
+import { commandProfileName, getProfile } from "./session/extraction/index.ts";
 import { mcpRegistry } from "./mcp/registry.ts";
 import { mcpRoutes } from "./mcp/endpoint.ts";
 import { fsRoutes } from "./fs/routes.ts";

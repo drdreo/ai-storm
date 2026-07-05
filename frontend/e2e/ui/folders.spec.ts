@@ -17,10 +17,12 @@ test.describe("folders", () => {
     await page.getByRole("menuitem", { name: "New folder" }).click();
 
     // Verify the folder is created (menu-item count increases)
-    await expect.poll(async () => {
-      const menuItemsAfter = await page.locator('[data-sidebar="menu-item"]').count();
-      return menuItemsAfter > menuItemsBefore;
-    }).toBeTruthy();
+    await expect
+      .poll(async () => {
+        const menuItemsAfter = await page.locator('[data-sidebar="menu-item"]').count();
+        return menuItemsAfter > menuItemsBefore;
+      })
+      .toBeTruthy();
   });
 
   test("project colors are visible in collapsed sidebar with expanded folder", async ({ shell, page }) => {
@@ -44,7 +46,7 @@ test.describe("folders", () => {
     await menuItems.nth(menuItemCount - 1).click(); // Get the last menu item which should be the folder
 
     // Now collapse the sidebar to icon mode using keyboard shortcut (Ctrl+B or Cmd+B)
-    await page.keyboard.press('Control+b');
+    await page.keyboard.press("Control+b");
 
     // Wait for the sidebar to collapse (data-state changes to "collapsed")
     await expect(page.locator('[data-state="collapsed"]')).toBeVisible();
@@ -55,7 +57,7 @@ test.describe("folders", () => {
     await expect(menuSubButton).toBeVisible();
 
     // Verify the color indicator span is visible (the StatusDot)
-    const statusDotSpan = menuSubButton.locator('span').first();
+    const statusDotSpan = menuSubButton.locator("span").first();
     await expect(statusDotSpan).toBeVisible();
   });
 });

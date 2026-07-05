@@ -18,7 +18,7 @@ import {
   type LayoutEdge,
   type LayoutPosition,
   type ScoredCard
-} from "./idea-layout";
+} from "./index";
 
 /** Compact card factory — fixed 250×132 (the canvas default) unless overridden. */
 function card(id: string, kind = "", x = 0, y = 0, w = 250, h = 132): LayoutCard {

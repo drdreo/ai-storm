@@ -26,7 +26,7 @@ import {
   CODEX_PROFILE,
   type Idea,
   type McpLaunchContext
-} from "./extraction.ts";
+} from "./extraction/index.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { fakeTmux } from "./test-support/fake-tmux.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";

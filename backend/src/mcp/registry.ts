@@ -30,7 +30,7 @@
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Idea, Score } from "@ai-storm/shared";
-import type { IdeaSink, ScoreSink } from "../session/extraction.ts";
+import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
 export const MCP_SERVER_NAME = "ai-storm";
