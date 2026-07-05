@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.77.0",
+    "@types/node": "^26.1.0",
     "vitest": "^4.1.8"
   },
   "optionalDependencies": {
