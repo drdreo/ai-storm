@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import type { SpecFormat } from "@ai-storm/shared";
 import { useAgentStore } from "../stores/agent.store";
 import { SPEC_FORMATS, type SpecOptions } from "../core/prompt-framing";
+import { MarkdownView } from "./MarkdownView";
 
 /** Last-used hand-off format (#110) — repeat hand-offs default sensibly. */
 const FORMAT_KEY = "ai-storm-spec-format";
@@ -177,7 +178,7 @@ export function SpecPanel({
             <p className="text-sm text-muted-foreground">No hand-off yet — pick a format above and press Generate.</p>
           ) : markdown ? (
             <>
-              <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-snug">{markdown}</pre>
+              <MarkdownView markdown={markdown} />
               {spec.artifacts && spec.artifacts.length > 0 && (
                 <div className="mt-3 border-t pt-3">
                   {/* Structured created-issue artifacts parsed server-side (#120) —
