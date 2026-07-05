@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useProjectStore, project } from "./stores/project.store";
 import { backend } from "./stores/backend.store";
 import { useUiStore } from "./stores/ui.store";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar } from "./components/sidebar/Sidebar";
 import { CanvasPane } from "./components/CanvasPane";
 import { ControlHub } from "./components/ControlHub";
 import { SessionStatusDot } from "./components/SessionStatusDot";

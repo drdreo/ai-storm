@@ -15,7 +15,7 @@ import { canvas, useCanvasStore } from "../stores/canvas.store";
 import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
-import { BoardCommandPalette } from "./BoardCommandPalette";
+import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
 import { SpecPanel } from "./SpecPanel";
 import { SummaryPanel } from "./SummaryPanel";
 

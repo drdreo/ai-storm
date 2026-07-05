@@ -42,7 +42,7 @@ import {
   commandProfileName,
   launchArgsForProfile,
   type HarnessProfile
-} from "./extraction.ts";
+} from "./extraction/index.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";

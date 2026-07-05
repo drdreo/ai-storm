@@ -14,19 +14,19 @@ import {
 } from "@/components/ui/command";
 import { Bot, Lightbulb, Star } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { BoardFilter } from "../core/canvas/filter";
+import type { BoardFilter } from "../../core/canvas/filter";
 import {
   EMPTY_IDEA_SEARCH_FILTER,
   hasActiveIdeaFilter,
   type IdeaSearchFilter,
   type SearchableIdea,
   searchIdeas
-} from "../core/canvas/search";
-import { kindLabel, KNOWN_KINDS, normalizeKind } from "../core/idea-descriptors";
+} from "../../core/canvas/search";
+import { kindLabel, KNOWN_KINDS, normalizeKind } from "../../core/idea-descriptors";
 import type { ProjectMeta } from "@ai-storm/shared";
-import { buildCommandActions, groupActions } from "./command-palette/actions";
-import { DATE_PRESETS, IdeaFilterBar } from "./command-palette/IdeaFilterBar";
-import type { BoardCommandState, CommandAction } from "./command-palette/types";
+import { buildCommandActions, groupActions } from "./actions";
+import { DATE_PRESETS, IdeaFilterBar } from "./IdeaFilterBar";
+import type { BoardCommandState, CommandAction } from "./types";
 
 interface BoardCommandPaletteProps {
   open: boolean;
