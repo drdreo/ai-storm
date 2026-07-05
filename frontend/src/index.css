@@ -369,3 +369,11 @@
   background: none;
   padding: 0;
 }
+
+/* Disabled tldraw buttons (#170) — reduce opacity to clearly distinguish disabled
+   filter options and other menu items when facets are unavailable. */
+.tlui-button:disabled,
+.tlui-button[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
