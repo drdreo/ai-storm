@@ -7,12 +7,10 @@
  * logic.
  */
 
-import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
+import type { ServerMessage } from "@ai-storm/shared";
 
 /** Decode a raw WebSocket text frame into a typed client message, or throw. */
-export function decodeClientMessage(raw: string): ClientMessage {
-  return parseClientMessage(raw);
-}
+export { parseClientMessage as decodeClientMessage } from "@ai-storm/shared";
 
 /** Encode a typed server message into the wire string sent to the client. */
 export function encodeServerMessage(msg: ServerMessage): string {
