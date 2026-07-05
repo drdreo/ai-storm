@@ -40,6 +40,7 @@ interface BoardCommandPaletteProps {
   onStopSession(): void;
   onTriage(): void;
   onSummarize(): void;
+  onStats(): void;
   onHandoff(): void;
   onArrangeMindMap(): void;
   onArrangePriorityGrid(): void;

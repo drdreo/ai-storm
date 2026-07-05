@@ -23,6 +23,7 @@ import {
 import type { SearchableIdea } from "../core/canvas/search";
 import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
 import type { PromptIntent } from "../core/prompt-framing";
+import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
 import type { PortableBoard } from "../core/project-portable";
 
@@ -192,6 +193,17 @@ export const canvas = {
   summarize(projectId: string): ConvergentSummary | null {
     if (!editor || projectId !== activeId) return null;
     return summarizeBoard(collectBoard(editor));
+  },
+
+  /**
+   * Read the active board into headline stats + a generation timeline (#129/#99)
+   * — a pure, on-demand *reading* of the canvas, like {@link summarize}. Returns
+   * `null` when the target project isn't the mounted one (no live editor). No
+   * canvas mutation, no agent round-trip.
+   */
+  boardStats(projectId: string): BoardStats | null {
+    if (!editor || projectId !== activeId) return null;
+    return computeBoardStats(collectBoard(editor));
   },
 
   /** Serialize the project canvas to normalized markdown (PRD §3.2). */

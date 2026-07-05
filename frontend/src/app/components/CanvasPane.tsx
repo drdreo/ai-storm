@@ -3,9 +3,10 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as Toolbar from "@radix-ui/react-toolbar";
-import { Command, FileOutput, Scale, ScrollText } from "lucide-react";
+import { BarChart3, Command, FileOutput, Scale, ScrollText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SpecFormat } from "@ai-storm/shared";
+import type { BoardStats } from "../core/board-stats";
 import { CanvasIsland } from "../core/canvas-island";
 import type { SearchableIdea } from "../core/canvas/search";
 import type { SpecOptions } from "../core/prompt-framing";
@@ -17,6 +18,7 @@ import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
 import { SpecPanel } from "./SpecPanel";
+import { StatsPanel } from "./StatsPanel";
 import { SummaryPanel } from "./SummaryPanel";
 
 /**
@@ -80,6 +82,10 @@ export function CanvasPane() {
   // fresh on-demand reading of the current board, never cached stale.
   const [summary, setSummary] = useState<ConvergentSummary | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Board stats (#129): like the summary, recomputed fresh each time the panel
+  // opens — a live reading of the current board, never cached.
+  const [stats, setStats] = useState<BoardStats | null>(null);
+  const [statsOpen, setStatsOpen] = useState(false);
   // Spec hand-off (#89, #110): "Hand off" just opens the panel — the panel owns
   // the format picker and the Generate button, so switching format and re-running
   // is one interaction. Dispatch flows back up through `onGenerate`.
@@ -152,6 +158,20 @@ export function CanvasPane() {
     setSummary(canvas.summarize(active.id));
     setSummaryOpen(true);
   };
+  const showStats = () => {
+    if (!active) return;
+    setStats(canvas.boardStats(active.id));
+    setStatsOpen(true);
+  };
+  const clearFilters = () =>
+    active &&
+    canvas.patchFilter(active.id, {
+      hiddenKinds: new Set(),
+      origin: "all",
+      markedOnly: false,
+      showSuperseded: true,
+      triagedOnly: false
+    });
   // Open the panel even if the board is empty — it shows the empty/why state.
   const handoff = () => setSpecOpen(true);
   const generateSpec = (format: SpecFormat, opts: SpecOptions) => {
@@ -213,6 +233,13 @@ export function CanvasPane() {
               <ScrollText /> Summarize
             </ToolbarVerb>
             <ToolbarVerb
+              onClick={showStats}
+              variant="ghost"
+              tip="See idea counts, kinds, convergence signals, and the generation timeline"
+            >
+              <BarChart3 /> Stats
+            </ToolbarVerb>
+            <ToolbarVerb
               onClick={handoff}
               tip="Convert your board ideas into a structured format like a PRD, GitHub issue, or agent task list"
               disabled={!attached}
@@ -238,6 +265,14 @@ export function CanvasPane() {
 
       <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
 
+      <StatsPanel
+        open={statsOpen}
+        onOpenChange={setStatsOpen}
+        stats={stats}
+        onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
+        onClearFilters={clearFilters}
+      />
+
       <SpecPanel
         open={specOpen}
         onOpenChange={setSpecOpen}
@@ -259,20 +294,12 @@ export function CanvasPane() {
         onStopSession={stopSession}
         onTriage={triage}
         onSummarize={summarize}
+        onStats={showStats}
         onHandoff={handoff}
         onArrangeMindMap={() => active && canvas.arrangeMindMap(active.id)}
         onArrangePriorityGrid={() => active && canvas.arrangePriorityGrid(active.id)}
         onPatchFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
-        onClearFilters={() =>
-          active &&
-          canvas.patchFilter(active.id, {
-            hiddenKinds: new Set(),
-            origin: "all",
-            markedOnly: false,
-            showSuperseded: true,
-            triagedOnly: false
-          })
-        }
+        onClearFilters={clearFilters}
         onOpenSettings={ui.openSettings}
         onSwitchProject={project.setActive}
         focusMode={focusMode}

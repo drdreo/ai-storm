@@ -32,6 +32,17 @@ export interface BoardCard {
   /** Lifecycle (#20/PD-012): replaced by a refined card via a `supersedes` edge. */
   superseded: boolean;
   origin: "ai" | "user";
+  /**
+   * Epoch ms the card was created (#124), when known — stamped by the AI ingest
+   * path and the manual Idea tool. Absent on cards made before it landed. Ignored
+   * by {@link summarizeBoard}; consumed by the board-stats timeline (#129).
+   */
+  createdAt?: number;
+  /**
+   * AI triage score (#60) when the card has been rated, else absent. Ignored by
+   * {@link summarizeBoard}; the board-stats readout (#129) counts triaged cards.
+   */
+  score?: { impact: number; effort: number; confidence?: number };
 }
 
 /** A typed edge between two cards (the bound arrows behind the graph, #42). */

@@ -1,5 +1,12 @@
 {
   "permissions": {
-    "allow": ["Bash(npm --version)", "Bash(git --version)", "Bash(gh issue *)"]
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(git --version)",
+      "Bash(gh issue *)",
+      "Bash(git *)",
+      "Bash(pnpm run *)",
+      "Bash(gh pr create --title 'style\\(ui\\): improve disabled tldraw filter buttons with opacity' --body ' *)"
+    ]
   }
 }

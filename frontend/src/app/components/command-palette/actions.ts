@@ -5,6 +5,7 @@
  * to {@link buildCommandActions} and renders the result.
  */
 import {
+  BarChart3,
   FileOutput,
   Filter,
   Grid2X2,
@@ -40,6 +41,8 @@ export interface CommandActionContext {
   onTriage(): void;
 
   onSummarize(): void;
+
+  onStats(): void;
 
   onHandoff(): void;
 
@@ -118,6 +121,16 @@ export function buildCommandActions(ctx: CommandActionContext): CommandAction[] 
       icon: LayoutList,
       disabledReason: emptyBoard,
       run: ctx.onSummarize
+    },
+    {
+      id: "stats",
+      group: "Board",
+      label: "Board stats",
+      hint: "See idea counts, kind breakdown, convergence signals, and the generation timeline.",
+      keywords: ["analytics", "dashboard", "metrics", "count", "timeline"],
+      icon: BarChart3,
+      disabledReason: emptyBoard,
+      run: ctx.onStats
     },
     {
       id: "handoff",

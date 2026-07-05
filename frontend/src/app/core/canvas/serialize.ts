@@ -27,15 +27,20 @@ export function serializeEditor(editor: Editor): string {
 export function collectBoard(editor: Editor): BoardSnapshot {
   const cards = cardsInOrder(editor);
   const cardIds = new Set(cards.map((c) => c.id));
-  const boardCards: BoardCard[] = cards.map((c) => ({
-    id: c.id,
-    kind: c.props.kind,
-    title: c.props.title,
-    body: c.props.body,
-    starred: !!(c.meta as IdeaCardMeta).starred,
-    superseded: c.props.superseded,
-    origin: c.props.origin
-  }));
+  const boardCards: BoardCard[] = cards.map((c) => {
+    const meta = c.meta as IdeaCardMeta;
+    return {
+      id: c.id,
+      kind: c.props.kind,
+      title: c.props.title,
+      body: c.props.body,
+      starred: !!meta.starred,
+      superseded: c.props.superseded,
+      origin: c.props.origin,
+      createdAt: meta.createdAt,
+      score: meta.score
+    };
+  });
   const edges: BoardEdge[] = ideaEdges(editor, cardIds).map((e) => ({
     from: e.from as string,
     to: e.to as string,
