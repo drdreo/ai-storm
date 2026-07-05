@@ -26,7 +26,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, unlinkSync, watch, type FSWatcher } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, unlinkSync, watch, type FSWatcher } from "node:fs";
 import { open } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import { tmpdir } from "node:os";
@@ -40,7 +40,9 @@ import {
   ScoreSink,
   getProfile,
   commandProfileName,
+  computeFileLaunch,
   launchArgsForProfile,
+  profileUsesMcp,
   type HarnessProfile
 } from "./extraction/index.ts";
 import { ScanGate } from "./scan-gate.ts";
@@ -152,6 +154,11 @@ async function defaultTmux(...args: string[]): Promise<string> {
 interface SessionConfig {
   profile: HarnessProfile;
   cols: number;
+  /** Temp dir holding file/env launch artifacts (e.g. opencode's
+   *  `opencode.json` + instructions), if the profile set `fileLaunch`. Only
+   *  known in-memory — does NOT survive a backend restart (see create()'s
+   *  restart-survival caveat); removed on kill() within this process's lifetime. */
+  fileLaunchDir?: string;
 }
 
 /**
@@ -278,19 +285,16 @@ export class TmuxSessionBackend implements SessionBackend {
 
     // Inline args from the command string precede caller-supplied spec.args.
     const specArgs = [...inlineArgs, ...(spec.args ?? [])];
-    // MCP wiring (mcp-idea-capture §4): for a profile that takes MCP launch
-    // args, mint the per-session token + URL now so they are baked into the
-    // launch line. An unconfigured registry (no server base URL, e.g. unit
-    // tests) returns undefined → the session launches markers-only.
-    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(projectId) : undefined;
+    // MCP wiring (mcp-idea-capture §4): for a profile that wires MCP (argv or
+    // file/env), mint the per-session token + URL now so they are baked into
+    // the launch line (or, for file-wired profiles, fileLaunch below). An
+    // unconfigured registry (no server base URL, e.g. unit tests) returns
+    // undefined → the session launches markers-only.
+    const mcpTarget = profileUsesMcp(profile) ? this.#mcp.registerSession(projectId) : undefined;
+    const mcpContext = mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined;
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
     // model default (if any), MCP wiring, and the system-prompt injection seam.
-    const args = launchArgsForProfile(
-      profile,
-      specArgs,
-      spec.prime,
-      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined
-    );
+    const args = launchArgsForProfile(profile, specArgs, spec.prime, mcpContext);
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
@@ -301,6 +305,34 @@ export class TmuxSessionBackend implements SessionBackend {
     for (const [key, value] of Object.entries(spec.env ?? {})) {
       envArgs.push("-e", `${key}=${value}`);
     }
+
+    // File/env launch injection (harness-authoring.md §4.x): profiles with no
+    // CLI seam for priming/MCP (e.g. opencode) write a temp config instead,
+    // and its env vars fold into the same `-e KEY=VALUE` mechanism above.
+    let fileLaunchDir: string | undefined;
+    if (profile.fileLaunch) {
+      fileLaunchDir = mkdtempSync(join(tmpdir(), "ai-storm-opencode-"));
+      try {
+        const result = computeFileLaunch(profile, {
+          dir: fileLaunchDir,
+          mcp: mcpContext,
+          prime: spec.prime,
+          callerEnv: spec.env
+        });
+        if (result) {
+          for (const file of result.files) writeFileSync(file.path, file.content, { encoding: "utf-8", mode: 0o600 });
+          for (const [key, value] of Object.entries(result.env)) envArgs.push("-e", `${key}=${value}`);
+        } else {
+          rmSync(fileLaunchDir, { recursive: true, force: true });
+          fileLaunchDir = undefined;
+        }
+      } catch (err) {
+        rmSync(fileLaunchDir, { recursive: true, force: true });
+        this.#mcp.removeSession(projectId);
+        throw err;
+      }
+    }
+    this.#configs.set(projectId, { profile, cols, fileLaunchDir });
 
     const rows = spec.rows ?? 32;
 
@@ -321,6 +353,7 @@ export class TmuxSessionBackend implements SessionBackend {
       );
     } catch (err) {
       // The minted token must not outlive a launch that never happened.
+      if (fileLaunchDir) rmSync(fileLaunchDir, { recursive: true, force: true });
       this.#mcp.removeSession(projectId);
       throw err;
     }
@@ -340,6 +373,7 @@ export class TmuxSessionBackend implements SessionBackend {
       } catch {
         // best-effort cleanup
       }
+      if (fileLaunchDir) rmSync(fileLaunchDir, { recursive: true, force: true });
       this.#mcp.removeSession(projectId);
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to configure session "${sessionName}": ${msg}`, { cause: err });
@@ -687,6 +721,12 @@ export class TmuxSessionBackend implements SessionBackend {
   async kill(projectId: string): Promise<void> {
     assertValidProjectId(projectId);
     this.detach(projectId);
+    // Clean up any file/env launch artifacts (e.g. opencode's temp config
+    // dir). Only known in-memory — a backend restart loses this path, so a
+    // tmux session surviving a restart leaks its temp dir on eventual kill()
+    // (see create()'s restart-survival caveat); accepted, not fixed here.
+    const fileLaunchDir = this.#configs.get(projectId)?.fileLaunchDir;
+    if (fileLaunchDir) rmSync(fileLaunchDir, { recursive: true, force: true });
     this.#configs.delete(projectId);
     // Forget the MCP routing entirely — the session's URL 404s from here on.
     this.#mcp.removeSession(projectId);

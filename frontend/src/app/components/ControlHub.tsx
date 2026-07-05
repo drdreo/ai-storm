@@ -192,7 +192,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
             defaultValue={harness}
             key={`${ws.id}:${attached}`}
             disabled={attached}
-            placeholder="claude, pi, or codex"
+            placeholder="claude, pi, codex, or opencode"
             spellCheck={false}
             onChange={(e) => project.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
             title="The AI CLI launched for this project's session (PRD §2). Keystrokes are sent to its PTY."

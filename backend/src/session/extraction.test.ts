@@ -8,8 +8,10 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   IdeaScanner,
   IdeaSink,
@@ -19,15 +21,19 @@ import {
   scanScores,
   getProfile,
   commandProfileName,
+  computeFileLaunch,
   launchArgsForProfile,
+  profileUsesMcp,
   DEFAULT_PROFILE,
   CLAUDE_PROFILE,
   PI_PROFILE,
   CODEX_PROFILE,
+  OPENCODE_PROFILE,
   type Idea,
   type McpLaunchContext
 } from "./extraction/index.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
+import { NodePtySessionBackend } from "./nodepty-backend.ts";
 import { fakeTmux } from "./test-support/fake-tmux.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
 
@@ -35,7 +41,7 @@ import { ideaIdentityKey } from "@ai-storm/shared";
 const cap = (...lines: string[]): string => lines.join("\n");
 
 /** Read a recorded/synthetic `capture-pane` fixture (extraction-contract §9). */
-const fixture = (profile: "claude" | "pi" | "codex", name: string): string =>
+const fixture = (profile: "claude" | "pi" | "codex" | "opencode", name: string): string =>
   readFileSync(fileURLToPath(new URL(`./fixtures/${profile}/${name}`, import.meta.url)), "utf-8");
 
 const claudeFixture = (name: string): string => fixture("claude", name);
@@ -97,6 +103,15 @@ describe("profiles", () => {
     expect(warnings.length).toBe(1);
   });
 
+  it("resolves the opencode profile as file/env-wired, not argv-wired", () => {
+    expect(getProfile("opencode")).toBe(OPENCODE_PROFILE);
+    expect(OPENCODE_PROFILE.supportsIdeaContract).toBe(true);
+    expect(OPENCODE_PROFILE.usesMcp).toBe(true);
+    expect(OPENCODE_PROFILE.mcpArgs).toBeUndefined();
+    expect(OPENCODE_PROFILE.systemPromptFlag).toBeUndefined();
+    expect(typeof OPENCODE_PROFILE.fileLaunch).toBe("function");
+  });
+
   it("maps supported command basenames to their profiles", () => {
     expect(commandProfileName("claude")).toBe("claude");
     expect(commandProfileName("/usr/local/bin/claude")).toBe("claude");
@@ -104,10 +119,68 @@ describe("profiles", () => {
     expect(commandProfileName("/opt/homebrew/bin/pi")).toBe("pi");
     expect(commandProfileName("codex")).toBe("codex");
     expect(commandProfileName("/opt/homebrew/bin/codex")).toBe("codex");
+    expect(commandProfileName("opencode")).toBe("opencode");
+    expect(commandProfileName("/opt/homebrew/bin/opencode")).toBe("opencode");
     expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd")).toBe("pi");
     expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\claude.ps1")).toBe("claude");
     expect(commandProfileName("C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd")).toBe("codex");
     expect(commandProfileName("bash")).toBeUndefined();
+  });
+});
+
+describe("profileUsesMcp — argv or file/env MCP wiring", () => {
+  it("is true for a profile with mcpArgs (claude)", () => {
+    expect(profileUsesMcp(CLAUDE_PROFILE)).toBe(true);
+  });
+
+  it("is true for a profile with usesMcp (opencode), which has no mcpArgs", () => {
+    expect(profileUsesMcp(OPENCODE_PROFILE)).toBe(true);
+  });
+
+  it("is false for profiles with neither (pi, codex, default)", () => {
+    expect(profileUsesMcp(PI_PROFILE)).toBe(false);
+    expect(profileUsesMcp(CODEX_PROFILE)).toBe(false);
+    expect(profileUsesMcp(DEFAULT_PROFILE)).toBe(false);
+  });
+});
+
+describe("computeFileLaunch — opencode's file/env launch injection", () => {
+  const mcp: McpLaunchContext = {
+    url: "http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef",
+    serverName: "ai-storm"
+  };
+
+  it("returns a config file + instructions file + OPENCODE_CONFIG env var", () => {
+    const result = computeFileLaunch(OPENCODE_PROFILE, { dir: "/tmp/ai-storm-opencode-xyz", mcp, prime: PRIME });
+    expect(result).toBeDefined();
+    expect(result!.env.OPENCODE_CONFIG).toMatch(/opencode\.json$/);
+    const configFile = result!.files.find((f) => f.path.endsWith("opencode.json"))!;
+    const config = JSON.parse(configFile.content);
+    expect(config.mcp).toEqual({ "ai-storm": { type: "remote", url: mcp.url } });
+    expect(config.instructions).toEqual([expect.stringContaining("ai-storm-instructions.md")]);
+    const instructionsFile = result!.files.find((f) => f.path.endsWith("ai-storm-instructions.md"))!;
+    expect(instructionsFile.content).toBe(PRIME);
+  });
+
+  it("omits the mcp key when no MCP context is available (markers-only fallback)", () => {
+    const result = computeFileLaunch(OPENCODE_PROFILE, { dir: "/tmp/ai-storm-opencode-xyz", prime: PRIME });
+    const config = JSON.parse(result!.files.find((f) => f.path.endsWith("opencode.json"))!.content);
+    expect(config.mcp).toBeUndefined();
+  });
+
+  it("is idempotent: skips generation entirely if the caller already set OPENCODE_CONFIG", () => {
+    const result = computeFileLaunch(OPENCODE_PROFILE, {
+      dir: "/tmp/ai-storm-opencode-xyz",
+      mcp,
+      prime: PRIME,
+      callerEnv: { OPENCODE_CONFIG: "/home/user/my-opencode.json" }
+    });
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined for profiles with no fileLaunch (byte-identical to before)", () => {
+    expect(computeFileLaunch(CLAUDE_PROFILE, { dir: "/tmp/x", prime: PRIME })).toBeUndefined();
+    expect(computeFileLaunch(CODEX_PROFILE, { dir: "/tmp/x", prime: PRIME })).toBeUndefined();
   });
 });
 
@@ -358,6 +431,22 @@ describe("scanIdeas — codex fixtures", () => {
   it("does not promote markerless Codex bullets", () => {
     expect(ideasOf(codexFixture("heuristic-bullets.txt"))).toEqual([]);
   });
+});
+
+// ── opencode: pending a real captured session (see #173, docs/guides/harness-authoring.md) ──
+//
+// opencode is an alt-screen TUI with no `--no-alt-screen` escape hatch (unlike
+// codex), so marker-scan-from-capture may be structurally unreliable — this is
+// unverified without a live capture. Fixtures + the marker-parity test (per
+// docs/design/mcp-idea-capture.md §9.2) are deliberately NOT hand-authored;
+// they must come from a real opencode session. Until then this stays `it.todo`.
+describe("scanIdeas — opencode fixtures (pending live capture, #173)", () => {
+  it.todo("extracts contract markers from opencode terminal captures");
+  it.todo("does not promote markerless opencode bullets");
+});
+
+describe("opencode marker/MCP parity (mcp-idea-capture.md §9.2, pending live capture, #173)", () => {
+  it.todo("produces deep-equal Ideas between the marker-scan path and the MCP capture_idea path");
 });
 
 describe("scanIdeas — streaming hold-back", () => {
@@ -710,6 +799,79 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.create({ projectId: "ws3", command: "bash", prime: PRIME });
     const launch = fake.sessions.get("ai-storm-ws3")?.launch ?? "";
     expect(launch).not.toContain("--append-system-prompt");
+  });
+
+  it("wires opencode via a temp config file + OPENCODE_CONFIG env var, not argv", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ projectId: "ws6", command: "opencode", prime: PRIME });
+
+    // No argv-level priming/MCP flags — opencode has none.
+    const launch = fake.sessions.get("ai-storm-ws6")?.launch ?? "";
+    expect(launch).not.toContain("--append-system-prompt");
+    expect(launch).not.toContain("--mcp-config");
+
+    // OPENCODE_CONFIG is passed via tmux's -e mechanism on the new-session call.
+    const newSession = fake.calls.find((c) => c[0] === "new-session")!;
+    const envIdx = newSession.findIndex((a) => a.startsWith("OPENCODE_CONFIG="));
+    expect(envIdx).toBeGreaterThan(0);
+    expect(newSession[envIdx - 1]).toBe("-e");
+    expect(newSession[envIdx]).toMatch(/OPENCODE_CONFIG=.*opencode\.json$/);
+
+    await backend.kill("ws6");
+  });
+
+  it("does not write a temp config for opencode if the caller already set OPENCODE_CONFIG", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({
+      projectId: "ws7",
+      command: "opencode",
+      prime: PRIME,
+      env: { OPENCODE_CONFIG: "/home/user/my-opencode.json" }
+    });
+    const newSession = fake.calls.find((c) => c[0] === "new-session")!;
+    expect(newSession.filter((a) => a.startsWith("OPENCODE_CONFIG=")).length).toBe(1);
+    expect(newSession).toContain("OPENCODE_CONFIG=/home/user/my-opencode.json");
+    await backend.kill("ws7");
+  });
+
+  it("removes the opencode temp config dir on kill()", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ projectId: "ws8", command: "opencode", prime: PRIME });
+
+    const newSession = fake.calls.find((c) => c[0] === "new-session")!;
+    const configPath = newSession.find((a) => a.startsWith("OPENCODE_CONFIG="))!.slice("OPENCODE_CONFIG=".length);
+    expect(existsSync(configPath)).toBe(true);
+
+    await backend.kill("ws8");
+    expect(existsSync(configPath)).toBe(false);
+  });
+});
+
+describe("NodePtySessionBackend — opencode file/env launch injection", () => {
+  it("writes the temp opencode config + instructions and cleans them up on kill()", async () => {
+    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith("ai-storm-opencode-")));
+
+    const backend = new NodePtySessionBackend();
+    // Empty command → the default shell (always resolvable), with the harness
+    // profile forced to opencode so its fileLaunch runs regardless of what
+    // binary actually launches.
+    await backend.create({ projectId: "ptyOpencode1", command: "", harnessProfile: "opencode", prime: PRIME });
+
+    const afterCreate = readdirSync(tmpdir()).filter((n) => n.startsWith("ai-storm-opencode-"));
+    const created = afterCreate.find((n) => !before.has(n));
+    expect(created).toBeDefined();
+    const dir = join(tmpdir(), created!);
+    expect(existsSync(join(dir, "opencode.json"))).toBe(true);
+    expect(existsSync(join(dir, "ai-storm-instructions.md"))).toBe(true);
+    const config = JSON.parse(readFileSync(join(dir, "opencode.json"), "utf-8"));
+    expect(config.instructions).toEqual([join(dir, "ai-storm-instructions.md")]);
+    expect(readFileSync(join(dir, "ai-storm-instructions.md"), "utf-8")).toBe(PRIME);
+
+    await backend.kill("ptyOpencode1");
+    expect(existsSync(dir)).toBe(false);
   });
 });
 
