@@ -17,6 +17,7 @@ import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { StatsPanel } from "./StatsPanel";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -263,37 +264,45 @@ export function CanvasPane() {
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {active && (
-          <CanvasIsland
-            key={active.id}
-            projectId={active.id}
-            bridge={canvas.bridge}
-            emptyStateActions={emptyStateActions}
-            sessionAttached={attached}
-          />
+          <ErrorBoundary name="Canvas" resetKeys={[active.id]}>
+            <CanvasIsland
+              key={active.id}
+              projectId={active.id}
+              bridge={canvas.bridge}
+              emptyStateActions={emptyStateActions}
+              sessionAttached={attached}
+            />
+          </ErrorBoundary>
         )}
       </div>
 
-      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
+      <ErrorBoundary name="Summary panel">
+        <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
+      </ErrorBoundary>
 
-      <StatsPanel
-        open={statsOpen}
-        onOpenChange={setStatsOpen}
-        stats={stats}
-        onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
-        onClearFilters={clearFilters}
-      />
+      <ErrorBoundary name="Stats panel">
+        <StatsPanel
+          open={statsOpen}
+          onOpenChange={setStatsOpen}
+          stats={stats}
+          onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
+          onClearFilters={clearFilters}
+        />
+      </ErrorBoundary>
 
       {specEverOpened && (
-        <Suspense fallback={null}>
-          <SpecPanel
-            open={specOpen}
-            onOpenChange={setSpecOpen}
-            projectId={active?.id}
-            projectName={active?.title}
-            boardEmpty={specBoardEmpty}
-            onGenerate={generateSpec}
-          />
-        </Suspense>
+        <ErrorBoundary name="Spec panel">
+          <Suspense fallback={null}>
+            <SpecPanel
+              open={specOpen}
+              onOpenChange={setSpecOpen}
+              projectId={active?.id}
+              projectName={active?.title}
+              boardEmpty={specBoardEmpty}
+              onGenerate={generateSpec}
+            />
+          </Suspense>
+        </ErrorBoundary>
       )}
 
       <BoardCommandPalette
