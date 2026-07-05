@@ -212,7 +212,7 @@ export function CanvasPane() {
   return (
     <div className="flex h-full flex-col">
       {!focusMode && (
-        <div className="z-[2] flex items-center gap-2 border-b bg-background px-3 py-2">
+        <div className="z-[2] flex h-[var(--toolbar-h)] shrink-0 items-center gap-2 border-b bg-background px-3">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="!h-5" />
           <div className="flex-1" />

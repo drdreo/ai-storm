@@ -191,6 +191,16 @@
   --spacing: 0.26rem;
 }
 
+/* Shared toolbar-row height — the ControlHub header and the CanvasPane toolbar
+   row sit side by side across the app's vertical divider and must render
+   pixel-identical, but each computed its own height from padding + content
+   (border-b + py-2 + tallest child), which drifted by a subpixel between the
+   two. One explicit height, in --spacing multiples so it keeps scaling with
+   the density knob above, removes the drift for good. */
+:root {
+  --toolbar-h: calc(var(--spacing) * 11);
+}
+
 /* High-contrast (WCAG-friendly): near-neutral overrides of the text/line tokens.
    Compound selectors (attr + mode) reach specificity (0,2,0) so they beat even
    [data-theme='ember'].dark; placed after all palette blocks to win on order. */
@@ -368,6 +378,42 @@
 .markdown-body pre code {
   background: none;
   padding: 0;
+}
+
+/* Session status dot motion — a calmer alternative to Tailwind's default
+   animate-pulse (jarring 1s opacity flip) for the "connecting" state, plus a
+   one-shot ring the instant a session settles into "live": a quiet arrival
+   cue for the moment the terminal actually connects, not a mechanical blink. */
+@keyframes status-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes status-settle {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+.status-dot-breathe {
+  animation: status-breathe 2.4s ease-in-out infinite;
+}
+.status-dot-settle {
+  animation: status-settle 600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-dot-breathe,
+  .status-dot-settle {
+    animation: none;
+  }
 }
 
 /* Disabled tldraw buttons (#170) — reduce opacity to clearly distinguish disabled

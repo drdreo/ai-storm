@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useProjectStore, selectActive } from "../stores/project.store";
 import { useIngestionStore } from "../stores/ingestion.store";
@@ -6,9 +7,42 @@ import { sessionIndicator, type SessionTone } from "../core/session-status";
 
 export const TONE_DOT: Record<SessionTone, string> = {
   ok: "bg-emerald-500",
-  pending: "bg-amber-500 animate-pulse",
+  pending: "bg-amber-500",
   error: "bg-destructive"
 };
+
+/**
+ * The dot itself, shared by the collapsed rail and the Control Hub header.
+ * Breathes gently while `pending`, and settles with one quiet expanding ring
+ * the instant the session lands on `ok` — an arrival cue for the moment the
+ * terminal actually connects, in place of a mechanical pulse.
+ */
+export function StatusDot({ tone }: { tone: SessionTone }) {
+  const prevTone = useRef(tone);
+  const [justSettled, setJustSettled] = useState(false);
+
+  useEffect(() => {
+    if (prevTone.current === "pending" && tone === "ok") {
+      setJustSettled(true);
+      const timer = setTimeout(() => setJustSettled(false), 600);
+      prevTone.current = tone;
+      return () => clearTimeout(timer);
+    }
+    prevTone.current = tone;
+  }, [tone]);
+
+  return (
+    <span className="relative inline-flex size-2 shrink-0">
+      {justSettled && (
+        <span
+          aria-hidden="true"
+          className={cn("status-dot-settle absolute inset-0 rounded-full", TONE_DOT.ok)}
+        />
+      )}
+      <span className={cn("relative size-2 rounded-full", TONE_DOT[tone], tone === "pending" && "status-dot-breathe")} />
+    </span>
+  );
+}
 
 /**
  * The session indicator, dot-only — shown on the collapsed Control Hub rail
@@ -25,11 +59,8 @@ export function SessionStatusDot() {
   const indicator = sessionIndicator(connState, attached, ws.status);
 
   return (
-    <span
-      role="status"
-      aria-label={`Session: ${indicator.label}`}
-      title={`${indicator.label} — ${indicator.detail}`}
-      className={cn("size-2 rounded-full", TONE_DOT[indicator.tone])}
-    />
+    <span role="status" aria-label={`Session: ${indicator.label}`} title={`${indicator.label} — ${indicator.detail}`}>
+      <StatusDot tone={indicator.tone} />
+    </span>
   );
 }

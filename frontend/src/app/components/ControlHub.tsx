@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import { ChevronDown, PanelRightClose } from "lucide-react";
 import { FACILITATION_MODES, getFacilitationMode } from "@ai-storm/shared";
-import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,13 +12,13 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useProjectStore, selectActive, project } from "../stores/project.store";
 import { useIngestionStore, ingestion } from "../stores/ingestion.store";
 import { useBackendStore } from "../stores/backend.store";
 import { sessionIndicator } from "../core/session-status";
-import { TONE_DOT } from "./SessionStatusDot";
+import { StatusDot } from "./SessionStatusDot";
 import { Terminal } from "./Terminal";
 import { DirectoryPicker } from "./DirectoryPicker";
 
@@ -94,36 +93,47 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b px-3 py-2">
-        <div
-          className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
-          title={indicator.detail}
-        >
-          <span className={cn("size-2 rounded-full", TONE_DOT[indicator.tone])} />
-          <span className={cn(indicator.tone === "error" && "text-destructive")}>{indicator.label}</span>
+      <header className="flex h-[var(--toolbar-h)] shrink-0 items-center justify-between border-b px-3">
+        <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            title={indicator.detail}
+          >
+            <StatusDot tone={indicator.tone} />
+            <span className={cn(indicator.tone === "error" && "text-destructive")}>{indicator.label}</span>
+          </div>
+          <Toolbar.Root className="flex gap-2" aria-label="Session controls">
+            {attached ? (
+              <Toolbar.Button asChild>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="animate-in fade-in duration-300"
+                  onClick={() => ingestion.kill(ws.id)}
+                >
+                  Stop
+                </Button>
+              </Toolbar.Button>
+            ) : (
+              <Toolbar.Button asChild>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="animate-in fade-in duration-300">
+                      <Button size="sm" disabled={offline} onClick={() => ingestion.attach(ws.id, ws.terminal)}>
+                        Start session
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {offline && (
+                    <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>
+                  )}
+                </Tooltip>
+              </Toolbar.Button>
+            )}
+          </Toolbar.Root>
         </div>
-        <Toolbar.Root className="flex gap-2" aria-label="Session controls">
-          {attached ? (
-            <Toolbar.Button asChild>
-              <Button size="sm" variant="destructive" onClick={() => ingestion.kill(ws.id)}>
-                Stop
-              </Button>
-            </Toolbar.Button>
-          ) : (
-            <Toolbar.Button asChild>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button size="sm" disabled={offline} onClick={() => ingestion.attach(ws.id, ws.terminal)}>
-                      Start session
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {offline && <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>}
-              </Tooltip>
-            </Toolbar.Button>
-          )}
-          {onCollapse && (
+        {onCollapse && (
+          <Toolbar.Root aria-label="Panel controls">
             <Toolbar.Button asChild>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -134,8 +144,8 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
                 <TooltipContent>Collapse control hub</TooltipContent>
               </Tooltip>
             </Toolbar.Button>
-          )}
-        </Toolbar.Root>
+          </Toolbar.Root>
+        )}
       </header>
 
       {/* Last backend error (e.g. a harness that couldn't be launched). Shown
@@ -158,127 +168,114 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
         </div>
       )}
 
-      {/* Session setup (#76): harness + facilitation mode + background context.
-          All three are baked into the launch system-prompt, so they share one
-          rule — editable before start, locked once the session is live. The
-          always-visible "applied on start" / "session live" tag is the key cue;
-          the hover tooltip carries the *how* (Stop & Start to apply edits). */}
-      <section className="border-b px-3 py-2 text-xs text-muted-foreground">
-        <div className="mb-2 flex items-center gap-2">
-          {attached ? (
-            <TooltipProvider>
+      {attached ? (
+        /* Live sessions don't need the setup wizard — harness/mode/directory/
+           background are baked in at launch and can't change until Stop, and
+           "session live" is already carried by the header dot (no need to say
+           it twice). A quiet one-line summary keeps the fields glanceable
+           without spending permanent vertical space next to the terminal. */
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2 text-xs text-muted-foreground animate-in fade-in duration-300"
+          title="Baked in at launch. Stop & Start to change harness, mode, directory or background."
+        >
+          <span className="font-mono text-foreground">{harness}</span>
+          <span aria-hidden="true">·</span>
+          <span>{mode.label}</span>
+          <span aria-hidden="true">·</span>
+          <span className="min-w-0 truncate font-mono">{ws.terminal.cwd || "~"}</span>
+        </div>
+      ) : (
+        /* Session setup (#76): harness + facilitation mode + background context.
+            All three are baked into the launch system-prompt, so they share one
+            rule — editable before start, locked once the session is live. */
+        <section className="border-b px-3 py-2 text-xs text-muted-foreground">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="font-medium uppercase tracking-wide">Session setup · applied on start</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="font-medium uppercase tracking-wide">harness</label>
+            <Input
+              className="h-7 w-44 font-mono text-xs"
+              defaultValue={harness}
+              key={ws.id}
+              placeholder="claude, pi, codex, or opencode"
+              spellCheck={false}
+              onChange={(e) => project.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
+              title="The AI CLI launched for this project's session (PRD §2). Keystrokes are sent to its PTY."
+            />
+            <span className="truncate italic">{mode.hint}</span>
+            {/* Facilitation mode picker (#61): swaps the priming preset the agent is
+                launched with. */}
+            <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="flex items-center gap-1 font-medium uppercase tracking-wide text-amber-600 dark:text-amber-500">
-                    <Lock className="size-3" />
-                    session live
-                  </span>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" className="ml-auto h-7 gap-1 font-mono text-xs">
+                      {mode.label}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </Button>
+                  </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Stop to edit setup. Baked in at launch — background, mode &amp; harness define the session and
-                  can&apos;t change while it&apos;s live. Stop &amp; Start to apply edits.
+                  Facilitation mode — how the agent ideates (#61). Applied on session start.
                 </TooltipContent>
               </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <span className="font-medium uppercase tracking-wide">Session setup · applied on start</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="font-medium uppercase tracking-wide">harness</label>
-          <Input
-            className="h-7 w-44 font-mono text-xs"
-            defaultValue={harness}
-            key={`${ws.id}:${attached}`}
-            disabled={attached}
-            placeholder="claude, pi, codex, or opencode"
-            spellCheck={false}
-            onChange={(e) => project.patchTerminal(ws.id, { agentCommand: e.target.value.trim() || "claude" })}
-            title="The AI CLI launched for this project's session (PRD §2). Keystrokes are sent to its PTY."
-          />
-          <span className="truncate italic">{mode.hint}</span>
-          {/* Facilitation mode picker (#61): swaps the priming preset the agent is
-              launched with. Baked at launch, so it's locked while attached —
-              Stop & Start to switch how the agent ideates. */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild disabled={attached}>
-                  <Button size="sm" variant="outline" className="ml-auto h-7 gap-1 font-mono text-xs">
-                    {mode.label}
-                    <ChevronDown className="size-3 opacity-60" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                Facilitation mode — how the agent ideates (#61). Applied on session start.
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={mode.id}
-                onValueChange={(id) => project.patchTerminal(ws.id, { mode: id })}
-              >
-                {FACILITATION_MODES.map((m) => (
-                  <DropdownMenuRadioItem key={m.id} value={m.id} className="flex-col items-start gap-0">
-                    <span className="font-medium">{m.label}</span>
-                    <span className="text-xs text-muted-foreground">{m.hint}</span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        {/* Working directory (#152): where the harness process is spawned.
-            Follows the same lock-on-attach rule as harness/mode/background —
-            it's part of the launch, so it can't change under a live session. */}
-        <div className="mt-2 flex items-center gap-2">
-          <label className="font-medium uppercase tracking-wide">directory</label>
-          <Input
-            className="h-7 flex-1 font-mono text-xs"
-            value={ws.terminal.cwd ?? ""}
-            key={`${ws.id}:${attached}:cwd`}
-            disabled={attached}
-            placeholder="~"
-            spellCheck={false}
-            onChange={(e) => project.patchTerminal(ws.id, { cwd: e.target.value.trim() || undefined })}
-            title="Working directory the harness process is spawned in."
-          />
-          <DirectoryPicker
-            value={ws.terminal.cwd}
-            disabled={attached}
-            onChange={(path) => project.patchTerminal(ws.id, { cwd: path })}
-          />
-        </div>
-
-        {/* Background context (#76): freeform "set the scene" priming, baked into
-            the launch system-prompt so it steers every idea — hence locked while
-            attached, exactly like harness and mode. */}
-        <div className="mt-2">
-          <div className="mb-1 flex items-center justify-between">
-            <label htmlFor={`bg-${ws.id}`} className="font-medium uppercase tracking-wide">
-              Background
-            </label>
-            <span className={cn("font-mono tabular-nums", overCap && "text-amber-600 dark:text-amber-500")}>
-              {background.length}/{BACKGROUND_SOFT_CAP}
-            </span>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup
+                  value={mode.id}
+                  onValueChange={(id) => project.patchTerminal(ws.id, { mode: id })}
+                >
+                  {FACILITATION_MODES.map((m) => (
+                    <DropdownMenuRadioItem key={m.id} value={m.id} className="flex-col items-start gap-0">
+                      <span className="font-medium">{m.label}</span>
+                      <span className="text-xs text-muted-foreground">{m.hint}</span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Textarea
-            id={`bg-${ws.id}`}
-            rows={1}
-            className="max-h-[12rem] min-h-0 resize-y text-xs leading-snug"
-            value={background}
-            disabled={attached}
-            spellCheck={true}
-            placeholder="e.g. We're a B2B fintech, audience is CFOs, avoid ideas needing new hardware."
-            onChange={(e) => project.patchTerminal(ws.id, { background: e.target.value })}
-            title={attached ? "Baked in at launch. Stop & Start to edit the background context." : undefined}
-          />
-          <p className="mt-1 italic">Sets the scene for every idea. Locked once you start.</p>
-        </div>
-      </section>
+
+          {/* Working directory (#152): where the harness process is spawned. */}
+          <div className="mt-2 flex items-center gap-2">
+            <label className="font-medium uppercase tracking-wide">directory</label>
+            <Input
+              className="h-7 flex-1 font-mono text-xs"
+              value={ws.terminal.cwd ?? ""}
+              key={`${ws.id}:cwd`}
+              placeholder="~"
+              spellCheck={false}
+              onChange={(e) => project.patchTerminal(ws.id, { cwd: e.target.value.trim() || undefined })}
+              title="Working directory the harness process is spawned in."
+            />
+            <DirectoryPicker value={ws.terminal.cwd} onChange={(path) => project.patchTerminal(ws.id, { cwd: path })} />
+          </div>
+
+          {/* Background context (#76): freeform "set the scene" priming, baked into
+              the launch system-prompt so it steers every idea. */}
+          <div className="mt-2">
+            <div className="mb-1 flex items-center justify-between">
+              <label htmlFor={`bg-${ws.id}`} className="font-medium uppercase tracking-wide">
+                Background
+              </label>
+              <span className={cn("font-mono tabular-nums", overCap && "text-amber-600 dark:text-amber-500")}>
+                {background.length}/{BACKGROUND_SOFT_CAP}
+              </span>
+            </div>
+            <Textarea
+              id={`bg-${ws.id}`}
+              rows={1}
+              className="max-h-[12rem] min-h-0 resize-y text-xs leading-snug"
+              value={background}
+              spellCheck={true}
+              placeholder="e.g. We're a B2B fintech, audience is CFOs, avoid ideas needing new hardware."
+              onChange={(e) => project.patchTerminal(ws.id, { background: e.target.value })}
+            />
+            <p className="mt-1 italic">Sets the scene for every idea. Locked once you start.</p>
+          </div>
+        </section>
+      )}
 
       <section className="relative min-h-0 flex-1">
         {!attached && (
