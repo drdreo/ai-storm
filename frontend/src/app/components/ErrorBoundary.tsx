@@ -6,6 +6,13 @@ import { log } from "@/lib/log";
 interface ErrorBoundaryProps {
   /** Human-readable label for the crashed section, used in the fallback UI and logs. */
   name: string;
+  /**
+   * When any value in this array changes, the boundary clears its error and
+   * re-renders children. Use it to auto-recover when the crashed subtree is
+   * keyed to changing data (e.g. the active project) — otherwise the fallback
+   * would stay stuck even after navigating away.
+   */
+  resetKeys?: readonly unknown[];
   children: ReactNode;
 }
 
@@ -23,6 +30,15 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error };
+  }
+
+  componentDidUpdate(prev: ErrorBoundaryProps): void {
+    if (!this.state.error) return;
+    const { resetKeys } = this.props;
+    const prevKeys = prev.resetKeys;
+    if (resetKeys && prevKeys && (resetKeys.length !== prevKeys.length || resetKeys.some((k, i) => !Object.is(k, prevKeys[i])))) {
+      this.setState({ error: null });
+    }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {

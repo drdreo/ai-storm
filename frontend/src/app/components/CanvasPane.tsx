@@ -254,7 +254,7 @@ export function CanvasPane() {
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         {active && (
-          <ErrorBoundary name="Canvas">
+          <ErrorBoundary name="Canvas" resetKeys={[active.id]}>
             <CanvasIsland
               key={active.id}
               projectId={active.id}
