@@ -16,9 +16,7 @@
  * sessions (the harness must be relaunched).
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import type { Idea, Score } from "@ai-storm/shared";
@@ -26,6 +24,7 @@ import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { TerminalScreen } from "./screen.ts";
+import { applyFileLaunch } from "./file-launch.ts";
 import {
   IdeaScanner,
   IdeaSink,
@@ -33,7 +32,6 @@ import {
   ScoreSink,
   getProfile,
   commandProfileName,
-  computeFileLaunch,
   launchArgsForProfile,
   profileUsesMcp,
   type HarnessProfile
@@ -158,31 +156,13 @@ export class NodePtySessionBackend implements SessionBackend {
 
     // File/env launch injection (harness-authoring.md §4.x): profiles with no
     // CLI seam for priming/MCP (e.g. opencode) write a temp config instead.
-    // Pure computation in harness.ts; disk I/O and cleanup live here.
-    let fileLaunchDir: string | null = null;
-    let fileLaunchEnv: Record<string, string> | undefined;
-    if (profile.fileLaunch) {
-      fileLaunchDir = mkdtempSync(join(tmpdir(), "ai-storm-opencode-"));
-      try {
-        const result = computeFileLaunch(profile, {
-          dir: fileLaunchDir,
-          mcp: mcpContext,
-          prime: spec.prime,
-          callerEnv: spec.env
-        });
-        if (result) {
-          for (const file of result.files) writeFileSync(file.path, file.content, { encoding: "utf-8", mode: 0o600 });
-          fileLaunchEnv = result.env;
-        } else {
-          rmSync(fileLaunchDir, { recursive: true, force: true });
-          fileLaunchDir = null;
-        }
-      } catch (err) {
-        rmSync(fileLaunchDir, { recursive: true, force: true });
-        this.#mcp.removeSession(projectId);
-        throw err;
-      }
-    }
+    // Pure computation in harness.ts; disk I/O and cleanup live in
+    // applyFileLaunch (shared with tmux-backend.ts).
+    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
+      this.#mcp.removeSession(projectId)
+    );
+    const fileLaunchDir = applied?.dir ?? null;
+    const fileLaunchEnv = applied?.env;
 
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;

@@ -848,6 +848,24 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.kill("ws8");
     expect(existsSync(configPath)).toBe(false);
   });
+
+  it("still removes the opencode temp config dir on kill() after an idempotent re-create() of the same session", async () => {
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
+    await backend.create({ projectId: "ws9", command: "opencode", prime: PRIME });
+
+    const newSession = fake.calls.find((c) => c[0] === "new-session")!;
+    const configPath = newSession.find((a) => a.startsWith("OPENCODE_CONFIG="))!.slice("OPENCODE_CONFIG=".length);
+    expect(existsSync(configPath)).toBe(true);
+
+    // Reuse path (design §3.3): create() again for the same live session must
+    // not drop the tracked fileLaunchDir from #configs.
+    await backend.create({ projectId: "ws9", command: "opencode", prime: PRIME });
+    expect(fake.count("new-session")).toBe(1); // reused, not recreated
+
+    await backend.kill("ws9");
+    expect(existsSync(configPath)).toBe(false);
+  });
 });
 
 describe("NodePtySessionBackend — opencode file/env launch injection", () => {

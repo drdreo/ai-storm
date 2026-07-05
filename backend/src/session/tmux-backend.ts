@@ -26,7 +26,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync, unlinkSync, watch, type FSWatcher } from "node:fs";
+import { rmSync, writeFileSync, unlinkSync, watch, type FSWatcher } from "node:fs";
 import { open } from "node:fs/promises";
 import { StringDecoder } from "node:string_decoder";
 import { tmpdir } from "node:os";
@@ -40,11 +40,11 @@ import {
   ScoreSink,
   getProfile,
   commandProfileName,
-  computeFileLaunch,
   launchArgsForProfile,
   profileUsesMcp,
   type HarnessProfile
 } from "./extraction/index.ts";
+import { applyFileLaunch } from "./file-launch.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { tokenizeCommand } from "../pty/resolve.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
@@ -273,7 +273,11 @@ export class TmuxSessionBackend implements SessionBackend {
     const profileName = spec.harnessProfile ?? commandProfileName(command);
     const profile = getProfile(profileName, (m) => log.warn("extract.profile", { project: projectId, message: m }));
     const cols = spec.cols ?? 120;
-    this.#configs.set(projectId, { profile, cols });
+    // Carry forward any existing fileLaunchDir: this set is overwritten below
+    // once creation succeeds, but the reuse path just below returns early
+    // without touching it — losing the tracked dir here would leak it at
+    // kill() for an already-live session.
+    this.#configs.set(projectId, { profile, cols, fileLaunchDir: this.#configs.get(projectId)?.fileLaunchDir });
 
     if (await this.hasSession(projectId)) {
       // Idempotent: an existing durable session is reused as-is (design §3.3).
@@ -309,28 +313,13 @@ export class TmuxSessionBackend implements SessionBackend {
     // File/env launch injection (harness-authoring.md §4.x): profiles with no
     // CLI seam for priming/MCP (e.g. opencode) write a temp config instead,
     // and its env vars fold into the same `-e KEY=VALUE` mechanism above.
-    let fileLaunchDir: string | undefined;
-    if (profile.fileLaunch) {
-      fileLaunchDir = mkdtempSync(join(tmpdir(), "ai-storm-opencode-"));
-      try {
-        const result = computeFileLaunch(profile, {
-          dir: fileLaunchDir,
-          mcp: mcpContext,
-          prime: spec.prime,
-          callerEnv: spec.env
-        });
-        if (result) {
-          for (const file of result.files) writeFileSync(file.path, file.content, { encoding: "utf-8", mode: 0o600 });
-          for (const [key, value] of Object.entries(result.env)) envArgs.push("-e", `${key}=${value}`);
-        } else {
-          rmSync(fileLaunchDir, { recursive: true, force: true });
-          fileLaunchDir = undefined;
-        }
-      } catch (err) {
-        rmSync(fileLaunchDir, { recursive: true, force: true });
-        this.#mcp.removeSession(projectId);
-        throw err;
-      }
+    // Disk I/O and cleanup live in applyFileLaunch (shared with nodepty-backend.ts).
+    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
+      this.#mcp.removeSession(projectId)
+    );
+    const fileLaunchDir = applied?.dir;
+    if (applied) {
+      for (const [key, value] of Object.entries(applied.env)) envArgs.push("-e", `${key}=${value}`);
     }
     this.#configs.set(projectId, { profile, cols, fileLaunchDir });
 
