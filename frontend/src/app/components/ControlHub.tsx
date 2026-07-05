@@ -21,6 +21,7 @@ import { sessionIndicator } from "../core/session-status";
 import { StatusDot } from "./SessionStatusDot";
 import { Terminal } from "./Terminal";
 import { DirectoryPicker } from "./DirectoryPicker";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 /**
  * Soft cap on the background context (#76). Not enforced — the textarea rides
@@ -284,7 +285,9 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
           </div>
         )}
         <div className="block h-full">
-          <Terminal />
+          <ErrorBoundary name="Terminal">
+            <Terminal />
+          </ErrorBoundary>
         </div>
       </section>
     </div>
