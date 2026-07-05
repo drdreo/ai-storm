@@ -34,6 +34,7 @@ import {
   useFilterAtom
 } from "./canvas/menus";
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
+import { FilterChips } from "./canvas/FilterChips";
 import { PriorityGridOverlay } from "./canvas/PriorityGridOverlay";
 import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
@@ -116,6 +117,7 @@ export function CanvasIsland({
         <>
           <CanvasEmptyState actions={emptyStateActions} />
           <CardVerbBar onVerb={bridge.onCardVerb} disabled={!sessionAttached} />
+          <FilterChips $filter={$filter} />
           <FilterApplier $filter={$filter} />
         </>
       )
