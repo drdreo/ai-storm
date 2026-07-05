@@ -17,7 +17,7 @@ import { track, useEditor, type Atom } from "tldraw";
 import { X } from "lucide-react";
 import { filterChips } from "./filter-chips";
 import { EMPTY_FILTER, type BoardFilter } from "./filter";
-import { activeBoardLayout, type ActiveBoardLayout } from "./layout";
+import { activeBoardLayout, restoreFreeLayout, type ActiveBoardLayout } from "./layout";
 
 /** A project's live filter atom, shared from {@link ../menus}. */
 type FilterAtom = Atom<BoardFilter>;
@@ -39,7 +39,8 @@ export const FilterChips = track(function FilterChips({ $filter }: { $filter: Fi
 
   const clearAll = () => {
     $filter.set(EMPTY_FILTER);
-    $layout.set(null);
+    // Drop the arrangement AND put the cards back where the user had them (#169).
+    restoreFreeLayout(editor);
   };
 
   return (
@@ -48,7 +49,11 @@ export const FilterChips = track(function FilterChips({ $filter }: { $filter: Fi
       className="absolute left-1/2 top-2 z-[1] flex max-w-[min(90%,44rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5"
     >
       {layout && (
-        <Chip label={layoutLabel(layout)} title="Dismiss arrangement indicator" onRemove={() => $layout.set(null)} />
+        <Chip
+          label={layoutLabel(layout)}
+          title="Remove arrangement · restore layout"
+          onRemove={() => restoreFreeLayout(editor)}
+        />
       )}
       {chips.map((chip) => (
         <Chip

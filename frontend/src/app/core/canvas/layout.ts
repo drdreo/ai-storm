@@ -37,6 +37,56 @@ export function activeBoardLayout(editor: Editor): Atom<ActiveBoardLayout | null
   return mode;
 }
 
+/** A card's manual placement (#169) — the fields an arrange overwrites. */
+type FreePlacement = { x: number; y: number; rotation: number };
+
+/**
+ * The board's pre-arrangement free layout (#169) — each idea card's hand-placed
+ * `x/y/rotation` captured the moment the board first left free mode, so removing
+ * the arrangement (its chip ✕, "Clear all", or the Arrange menu) can drop every
+ * card back exactly where the user had dragged it. Keyed by editor in a WeakMap
+ * alongside {@link layoutModes}: it resets on project switch and never persists —
+ * once the session ends the arrangement itself is what the board keeps.
+ */
+const freeLayouts = new WeakMap<Editor, Map<TLShapeId, FreePlacement>>();
+
+/**
+ * Snapshot every idea card's current manual placement (#169) as the free layout to
+ * restore later. The arrange actions call this right before re-flowing the board,
+ * but only via {@link captureFreeLayoutOnce}: switching straight from mind map to
+ * grid must keep the *original* free layout, never snapshot an arranged one.
+ */
+function captureFreeLayoutOnce(editor: Editor): void {
+  // Already arranged → the current placement is an arrangement, not the user's.
+  if (activeBoardLayout(editor).get()) return;
+  const snapshot = new Map<TLShapeId, FreePlacement>();
+  for (const c of ideaCards(editor)) snapshot.set(c.id, { x: c.x, y: c.y, rotation: c.rotation });
+  freeLayouts.set(editor, snapshot);
+}
+
+/**
+ * Restore the free layout captured before the board was arranged (#169) and return
+ * to free mode — the "remove arrangement" action behind the arrangement chip's ✕
+ * and "Clear all". Puts every still-present card back at
+ * its snapshot `x/y/rotation` (cards streamed in after the arrange keep their spot),
+ * then clears both the snapshot and the {@link activeBoardLayout} atom. With no
+ * snapshot it just drops the arrangement flag, so it is always safe to call.
+ */
+export function restoreFreeLayout(editor: Editor): void {
+  const snapshot = freeLayouts.get(editor);
+  if (snapshot) {
+    const updates = ideaCards(editor)
+      .filter((c) => snapshot.has(c.id))
+      .map((c) => {
+        const p = snapshot.get(c.id)!;
+        return { id: c.id, type: "idea-card" as const, x: p.x, y: p.y, rotation: p.rotation };
+      });
+    if (updates.length > 0) editor.run(() => editor.updateShapes(updates));
+    freeLayouts.delete(editor);
+  }
+  activeBoardLayout(editor).set(null);
+}
+
 /**
  * Re-flow the idea cards into an organic mind map (#16, PD-014) — the canvas
  * "Arrange" action. Reads the typed edge graph, computes target positions with the
@@ -50,6 +100,9 @@ export function activeBoardLayout(editor: Editor): Atom<ActiveBoardLayout | null
 export function arrangeMindMap(editor: Editor): void {
   const cards = ideaCards(editor);
   if (cards.length === 0) return;
+  // Remember the hand-placed layout the first time we leave free mode (#169), so
+  // removing the arrangement can restore it.
+  captureFreeLayoutOnce(editor);
   const cardIds = new Set(cards.map((c) => c.id));
   const positions = layoutMindMap(
     cards.map((c) => ({
@@ -100,6 +153,8 @@ export function applyScore(editor: Editor, score: Score): void {
 export function arrangePriorityGrid(editor: Editor): void {
   const cards = ideaCards(editor);
   if (cards.length === 0) return;
+  // Remember the hand-placed layout the first time we leave free mode (#169).
+  captureFreeLayoutOnce(editor);
   const scored: ScoredCard[] = cards.map((c) => {
     const score = (c.meta as IdeaCardMeta).score;
     return { id: c.id, w: c.props.w, h: c.props.h, impact: score?.impact, effort: score?.effort };
