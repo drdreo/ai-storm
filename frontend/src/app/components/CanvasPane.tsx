@@ -4,7 +4,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import { BarChart3, Command, FileOutput, Scale, ScrollText } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { SpecFormat } from "@ai-storm/shared";
 import type { BoardStats } from "../core/board-stats";
 import { CanvasIsland } from "../core/canvas-island";
@@ -18,9 +18,15 @@ import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { SpecPanel } from "./SpecPanel";
 import { StatsPanel } from "./StatsPanel";
 import { SummaryPanel } from "./SummaryPanel";
+
+// SpecPanel (#138) is code-split: it pulls in MarkdownView's markdown renderer
+// (`marked` + `DOMPurify`, ~35KB gzip) but is only needed once a user actually
+// hands the board off, so it's the one panel worth keeping out of the initial
+// bundle. StatsPanel/SummaryPanel are a few KB each — not worth the same
+// treatment (see #138 PR discussion).
+const SpecPanel = lazy(() => import("./SpecPanel").then((m) => ({ default: m.SpecPanel })));
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -91,6 +97,10 @@ export function CanvasPane() {
   // the format picker and the Generate button, so switching format and re-running
   // is one interaction. Dispatch flows back up through `onGenerate`.
   const [specOpen, setSpecOpen] = useState(false);
+  // SpecPanel is code-split (#138) and only mounted once opened for the first
+  // time — never unmounted again after, so its close animation keeps working.
+  const [specEverOpened, setSpecEverOpened] = useState(false);
+  if (specOpen && !specEverOpened) setSpecEverOpened(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const focusMode = useUiStore((s) => s.focusMode);
   // Full-text search index (#124): gathered fresh each time the palette opens —
@@ -280,16 +290,20 @@ export function CanvasPane() {
         />
       </ErrorBoundary>
 
-      <ErrorBoundary name="Spec panel">
-        <SpecPanel
-          open={specOpen}
-          onOpenChange={setSpecOpen}
-          projectId={active?.id}
-          projectName={active?.title}
-          boardEmpty={specBoardEmpty}
-          onGenerate={generateSpec}
-        />
-      </ErrorBoundary>
+      {specEverOpened && (
+        <ErrorBoundary name="Spec panel">
+          <Suspense fallback={null}>
+            <SpecPanel
+              open={specOpen}
+              onOpenChange={setSpecOpen}
+              projectId={active?.id}
+              projectName={active?.title}
+              boardEmpty={specBoardEmpty}
+              onGenerate={generateSpec}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
 
       <BoardCommandPalette
         open={paletteOpen}
