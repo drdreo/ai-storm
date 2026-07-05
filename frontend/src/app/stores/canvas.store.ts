@@ -1,9 +1,10 @@
-import type { Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Score } from "@ai-storm/shared";
 import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 import {
   applyIdeas as islandApplyIdeas,
   applyScore as islandApplyScore,
+  applyCompletion as islandApplyCompletion,
   type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
@@ -182,6 +183,11 @@ export const canvas = {
   /** Apply an extracted triage score to its target card's meta (#60). */
   applyScore(projectId: string, score: Score): void {
     if (editor && projectId === activeId) islandApplyScore(editor, score);
+  },
+
+  /** Apply a done/reopen change to its target card's meta (#167). */
+  applyCompletion(projectId: string, completion: Completion): void {
+    if (editor && projectId === activeId) islandApplyCompletion(editor, completion);
   },
 
   /**

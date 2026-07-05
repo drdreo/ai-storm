@@ -240,6 +240,16 @@ async function dispatch(
             });
             send({ type: "score", projectId, score });
           },
+          // Each done/reopen state change → the canvas, toggling a card's
+          // completion (#167). Delivered via the MCP `mark_idea_done` tool.
+          (completion) => {
+            log.info("ai.completion.sent", {
+              project: projectId,
+              ref: completion.ref,
+              done: completion.done
+            });
+            send({ type: "completion", projectId, completion });
+          },
           (message) => {
             log.warn("session.error", { project: projectId, message });
             send({ type: "error", projectId, message });

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
@@ -34,13 +34,15 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   const scoreSink = new ScoreSink();
   const ideas: Idea[] = [];
   const scores: Score[] = [];
+  const completions: Completion[] = [];
   registry.attachSession(projectId, {
     ideaSink,
     scoreSink,
     onIdea: (i) => ideas.push(i),
-    onScore: (s) => scores.push(s)
+    onScore: (s) => scores.push(s),
+    onCompletion: (c) => completions.push(c)
   });
-  return { ...target, ideaSink, scoreSink, ideas, scores };
+  return { ...target, ideaSink, scoreSink, ideas, scores, completions };
 }
 
 let rpcId = 0;
@@ -113,14 +115,16 @@ describe("MCP endpoint — protocol surface", () => {
     expect(res.status).toBe(202);
   });
 
-  it("lists exactly the two capture tools with their schemas", async () => {
+  it("lists the capture + completion tools with their schemas", async () => {
     const { registry, app } = setup();
     const { token } = wire(registry, "ws1");
     const res = await rpc(app, "ws1", token, "tools/list");
     const { tools } = (await res.json()).result;
-    expect(tools.map((t: { name: string }) => t.name)).toEqual(["capture_idea", "capture_score"]);
+    expect(tools.map((t: { name: string }) => t.name)).toEqual(["capture_idea", "capture_score", "mark_idea_done"]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
+    // `done` is optional (defaults to marking done); only the target ref is required.
+    expect(tools[2].inputSchema.required).toEqual(["ref"]);
   });
 
   it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
@@ -241,6 +245,57 @@ describe("capture_score — schema validation (§9.1)", () => {
     const body = await callTool(app, "ws1", w.token, "capture_score", args);
     expect(body.result!.isError).toBe(true);
     expect(w.scores).toEqual([]);
+  });
+});
+
+describe("mark_idea_done — completion state (#167)", () => {
+  it("marks a card done (default), emits the completion, and reports it", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    expect(textOf(await callTool(app, "ws1", w.token, "mark_idea_done", { ref: "a1" }))).toBe("Marked @a1 done.");
+    expect(w.completions).toEqual([{ ref: "a1", done: true }]);
+  });
+
+  it("reopens a card when done:false, with distinct result text", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    expect(textOf(await callTool(app, "ws1", w.token, "mark_idea_done", { ref: "a2", done: false }))).toBe(
+      "Reopened @a2."
+    );
+    expect(w.completions).toEqual([{ ref: "a2", done: false }]);
+  });
+
+  it("always flows through (no dedupe) — re-marking the same ref emits again", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    await callTool(app, "ws1", w.token, "mark_idea_done", { ref: "a1" });
+    await callTool(app, "ws1", w.token, "mark_idea_done", { ref: "a1" });
+    expect(w.completions).toEqual([
+      { ref: "a1", done: true },
+      { ref: "a1", done: true }
+    ]);
+  });
+
+  it.each([
+    ["missing ref", {}],
+    ["bad ref charset", { ref: "@a1" }],
+    ["non-boolean done", { ref: "a1", done: "yes" }]
+  ])("rejects %s as a tool error and emits nothing", async (_label, args) => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    const body = await callTool(app, "ws1", w.token, "mark_idea_done", args);
+    expect(body.result!.isError).toBe(true);
+    expect(body.result!.content[0].text.length).toBeGreaterThan(0);
+    expect(w.completions).toEqual([]);
+  });
+
+  it("returns a tool error (not delivered) when the session is detached", async () => {
+    const { registry, app } = setup();
+    const target = registry.registerSession("ws1")!;
+    // Registered but never attached → attachment is null.
+    const body = await callTool(app, "ws1", target.token, "mark_idea_done", { ref: "a1" });
+    expect(body.result!.isError).toBe(true);
+    expect(body.result!.content[0].text).toContain("not attached");
   });
 });
 
@@ -514,7 +569,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     // The old token routes again; after attach, a tool call lands on the canvas.
     const app = new Hono().route("/mcp", mcpRoutes(registry2));
     const ideas: Idea[] = [];
-    await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop);
+    await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     const body = await callTool(app, "ws1", token, "capture_idea", {
       title: "Survived the restart"
     });
@@ -536,7 +591,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
     const ideas: Idea[] = [];
-    await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop);
+    await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     // The primed agent lapses back to a marker line after the attach-time seed.
     fake.setPane("  «IDEA» Lapsed marker :: the agent ignored the tool\n❯");
     // Two poll ticks: the scanner's two-frame confirmation (scanner-hardening)

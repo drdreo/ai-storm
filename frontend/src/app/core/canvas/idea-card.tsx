@@ -71,6 +71,14 @@ export interface IdeaCardMeta {
   /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
   starred?: boolean;
   /**
+   * Completion state (#167): the idea has been acted on / finished. Set by the
+   * MCP `mark_idea_done` tool (an agent reflecting workflow progress) and by the
+   * manual context-menu toggle. A done card reads as visibly completed (✓ mark,
+   * struck title, dimmed) but stays on the board. `meta` (like `starred`/`score`)
+   * so no schema migration; absent means open.
+   */
+  done?: boolean;
+  /**
    * AI triage score (#60): 1..5 impact / effort (and optional confidence),
    * assigned by the agent via the `«SCORE@ref»` contract. Drives the 2×2
    * prioritization layout (and, later, visual weight). Absent until the board is
@@ -120,6 +128,8 @@ const CARD_INK_LIGHT = "#1c1c1c";
 const CARD_INK_DARK = "#e8e8e8";
 /** The gold of the "kept for later" star mark (#29). */
 const STAR_GOLD = "#f5b301";
+/** The green of the "done / complete" mark (#167) — a finished, not discarded, card. */
+const DONE_GREEN = "#3fa45b";
 /** Warning amber for a low-confidence triage score's chip (#100). */
 const LOW_CONFIDENCE_AMBER = "#e0a712";
 
@@ -244,6 +254,10 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const starred = !!(shape.meta as IdeaCardMeta).starred;
   const score = (shape.meta as IdeaCardMeta).score;
   const editedByUser = !!(shape.meta as IdeaCardMeta).editedByUser;
+  // Completion (#167): a done idea stays on the board but reads as finished — a
+  // green ✓ in the meta row, a struck title, and a dimmed card. Distinct from a
+  // superseded ghost (grey/dashed, #20): done is "we did it", not "replaced".
+  const done = !superseded && !!(shape.meta as IdeaCardMeta).done;
   // A confidence of 1-2 (#100) is the agent flagging its own rating as shaky —
   // the chip flips to a warning amber instead of the card's own accent, rather
   // than softening the whole card (that read as broken, not "low confidence").
@@ -289,7 +303,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         gap: 5,
         overflow: "hidden",
         pointerEvents: "all",
-        opacity: superseded ? 0.85 : 1
+        opacity: superseded ? 0.85 : done ? 0.72 : 1
       }}
     >
       <button
@@ -314,8 +328,10 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
       >
         {starred ? "★" : "☆"}
       </button>
-      {badge ? (
+      {badge || done ? (
         <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: "0.02em" }}>
+          {done ? <span style={{ color: DONE_GREEN }}>✓ done</span> : null}
+          {done && badge ? " · " : ""}
           {badge}
           {superseded ? " · superseded" : ""}
           {editedByUser ? " · edited" : ""}
@@ -354,7 +370,16 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         </>
       ) : (
         <>
-          <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{title}</div>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              lineHeight: 1.25,
+              textDecoration: done ? "line-through" : "none"
+            }}
+          >
+            {title}
+          </div>
           {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
         </>
       )}

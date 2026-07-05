@@ -8,7 +8,7 @@
  * contract — see `docs/design/ai-response-extraction-contract.md`.
  */
 
-import type { Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Score } from "@ai-storm/shared";
 
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
@@ -66,13 +66,15 @@ export interface SessionBackend {
    * Begin (or resume) streaming this project's session. `onData` receives the
    * raw PTY bytes (for the xterm.js terminal); `onIdea` receives each newly-seen
    * extracted idea (a new card); `onScore` receives each newly-seen triage score
-   * (#60) updating an existing card.
+   * (#60) updating an existing card; `onCompletion` receives each done/reopen
+   * state change (#167) for an existing card, delivered via the MCP tool path.
    */
   attach(
     projectId: string,
     onData: (raw: string) => void,
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
+    onCompletion: (completion: Completion) => void,
     onError: (message: string) => void
   ): Promise<void>;
 

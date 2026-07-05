@@ -29,7 +29,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -51,6 +51,11 @@ export interface McpAttachment {
   scoreSink: ScoreSink;
   onIdea: (idea: Idea) => void;
   onScore: (score: Score) => void;
+  /** Emit a completion-state change for an existing card (#167). Unlike ideas and
+   *  scores there is no scanner producer — only the `mark_idea_done` tool feeds
+   *  this — so no shared dedupe sink is needed (a tool call is discrete, not a
+   *  per-frame re-render), and the canvas applies it last-write-wins per ref. */
+  onCompletion: (completion: Completion) => void;
 }
 
 /** What the endpoint sees after a successful token check. */

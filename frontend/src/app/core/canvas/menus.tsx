@@ -40,7 +40,7 @@ import { serializeCards } from "../canvas-text";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
-import { activeBoardLayout, arrangeMindMap, arrangePriorityGrid, markSelected } from "./layout";
+import { activeBoardLayout, arrangeMindMap, arrangePriorityGrid, markSelected, markSelectedDone } from "./layout";
 import { createUserIdea } from "./idea-tool";
 import { focusedCardIds } from "./focus";
 
@@ -61,6 +61,7 @@ function selectMatching(editor: Editor, pred: (card: IdeaCardShape) => boolean):
 const isMarked = (c: IdeaCardShape) => !!(c.meta as IdeaCardMeta).starred;
 const isUntriaged = (c: IdeaCardShape) => !(c.meta as IdeaCardMeta).score && !c.props.superseded;
 const isOpenQuestion = (c: IdeaCardShape) => normalizeKind(c.props.kind) === "question" && !c.props.superseded;
+const isDone = (c: IdeaCardShape) => !!(c.meta as IdeaCardMeta).done && !c.props.superseded;
 
 /** A project's live filter, held in a tldraw signal so it outlives menu open/close. */
 export type FilterAtom = Atom<BoardFilter>;
@@ -334,6 +335,7 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
   const focusMode = useUiStore((s) => s.focusMode);
   const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
+  const allDone = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).done);
 
   // Board-wide "select by trait" (#106): counts drive the disabled state so a verb
   // that would select nothing greys out rather than silently no-op'ing.
@@ -341,6 +343,7 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
   const markedCount = cards.filter(isMarked).length;
   const untriagedCount = cards.filter(isUntriaged).length;
   const openQuestionCount = cards.filter(isOpenQuestion).length;
+  const doneCount = cards.filter(isDone).length;
 
   // Copy the current pure-card selection as markdown (#106) — the context-menu twin
   // of Ctrl/Cmd+C (see copy-text). Written here directly so it works on a mixed
@@ -374,6 +377,11 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
         <TldrawUiMenuGroup id="ai-storm-card">
           <TldrawUiMenuItem id="focus" label={focusMode ? "Exit focus" : "⤢ Focus cards"} onSelect={focusSelected} />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
+          <TldrawUiMenuItem
+            id="mark-done"
+            label={allDone ? "Reopen" : "✓ Mark done"}
+            onSelect={() => markSelectedDone(editor)}
+          />
           <TldrawUiMenuItem
             id="copy-cards-md"
             label={
@@ -420,6 +428,13 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
               disabled={openQuestionCount === 0}
               readonlyOk
               onSelect={() => selectMatching(editor, isOpenQuestion)}
+            />
+            <TldrawUiMenuItem
+              id="select-done"
+              label={doneCount > 0 ? `✓ Done (${doneCount})` : "✓ Done"}
+              disabled={doneCount === 0}
+              readonlyOk
+              onSelect={() => selectMatching(editor, isDone)}
             />
           </TldrawUiMenuGroup>
         </TldrawUiMenuSubmenu>

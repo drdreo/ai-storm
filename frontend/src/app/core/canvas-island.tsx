@@ -48,7 +48,7 @@ export {
   collectBoard,
   selectedText
 } from "./canvas/serialize";
-export { applyScore } from "./canvas/layout";
+export { applyScore, applyCompletion } from "./canvas/layout";
 export { exportBoard, importBoard } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];

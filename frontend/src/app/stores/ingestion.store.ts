@@ -113,6 +113,10 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       // Triage score (#60) → update the target card's meta on the canvas.
       canvas.applyScore(projectId, msg.score);
       break;
+    case "completion":
+      // Done/reopen (#167) → toggle the target card's completion on the canvas.
+      canvas.applyCompletion(projectId, msg.completion);
+      break;
     case "session-status":
       applyStatus(projectId, msg.status);
       break;

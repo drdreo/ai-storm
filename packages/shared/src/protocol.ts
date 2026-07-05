@@ -162,6 +162,7 @@ export type ServerMessage =
   | DataMessage
   | IdeaMessage
   | ScoreMessage
+  | CompletionMessage
   | ExitMessage
   | AgentStatusMessage
   | AgentArtifactsMessage
@@ -275,6 +276,32 @@ export interface ScoreMessage {
   type: "score";
   projectId: string;
   score: Score;
+}
+
+/**
+ * A completion-state change for one EXISTING card (#167). Like a {@link Score} it
+ * *updates* a card already on the board rather than creating one: it targets the
+ * card's short ref (idea-graph §4) and flips whether the idea is marked done.
+ * `done` is explicit (not a bare "mark done" event) so the same channel toggles a
+ * card back to open — the agent, or a user un-checking it, needs both directions.
+ */
+export interface Completion {
+  /** Short ref of the card whose completion state is changing (idea-graph §4). */
+  ref: string;
+  /** True marks the idea done/complete; false reopens it. */
+  done: boolean;
+}
+
+/**
+ * A single completion-state change destined to update an existing card on the
+ * canvas (#167). Emitted by the MCP `mark_idea_done` tool (the agent marking an
+ * idea complete); the manual context-menu path writes `meta.done` directly on the
+ * client and never round-trips through here. Applied last-write-wins per ref.
+ */
+export interface CompletionMessage {
+  type: "completion";
+  projectId: string;
+  completion: Completion;
 }
 
 /**

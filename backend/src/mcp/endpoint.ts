@@ -27,7 +27,7 @@
  */
 
 import { Hono } from "hono";
-import type { Idea, IdeaLink, Score } from "@ai-storm/shared";
+import type { Completion, Idea, IdeaLink, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
 
@@ -122,8 +122,36 @@ const TOOLS = [
       required: ["ref", "impact", "effort"],
       additionalProperties: false
     }
+  },
+  {
+    name: "mark_idea_done",
+    description:
+      "Mark an existing canvas card as done/complete (or reopen it). Call this when an idea has " +
+      "been acted on, decided, or otherwise finished, so the board reflects workflow progress. " +
+      "Targets the card by its @ref; pass done:false to reopen a card marked done by mistake.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ref: {
+          type: "string",
+          pattern: REF_PATTERN.source,
+          description: "The card's @ref (required — a completion needs a target)."
+        },
+        done: {
+          type: "boolean",
+          default: true,
+          description: "true marks the card done (default); false reopens it."
+        }
+      },
+      required: ["ref"],
+      additionalProperties: false
+    }
   }
 ] as const;
+
+/** Tool names the endpoint dispatches — the single source both the guard and the
+ *  `tools/call` switch below read, so adding a tool can't drift them apart. */
+const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 
 // ── Tool-argument parsing (hand-rolled, protocol.ts style) ──
 // Each parse throws an Error whose message is written FOR THE MODEL: it comes
@@ -195,6 +223,19 @@ function parseCaptureScore(args: Record<string, unknown>): Score {
   return score;
 }
 
+function parseMarkDone(args: Record<string, unknown>): Completion {
+  const { ref, done } = args;
+  if (typeof ref !== "string" || !REF_PATTERN.test(ref)) {
+    throw new Error('`ref` is required: the card\'s short ref (e.g. "a1" for @a1).');
+  }
+  if (done !== undefined && typeof done !== "boolean") {
+    throw new Error("`done` must be a boolean when present (true marks done, false reopens; default true).");
+  }
+  // `done` defaults to true — the tool's whole point is marking complete; the
+  // explicit false is the deliberate reopen path.
+  return { ref, done: done === undefined ? true : done };
+}
+
 // ── JSON-RPC plumbing ──
 
 type RpcId = string | number | null;
@@ -242,7 +283,7 @@ function handleToolCall(
 ) {
   const name = params?.name;
   const args = (params?.arguments ?? {}) as Record<string, unknown>;
-  if (name !== "capture_idea" && name !== "capture_score") {
+  if (typeof name !== "string" || !TOOL_NAMES.has(name)) {
     return rpcError(id, -32602, `Unknown tool: ${String(name)}`);
   }
   const attachment = session.attachment;
@@ -272,19 +313,27 @@ function handleToolCall(
       attachment.onIdea(idea);
       return toolText(id, `Captured as @${ref}. Link follow-up ideas to it with links:[{to:"${ref}"}].`);
     }
-    const score = parseCaptureScore(args);
-    // Same-tuple dedupe; a RE-triage (changed rating) is a new tuple and flows
-    // through — the deliberate ScoreSink carry-over (§6).
-    if (attachment.scoreSink.offer(score)) {
-      log.info("score.captured", {
-        project: projectId,
-        ref: score.ref,
-        impact: score.impact,
-        effort: score.effort
-      });
-      attachment.onScore(score);
+    if (name === "capture_score") {
+      const score = parseCaptureScore(args);
+      // Same-tuple dedupe; a RE-triage (changed rating) is a new tuple and flows
+      // through — the deliberate ScoreSink carry-over (§6).
+      if (attachment.scoreSink.offer(score)) {
+        log.info("score.captured", {
+          project: projectId,
+          ref: score.ref,
+          impact: score.impact,
+          effort: score.effort
+        });
+        attachment.onScore(score);
+      }
+      return toolText(id, `Scored @${score.ref}.`);
     }
-    return toolText(id, `Scored @${score.ref}.`);
+    // mark_idea_done — no sink: a completion is a discrete state change, not a
+    // re-rendered marker, so it always flows through (idempotent on the canvas).
+    const completion = parseMarkDone(args);
+    log.info("idea.completion", { project: projectId, ref: completion.ref, done: completion.done });
+    attachment.onCompletion(completion);
+    return toolText(id, completion.done ? `Marked @${completion.ref} done.` : `Reopened @${completion.ref}.`);
   } catch (err) {
     return toolError(id, err instanceof Error ? err.message : String(err));
   }
