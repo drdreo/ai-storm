@@ -234,14 +234,14 @@ export const canvas = {
   /** Run the existing organic mind-map arrangement from the command palette (#16/#96). */
   arrangeMindMap(projectId: string): boolean {
     if (!editor || projectId !== activeId || ideaCards(editor).length === 0) return false;
-    void layoutArrangeMindMap(editor);
+    layoutArrangeMindMap(editor);
     return true;
   },
 
   /** Run the existing impact/effort grid arrangement from the command palette (#60/#96). */
   arrangePriorityGrid(projectId: string): boolean {
     if (!editor || projectId !== activeId || ideaCards(editor).length === 0) return false;
-    void layoutArrangePriorityGrid(editor);
+    layoutArrangePriorityGrid(editor);
     return true;
   },
 

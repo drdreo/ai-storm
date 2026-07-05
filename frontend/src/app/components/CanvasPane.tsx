@@ -17,13 +17,15 @@ import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
+import { StatsPanel } from "./StatsPanel";
+import { SummaryPanel } from "./SummaryPanel";
 
-// Side panels (#138) are code-split: each pulls in its own reading of the board
-// (and, for SpecPanel, the markdown renderer) but is only needed once a user
-// actually opens it, so none of the three belong in the initial bundle.
+// SpecPanel (#138) is code-split: it pulls in MarkdownView's markdown renderer
+// (`marked` + `DOMPurify`, ~35KB gzip) but is only needed once a user actually
+// hands the board off, so it's the one panel worth keeping out of the initial
+// bundle. StatsPanel/SummaryPanel are a few KB each — not worth the same
+// treatment (see #138 PR discussion).
 const SpecPanel = lazy(() => import("./SpecPanel").then((m) => ({ default: m.SpecPanel })));
-const StatsPanel = lazy(() => import("./StatsPanel").then((m) => ({ default: m.StatsPanel })));
-const SummaryPanel = lazy(() => import("./SummaryPanel").then((m) => ({ default: m.SummaryPanel })));
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -94,13 +96,9 @@ export function CanvasPane() {
   // the format picker and the Generate button, so switching format and re-running
   // is one interaction. Dispatch flows back up through `onGenerate`.
   const [specOpen, setSpecOpen] = useState(false);
-  // Each panel is code-split (#138) and only mounted once opened for the first
+  // SpecPanel is code-split (#138) and only mounted once opened for the first
   // time — never unmounted again after, so its close animation keeps working.
-  const [summaryEverOpened, setSummaryEverOpened] = useState(false);
-  const [statsEverOpened, setStatsEverOpened] = useState(false);
   const [specEverOpened, setSpecEverOpened] = useState(false);
-  if (summaryOpen && !summaryEverOpened) setSummaryEverOpened(true);
-  if (statsOpen && !statsEverOpened) setStatsEverOpened(true);
   if (specOpen && !specEverOpened) setSpecEverOpened(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const focusMode = useUiStore((s) => s.focusMode);
@@ -275,22 +273,18 @@ export function CanvasPane() {
         )}
       </div>
 
-      <Suspense fallback={null}>
-        {summaryEverOpened && (
-          <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
-        )}
+      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
 
-        {statsEverOpened && (
-          <StatsPanel
-            open={statsOpen}
-            onOpenChange={setStatsOpen}
-            stats={stats}
-            onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
-            onClearFilters={clearFilters}
-          />
-        )}
+      <StatsPanel
+        open={statsOpen}
+        onOpenChange={setStatsOpen}
+        stats={stats}
+        onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
+        onClearFilters={clearFilters}
+      />
 
-        {specEverOpened && (
+      {specEverOpened && (
+        <Suspense fallback={null}>
           <SpecPanel
             open={specOpen}
             onOpenChange={setSpecOpen}
@@ -299,8 +293,8 @@ export function CanvasPane() {
             boardEmpty={specBoardEmpty}
             onGenerate={generateSpec}
           />
-        )}
-      </Suspense>
+        </Suspense>
+      )}
 
       <BoardCommandPalette
         open={paletteOpen}

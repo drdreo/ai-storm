@@ -6,7 +6,7 @@
  */
 import { atom, type Atom, Box, type Editor, type TLShapeId } from "tldraw";
 import type { Completion, Score } from "@ai-storm/shared";
-import type { GridFrame, ScoredCard } from "../idea-layout";
+import { layoutMindMap, layoutPriorityGrid, type GridFrame, type ScoredCard } from "../idea-layout";
 import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
 
@@ -96,13 +96,10 @@ export function restoreFreeLayout(editor: Editor): void {
  * native arrows bound to both endpoints, so they track their cards for free — "all
  * relationships preserved" without touching the graph. A no-op on an empty board.
  * Runs on demand only (PD-014): the user's manual placement is never auto-rewritten.
- * The layout math (#138) is dynamically imported — it's only needed once a user
- * actually arranges, so it stays out of the initial bundle.
  */
-export async function arrangeMindMap(editor: Editor): Promise<void> {
+export function arrangeMindMap(editor: Editor): void {
   const cards = ideaCards(editor);
   if (cards.length === 0) return;
-  const { layoutMindMap } = await import("../idea-layout");
   // Remember the hand-placed layout the first time we leave free mode (#169), so
   // removing the arrangement can restore it.
   captureFreeLayoutOnce(editor);
@@ -167,13 +164,11 @@ export function applyCompletion(editor: Editor, completion: Completion): void {
  * a quadrant via the pure {@link layoutPriorityGrid}, and applies the positions in
  * one transaction; unscored cards park in a lane below the grid. Like Arrange,
  * only card `x/y` change — bound edge-arrows track their cards for free — and it
- * runs on demand only. A no-op on an empty board. The layout math (#138) is
- * dynamically imported — see {@link arrangeMindMap}.
+ * runs on demand only. A no-op on an empty board.
  */
-export async function arrangePriorityGrid(editor: Editor): Promise<void> {
+export function arrangePriorityGrid(editor: Editor): void {
   const cards = ideaCards(editor);
   if (cards.length === 0) return;
-  const { layoutPriorityGrid } = await import("../idea-layout");
   // Remember the hand-placed layout the first time we leave free mode (#169).
   captureFreeLayoutOnce(editor);
   const scored: ScoredCard[] = cards.map((c) => {
