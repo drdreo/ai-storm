@@ -48,11 +48,7 @@ export const FilterChips = track(function FilterChips({ $filter }: { $filter: Fi
       className="absolute left-1/2 top-2 z-[1] flex max-w-[min(90%,44rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5"
     >
       {layout && (
-        <Chip
-          label={layoutLabel(layout)}
-          title="Dismiss arrangement indicator"
-          onRemove={() => $layout.set(null)}
-        />
+        <Chip label={layoutLabel(layout)} title="Dismiss arrangement indicator" onRemove={() => $layout.set(null)} />
       )}
       {chips.map((chip) => (
         <Chip
