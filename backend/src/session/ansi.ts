@@ -9,13 +9,15 @@
  *
  * This previously lived client-side (`frontend/src/app/core/ansi.ts`). The
  * response layer is now extracted backend-side, so the cleaning logic moved
- * here with it: `tmux capture-pane -p` already drops escapes, but it is applied
- * as defence-in-depth for residual control bytes (design §4.3 step 3), and the
- * Windows node-pty backend relies on it to clean the raw PTY byte stream.
+ * here with it: `tmux capture-pane -p` already drops escapes, so this is
+ * applied only as defence-in-depth for residual control bytes (design §4.3
+ * step 3) on the POSIX/tmux path.
+ *
+ * This is not a general ANSI/VT engine — it never reconstructs cursor-addressed
+ * screens (see `screen.ts`'s `TerminalScreen`, which wraps `@xterm/headless`
+ * for that on the Windows/ConPTY path). It is a plain regex stripper, used only
+ * where the input is already a flattened, non-cursor-addressed capture.
  */
-
-const ESC = String.fromCharCode(0x1b); // 7-bit escape introducer
-const CSI8 = String.fromCharCode(0x9b); // 8-bit CSI introducer
 
 const ANSI_PATTERN = new RegExp(
   [
@@ -49,18 +51,4 @@ export function stripAnsi(input: string): string {
  */
 export function sanitize(input: string): string {
   return stripAnsi(input).replace(STRAY_CONTROL, "");
-}
-
-/**
- * Detect whether a chunk ends mid-escape-sequence (an ESC introducer with no
- * terminating final byte yet). The line buffer uses this to hold back a
- * fragment that would otherwise split an escape across chunk boundaries.
- */
-export function endsWithPartialEscape(input: string): boolean {
-  const lastEsc = Math.max(input.lastIndexOf(ESC), input.lastIndexOf(CSI8));
-  if (lastEsc === -1) return false;
-  // A complete sequence starting at lastEsc would be removed by stripAnsi; if
-  // an ESC/CSI byte survives the strip, the terminating byte hasn't arrived.
-  const tail = stripAnsi(input.slice(lastEsc));
-  return tail.includes(ESC) || tail.includes(CSI8);
 }

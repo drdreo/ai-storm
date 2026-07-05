@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { sanitize, stripAnsi, endsWithPartialEscape } from "./ansi.ts";
+import { sanitize, stripAnsi } from "./ansi.ts";
 
 const ESC = String.fromCharCode(0x1b);
 
@@ -29,11 +29,5 @@ describe("stripAnsi / sanitize", () => {
   it("sanitize strips stray control bytes but keeps tab/newline", () => {
     const input = `a${String.fromCharCode(0x00)}b\tc\nd${String.fromCharCode(0x7f)}`;
     expect(sanitize(input)).toBe("ab\tc\nd");
-  });
-
-  it("endsWithPartialEscape detects dangling escape", () => {
-    expect(endsWithPartialEscape(`done${ESC}[31`)).toBe(true);
-    expect(endsWithPartialEscape(`done${ESC}[31m`)).toBe(false);
-    expect(endsWithPartialEscape("plain text")).toBe(false);
   });
 });
