@@ -4,7 +4,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as Toolbar from "@radix-ui/react-toolbar";
 import { BarChart3, Command, FileOutput, Scale, ScrollText } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { SpecFormat } from "@ai-storm/shared";
 import type { BoardStats } from "../core/board-stats";
 import { CanvasIsland } from "../core/canvas-island";
@@ -17,9 +17,13 @@ import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
 import { BoardCommandPalette } from "./command-palette/BoardCommandPalette";
-import { SpecPanel } from "./SpecPanel";
-import { StatsPanel } from "./StatsPanel";
-import { SummaryPanel } from "./SummaryPanel";
+
+// Side panels (#138) are code-split: each pulls in its own reading of the board
+// (and, for SpecPanel, the markdown renderer) but is only needed once a user
+// actually opens it, so none of the three belong in the initial bundle.
+const SpecPanel = lazy(() => import("./SpecPanel").then((m) => ({ default: m.SpecPanel })));
+const StatsPanel = lazy(() => import("./StatsPanel").then((m) => ({ default: m.StatsPanel })));
+const SummaryPanel = lazy(() => import("./SummaryPanel").then((m) => ({ default: m.SummaryPanel })));
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -90,6 +94,14 @@ export function CanvasPane() {
   // the format picker and the Generate button, so switching format and re-running
   // is one interaction. Dispatch flows back up through `onGenerate`.
   const [specOpen, setSpecOpen] = useState(false);
+  // Each panel is code-split (#138) and only mounted once opened for the first
+  // time — never unmounted again after, so its close animation keeps working.
+  const [summaryEverOpened, setSummaryEverOpened] = useState(false);
+  const [statsEverOpened, setStatsEverOpened] = useState(false);
+  const [specEverOpened, setSpecEverOpened] = useState(false);
+  if (summaryOpen && !summaryEverOpened) setSummaryEverOpened(true);
+  if (statsOpen && !statsEverOpened) setStatsEverOpened(true);
+  if (specOpen && !specEverOpened) setSpecEverOpened(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const focusMode = useUiStore((s) => s.focusMode);
   // Full-text search index (#124): gathered fresh each time the palette opens —
@@ -263,24 +275,32 @@ export function CanvasPane() {
         )}
       </div>
 
-      <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
+      <Suspense fallback={null}>
+        {summaryEverOpened && (
+          <SummaryPanel open={summaryOpen} onOpenChange={setSummaryOpen} summary={summary} projectName={active?.title} />
+        )}
 
-      <StatsPanel
-        open={statsOpen}
-        onOpenChange={setStatsOpen}
-        stats={stats}
-        onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
-        onClearFilters={clearFilters}
-      />
+        {statsEverOpened && (
+          <StatsPanel
+            open={statsOpen}
+            onOpenChange={setStatsOpen}
+            stats={stats}
+            onApplyFilter={(patch) => active && canvas.patchFilter(active.id, patch)}
+            onClearFilters={clearFilters}
+          />
+        )}
 
-      <SpecPanel
-        open={specOpen}
-        onOpenChange={setSpecOpen}
-        projectId={active?.id}
-        projectName={active?.title}
-        boardEmpty={specBoardEmpty}
-        onGenerate={generateSpec}
-      />
+        {specEverOpened && (
+          <SpecPanel
+            open={specOpen}
+            onOpenChange={setSpecOpen}
+            projectId={active?.id}
+            projectName={active?.title}
+            boardEmpty={specBoardEmpty}
+            onGenerate={generateSpec}
+          />
+        )}
+      </Suspense>
 
       <BoardCommandPalette
         open={paletteOpen}

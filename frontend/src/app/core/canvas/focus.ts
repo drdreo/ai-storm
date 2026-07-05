@@ -6,7 +6,10 @@
  * and `App`/`CanvasPane`; this module only decides which cards stay visible.
  */
 import type { Editor, TLShapeId } from "tldraw";
-import { clusterIds } from "../idea-layout";
+// Imports directly from `common` (not the `../idea-layout` barrel) so this
+// static import doesn't drag `mind-map`/`priority-grid` out of the dynamic
+// import()s in `./layout` (#138) and back into the initial bundle.
+import { clusterIds } from "../idea-layout/common";
 import { ideaCards } from "./idea-card";
 import { ideaEdges } from "./edges";
 
