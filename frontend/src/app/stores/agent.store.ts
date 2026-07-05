@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
+import { history } from "./history.store";
 import { ingestion } from "./ingestion.store";
 import { framePrompt, frameTriage, frameSpec, type PromptIntent, type SpecOptions } from "../core/prompt-framing";
 import type { AgentArtifact, SpecFormat, TerminalConfig } from "@ai-storm/shared";
@@ -53,6 +54,13 @@ export const useAgentStore = create<AgentState>(() => ({ runs: {} }));
 
 const subscribed = new Set<string>();
 
+/**
+ * The run-history entry (#104) tracking each project's latest spec run. Kept
+ * after the run finishes (late `agent-artifacts` messages still attach to it);
+ * overwritten when the next spec run dispatches.
+ */
+const specHistoryIds = new Map<string, string>();
+
 function setRun(projectId: string, run: AgentRun | null): void {
   useAgentStore.setState((s) => ({ runs: { ...s.runs, [projectId]: run } }));
 }
@@ -65,9 +73,12 @@ function ensureSubscription(projectId: string): void {
   if (subscribed.has(projectId)) return;
   subscribed.add(projectId);
   backend.subscribe(projectId, (msg) => {
+    const historyId = specHistoryIds.get(projectId);
     if (msg.type === "agent-artifacts") {
       const run = getRun(projectId);
       if (run) setRun(projectId, { ...run, artifacts: msg.artifacts });
+      // Artifacts can land after exit — attach them to the recorded run too (#104).
+      if (historyId) history.update(historyId, { artifacts: msg.artifacts });
       return;
     }
     if (msg.type !== "agent-status") return;
@@ -83,6 +94,7 @@ function ensureSubscription(projectId: string): void {
           // dispatch-time stamp doesn't (refresh, second tab).
           format: msg.format ?? cur.format
         });
+        if (historyId && msg.format) history.update(historyId, { format: msg.format });
         break;
       case "stdout":
       case "stderr":
@@ -90,10 +102,22 @@ function ensureSubscription(projectId: string): void {
         break;
       case "exit":
         setRun(projectId, { ...cur, status: "exit", code: msg.code });
+        // Persist the finished artifact (#104): empty output is recorded as
+        // such, so a no-op run is represented clearly in history.
+        if (historyId) {
+          history.finish(historyId, {
+            status: cur.output.trim() ? "done" : "empty",
+            output: cur.output,
+            exitCode: msg.code
+          });
+        }
         break;
       case "error":
         log.error("agent.run_error", { project: projectId, data: msg.data });
         setRun(projectId, { ...cur, status: "error", output: cur.output + (msg.data ?? "") });
+        if (historyId) {
+          history.finish(historyId, { status: "error", output: cur.output + (msg.data ?? "") });
+        }
         break;
     }
   });
@@ -124,6 +148,9 @@ export const agent = {
 
     ensureSubscription(projectId);
     setRun(projectId, { status: "spawned", output: "", kind: "spec", format });
+    // Open the run's history entry (#104) — finished from exit/error above, so
+    // the artifact can be reopened after the panel closes / the app reloads.
+    specHistoryIds.set(projectId, history.record({ projectId, type: "spec", format }));
 
     backend.connect();
     backend.send({
@@ -177,12 +204,21 @@ export const agent = {
    */
   triage(projectId: string): boolean {
     if (!ingestion.isAttached(projectId)) return false;
-    const prompt = frameTriage(canvas.serializeForTriage(projectId));
+    const board = canvas.serializeForTriage(projectId);
+    const prompt = frameTriage(board);
     if (!prompt) return false;
     // Trailing '\r' submits it — a triage pass is a complete request, not an
     // editable seam like the card verbs.
     ingestion.sendInput(projectId, prompt + "\r");
     ingestion.focusTerminal(projectId);
+    // Record the request's metadata (#104): one serialized line per triageable
+    // card, so `cardCount` is the denominator the score replies count toward
+    // (see history.noteTriageScore in the ingestion pipeline).
+    history.record({
+      projectId,
+      type: "triage",
+      cardCount: board.split("\n").filter((line) => line.trim()).length
+    });
     return true;
   }
 };

@@ -9,6 +9,7 @@ import {
   FileOutput,
   Filter,
   Grid2X2,
+  History,
   LayoutList,
   ListRestart,
   Maximize2,
@@ -43,6 +44,8 @@ export interface CommandActionContext {
   onSummarize(): void;
 
   onStats(): void;
+
+  onHistory(): void;
 
   onHandoff(): void;
 
@@ -131,6 +134,16 @@ export function buildCommandActions(ctx: CommandActionContext): CommandAction[] 
       icon: BarChart3,
       disabledReason: emptyBoard,
       run: ctx.onStats
+    },
+    {
+      id: "history",
+      group: "Board",
+      label: "Run history",
+      hint: "Reopen past summaries, triage passes, and exported formats for this project.",
+      keywords: ["runs", "past", "previous", "snapshot", "recover"],
+      icon: History,
+      disabledReason: noProject,
+      run: ctx.onHistory
     },
     {
       id: "handoff",

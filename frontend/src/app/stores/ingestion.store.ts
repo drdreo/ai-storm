@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Idea, ServerMessage, TerminalConfig } from "@ai-storm/shared";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
+import { history } from "./history.store";
 import { project } from "./project.store";
 import { RenderScheduler } from "../core/render-scheduler";
 import { TerminalBinding, type TerminalSink } from "./terminal-binding";
@@ -112,6 +113,8 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
     case "score":
       // Triage score (#60) → update the target card's meta on the canvas.
       canvas.applyScore(projectId, msg.score);
+      // ...and count it toward the in-flight triage history entry (#104).
+      history.noteTriageScore(projectId);
       break;
     case "completion":
       // Done/reopen (#167) → toggle the target card's completion on the canvas.
