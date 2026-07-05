@@ -10,15 +10,12 @@ import { test as base, expect, type Locator, type Page } from "@playwright/test"
 export class Shell {
   constructor(readonly page: Page) {}
 
-  /**
-   * Project rows in the sidebar. The brand header and the footer (backend
-   * status, Settings) are also `data-sidebar="menu-item"` rows, so scope to the
-   * ones carrying a per-row "Manage" kebab — only real projects have one.
-   */
   get projectRows(): Locator {
-    return this.page
-      .locator('[data-sidebar="menu-item"]')
-      .filter({ has: this.page.getByRole("button", { name: /^Manage / }) });
+    return this.page.locator(".group\\/ws-row");
+  }
+
+  get folderRows(): Locator {
+    return this.page.locator(".group\\/folder");
   }
 
   /** The tldraw spatial surface (left pane). */
@@ -75,6 +72,17 @@ export class Shell {
     await input.fill(to);
     await input.press("Enter");
     await expect(this.projectRows.getByText(to)).toBeVisible();
+  }
+
+  async createFolder(name?: string): Promise<void> {
+    const before = await this.folderRows.count();
+    await this.newMenuButton.click();
+    await this.page.getByRole("menuitem", { name: "New folder" }).click();
+    if (name) {
+      await this.page.keyboard.type(name);
+      await this.page.keyboard.press("Enter");
+    }
+    await expect(this.folderRows).toHaveCount(before + 1);
   }
 
   /** Open the appearance Settings dialog from the sidebar footer. */

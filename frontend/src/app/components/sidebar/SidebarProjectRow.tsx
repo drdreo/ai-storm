@@ -31,7 +31,7 @@ const STATUS_HINT: Record<ProjectStatus, string> = {
 export function StatusDot({ ws }: { ws: ProjectMeta }) {
   const accent = ws.color ?? defaultProjectColor(ws.id);
   return (
-    <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+    <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true" data-testid="status-dot">
       <span
         className={cn(
           "size-2.5",
