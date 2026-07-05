@@ -8,6 +8,8 @@
  * of the contract lives in `./markers.ts` / `./scanner.ts`.
  */
 
+import { join } from "node:path";
+
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server
  * at launch (mcp-idea-capture §4.3). Built backend-side at `create()` — the
@@ -69,6 +71,52 @@ export interface HarnessProfile {
    * marker prime (§5) — one mechanism per session.
    */
   mcpArgs?: (ctx: McpLaunchContext) => string[];
+  /**
+   * True if this harness wires MCP through a non-argv channel (e.g. a config
+   * file discovered via env var) rather than `mcpArgs`. Profiles that set
+   * `mcpArgs` don't need this — use `profileUsesMcp()` to check either.
+   */
+  usesMcp?: boolean;
+  /**
+   * Build launch-time file writes + env vars for harnesses whose priming/MCP
+   * wiring has no CLI flag at all (e.g. opencode's `opencode.json` via
+   * `OPENCODE_CONFIG`). Pure: returns what to write/set — the backend performs
+   * the actual disk I/O and env application, and owns cleanup on kill/failure.
+   */
+  fileLaunch?: (ctx: FileLaunchContext) => FileLaunchResult | undefined;
+}
+
+/** True if this profile wires MCP by any means (argv or file/env). Use this
+ *  instead of checking `profile.mcpArgs` truthiness directly. */
+export function profileUsesMcp(profile: HarnessProfile): boolean {
+  return !!profile.mcpArgs || !!profile.usesMcp;
+}
+
+/** Context passed to `HarnessProfile.fileLaunch` (see there). */
+export interface FileLaunchContext {
+  /** Temp dir the backend created (e.g. via mkdtemp) for this session's files. */
+  dir: string;
+  mcp?: McpLaunchContext;
+  prime?: string;
+  /** Caller-supplied env (e.g. `spec.env`), used for idempotency — a profile
+   *  should skip generating its own config if the caller already set the env
+   *  var it would have used. */
+  callerEnv?: Record<string, string>;
+}
+
+/** Result of `HarnessProfile.fileLaunch` (see there). */
+export interface FileLaunchResult {
+  /** Absolute-path file writes the backend must perform before spawn. */
+  files: Array<{ path: string; content: string }>;
+  /** Env vars the backend must merge into the child process environment. */
+  env: Record<string, string>;
+}
+
+/** Thin pass-through mirroring how `launchArgsForProfile` wraps `mcpArgs` —
+ *  one call shape for both backends, one place to add cross-cutting behavior
+ *  later without touching backend code again. */
+export function computeFileLaunch(profile: HarnessProfile, ctx: FileLaunchContext): FileLaunchResult | undefined {
+  return profile.fileLaunch?.(ctx);
 }
 
 /** A generic harness understands no contract until proven otherwise. */
@@ -134,11 +182,50 @@ export const CODEX_PROFILE: HarnessProfile = {
   defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
 };
 
+/**
+ * The opencode CLI profile. opencode has no CLI flags for launch-time
+ * instructions or MCP config — both are read from `opencode.json`, located via
+ * the `OPENCODE_CONFIG` env var (see `fileLaunch` on `HarnessProfile`). This is
+ * the first harness whose priming/MCP wiring is file/env-based rather than
+ * argv-based, so it sets `usesMcp` (not `mcpArgs`) and `fileLaunch` instead of
+ * `systemPromptFlag`.
+ */
+export const OPENCODE_PROFILE: HarnessProfile = {
+  name: "opencode",
+  supportsIdeaContract: true,
+  usesMcp: true,
+  fileLaunch: (ctx) => {
+    // Idempotency: the caller already pinned their own OPENCODE_CONFIG (e.g. a
+    // pre-existing project opencode.json) — don't generate/override it.
+    if (ctx.callerEnv?.OPENCODE_CONFIG) return undefined;
+
+    const configPath = join(ctx.dir, "opencode.json");
+    const instructionsPath = join(ctx.dir, "ai-storm-instructions.md");
+    const config: Record<string, unknown> = { instructions: [instructionsPath] };
+    if (ctx.mcp) {
+      // NOTE: exact `mcp` key shape and any `permission` scoping are unverified
+      // against real opencode — see docs/guides/harness-authoring.md and
+      // #173's verification notes. Omitting `permission` deliberately: better
+      // to tolerate a permission prompt than ship a guessed, silently wrong
+      // scoping block.
+      config.mcp = { "ai-storm": { type: "remote", url: ctx.mcp.url } };
+    }
+    return {
+      files: [
+        { path: configPath, content: JSON.stringify(config, null, 2) },
+        { path: instructionsPath, content: ctx.prime ?? "" }
+      ],
+      env: { OPENCODE_CONFIG: configPath }
+    };
+  }
+};
+
 const PROFILES: Record<string, HarnessProfile> = {
   default: DEFAULT_PROFILE,
   claude: CLAUDE_PROFILE,
   pi: PI_PROFILE,
   codex: CODEX_PROFILE,
+  opencode: OPENCODE_PROFILE,
   bash: { ...DEFAULT_PROFILE, name: "bash" },
   python: { ...DEFAULT_PROFILE, name: "python" }
 };
@@ -213,5 +300,6 @@ export function commandProfileName(command: string): string | undefined {
   if (normalized === "claude") return "claude";
   if (normalized === "pi") return "pi";
   if (normalized === "codex") return "codex";
+  if (normalized === "opencode") return "opencode";
   return undefined;
 }

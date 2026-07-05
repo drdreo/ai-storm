@@ -16,6 +16,7 @@
  * sessions (the harness must be relaunched).
  */
 
+import { rmSync } from "node:fs";
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import type { Completion, Idea, Score } from "@ai-storm/shared";
@@ -23,6 +24,7 @@ import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
 import { ScanGate } from "./scan-gate.ts";
 import { TerminalScreen } from "./screen.ts";
+import { applyFileLaunch } from "./file-launch.ts";
 import {
   IdeaScanner,
   IdeaSink,
@@ -31,6 +33,7 @@ import {
   getProfile,
   commandProfileName,
   launchArgsForProfile,
+  profileUsesMcp,
   type HarnessProfile
 } from "./extraction/index.ts";
 import { MCP_SERVER_NAME, mcpRegistry, type McpSessionRegistry } from "../mcp/registry.ts";
@@ -64,6 +67,9 @@ interface Session {
    *  gate, so the scan re-runs against the fully-written screen). */
   writesInFlight: number;
   profile: HarnessProfile;
+  /** Temp dir holding file/env launch artifacts (e.g. opencode's `opencode.json`
+   *  + instructions), if the profile set `fileLaunch`. Removed on kill(). */
+  fileLaunchDir: string | null;
   onData: ((raw: string) => void) | null;
   onIdea: ((idea: Idea) => void) | null;
   onScore: ((score: Score) => void) | null;
@@ -127,16 +133,13 @@ export class NodePtySessionBackend implements SessionBackend {
     );
 
     // MCP wiring (mcp-idea-capture §4): mint the per-session token + URL so the
-    // launch args can carry them. Unconfigured registry → undefined → markers.
-    const mcpTarget = profile.mcpArgs ? this.#mcp.registerSession(projectId) : undefined;
+    // launch args (or, for file-wired profiles, fileLaunch) can carry them.
+    // Unconfigured registry → undefined → markers.
+    const mcpTarget = profileUsesMcp(profile) ? this.#mcp.registerSession(projectId) : undefined;
+    const mcpContext = mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined;
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
     // model default (if any), MCP wiring, and the system-prompt injection seam.
-    const requestedArgs = launchArgsForProfile(
-      profile,
-      baseArgs,
-      spec.prime,
-      mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined
-    );
+    const requestedArgs = launchArgsForProfile(profile, baseArgs, spec.prime, mcpContext);
 
     let launch;
     try {
@@ -151,6 +154,16 @@ export class NodePtySessionBackend implements SessionBackend {
       throw new Error(message, { cause: err });
     }
 
+    // File/env launch injection (harness-authoring.md §4.x): profiles with no
+    // CLI seam for priming/MCP (e.g. opencode) write a temp config instead.
+    // Pure computation in harness.ts; disk I/O and cleanup live in
+    // applyFileLaunch (shared with tmux-backend.ts).
+    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
+      this.#mcp.removeSession(projectId)
+    );
+    const fileLaunchDir = applied?.dir ?? null;
+    const fileLaunchEnv = applied?.env;
+
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;
     const env: Record<string, string> = {};
@@ -160,14 +173,22 @@ export class NodePtySessionBackend implements SessionBackend {
       COLORTERM: "truecolor",
       FORCE_COLOR: spec.env?.FORCE_COLOR ?? "1"
     });
+    Object.assign(env, fileLaunchEnv);
 
-    const term = pty.spawn(launch.cmd, launch.args, {
-      name: "xterm-256color",
-      cols,
-      rows,
-      cwd: spec.cwd ?? process.cwd(),
-      env
-    });
+    let term: IPty;
+    try {
+      term = pty.spawn(launch.cmd, launch.args, {
+        name: "xterm-256color",
+        cols,
+        rows,
+        cwd: spec.cwd ?? process.cwd(),
+        env
+      });
+    } catch (err) {
+      if (fileLaunchDir) rmSync(fileLaunchDir, { recursive: true, force: true });
+      this.#mcp.removeSession(projectId);
+      throw err;
+    }
 
     const ideaSink = new IdeaSink();
     const scoreSink = new ScoreSink();
@@ -198,6 +219,7 @@ export class NodePtySessionBackend implements SessionBackend {
       gate: new ScanGate({ onScan: () => this.#scanNow(projectId) }),
       writesInFlight: 0,
       profile,
+      fileLaunchDir,
       onData: null,
       onIdea: null,
       onScore: null,
@@ -413,6 +435,8 @@ export class NodePtySessionBackend implements SessionBackend {
     this.#sessions.delete(projectId);
     // Forget the MCP routing entirely — the session's URL 404s from here on.
     this.#mcp.removeSession(projectId);
+    // Clean up any file/env launch artifacts (e.g. opencode's temp config dir).
+    if (session.fileLaunchDir) rmSync(session.fileLaunchDir, { recursive: true, force: true });
     log.info("session.killed", { project: projectId });
   }
 }

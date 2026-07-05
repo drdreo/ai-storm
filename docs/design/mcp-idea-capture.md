@@ -250,6 +250,28 @@ to `--mcp-config` is unverified (§11.2). Same degradation: no `mcpArgs`, marker
 
 **default / bash / python** — no `mcpArgs`, no MCP, no priming (unchanged).
 
+**opencode** (#173) — a third variant: no CLI flag for MCP (or priming) at all.
+Both are read from `opencode.json`, located via the `OPENCODE_CONFIG` env var.
+`HarnessProfile` gains a second, orthogonal hook for this — `fileLaunch: (ctx)
+=> { files, env } | undefined` — a pure function returning file writes +
+env vars for the backend to apply (see
+[`harness-authoring.md` §4.4](../guides/harness-authoring.md#44-opencode--no-cli-flags-at-all-fileenv-wiring-instead)
+for the full shape). Because `mcpArgs` presence was also being used as a
+three-site truthiness gate (priming-text selection here in §5, and MCP
+session-token minting in both backends) that has nothing to do with argv, a
+profile that wires MCP via `fileLaunch` sets `usesMcp: true` instead, and those
+three call sites now check `profileUsesMcp(profile) = !!profile.mcpArgs ||
+!!profile.usesMcp`. The idempotency rule carries over: `fileLaunch` returns
+`undefined` (skips generation) if the caller already set `OPENCODE_CONFIG`
+themselves.
+
+Unverified against real opencode (flagged, not yet confirmed): the exact `mcp`
+key JSON shape, whether a `permission` key can scope tool access without a
+prompt, and whether `OPENCODE_CONFIG` merges with or replaces a project's own
+config. Per the graceful-degradation principle above: if `permission` syntax
+doesn't hold, omit it and tolerate a permission prompt rather than drop MCP
+wiring altogether.
+
 ---
 
 ## 5. Priming changes
@@ -358,6 +380,11 @@ pure JSON-RPC over Hono, testable with injected requests, no real harness needed
 2. **Marker-parity fixtures.** Every row of the §3.1 mapping table — including the `@a1!@a2!`
    combine chain and a multi-line body — produces an `Idea` deep-equal to what `scanIdeas` produces
    for the equivalent marker fixture. Guards the two paths against semantic drift.
+   **opencode (#173): pending.** opencode is an alt-screen TUI with no `--no-alt-screen` escape
+   hatch (unlike codex), so marker-scan-from-capture may be structurally unreliable for it — this
+   parity test (and its marker fixtures) need a real captured opencode session before they can be
+   written meaningfully; `extraction.test.ts` carries `it.todo` placeholders in the interim rather
+   than hand-authored, unverified fixture text.
 3. **Shared dedupe.** Tool call then identical marker scan (and the reverse) → exactly one emission;
    `idea.fallback_scan` logged for the scan-on-MCP-session case.
 4. **Ref round-trip.** `capture_idea` result ref used in a follow-up call's `links.to` and in a

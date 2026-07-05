@@ -24,10 +24,15 @@ export {
   CLAUDE_PROFILE,
   CODEX_PROFILE,
   DEFAULT_PROFILE,
+  OPENCODE_PROFILE,
   PI_PROFILE,
   commandProfileName,
+  computeFileLaunch,
   getProfile,
   launchArgsForProfile,
+  profileUsesMcp,
+  type FileLaunchContext,
+  type FileLaunchResult,
   type HarnessProfile,
   type McpLaunchContext
 } from "./harness.ts";

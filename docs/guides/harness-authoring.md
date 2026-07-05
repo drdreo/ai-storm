@@ -24,9 +24,17 @@ harness-specific **profile** is:
    (`capture_idea` / `capture_score`), or both.
 
 Everything a profile needs lives in one object: `HarnessProfile`
-(`backend/src/session/extraction.ts`). There is no other integration point —
-you do not touch `tmux-backend.ts`, `nodepty-backend.ts`, or `server.ts` to add
-a harness; they already consume profiles generically.
+(`backend/src/session/extraction/harness.ts`). For a harness whose priming/MCP
+wiring is entirely argv-based — every harness so far except opencode — that's
+also the _only_ integration point: you do not touch `tmux-backend.ts`,
+`nodepty-backend.ts`, or `server.ts`; they already consume profiles
+generically via `launchArgsForProfile`.
+
+A harness with no CLI flag for priming or MCP config at all (config-file/env-var
+only — opencode is the first case) needs the `fileLaunch` seam instead (§4.5).
+That seam's _consumption_ by both backends was added once, for opencode; adding
+a second file-based harness afterward is back to being profile-only, same as
+the argv case.
 
 ## 2. The `HarnessProfile` contract
 
@@ -49,10 +57,17 @@ export interface HarnessProfile {
   defaultConfig?: Record<string, string>;
   /** Build the CLI args that wire this harness to the backend MCP server. */
   mcpArgs?: (ctx: McpLaunchContext) => string[];
+  /** True if this harness wires MCP through a non-argv channel (file/env)
+   *  rather than `mcpArgs`. See §4.5. */
+  usesMcp?: boolean;
+  /** For harnesses with no CLI flag at all for priming/MCP: build file writes
+   *  + env vars instead of argv. See §4.5. */
+  fileLaunch?: (ctx: FileLaunchContext) => FileLaunchResult | undefined;
 }
 ```
 
-A profile is pure data plus one optional function (`mcpArgs`). `getProfile`
+A profile is pure data plus a couple of optional functions (`mcpArgs`,
+`fileLaunch`). `getProfile`
 resolves a profile by name, falling back to `DEFAULT_PROFILE` (contract
 support off) and **logging** on an unknown name — never silently guessing
 (`extraction.ts:217-225`). `commandProfileName(command)` maps the launched
@@ -198,7 +213,62 @@ marker lines would never reach the scanner. Codex also has no `mcpArgs` yet
 (its HTTP MCP transport and config keys are the newer, less-verified surface —
 see mcp-idea-capture.md §4.3).
 
-### 4.4 Registering a profile
+### 4.4 opencode — no CLI flags at all; file/env wiring instead
+
+opencode has no `--append-system-prompt`-style flag and no `--mcp-config`-style
+flag: both priming and MCP config are read from `opencode.json`, located via
+the `OPENCODE_CONFIG` env var. There's no argv seam to hook, so the profile
+sets `usesMcp` (not `mcpArgs`, which stays `undefined`) and `fileLaunch`
+instead of `systemPromptFlag`:
+
+```ts
+export const OPENCODE_PROFILE: HarnessProfile = {
+  name: "opencode",
+  supportsIdeaContract: true,
+  usesMcp: true,
+  fileLaunch: (ctx) => {
+    if (ctx.callerEnv?.OPENCODE_CONFIG) return undefined; // caller brought their own
+    const configPath = join(ctx.dir, "opencode.json");
+    const instructionsPath = join(ctx.dir, "ai-storm-instructions.md");
+    const config: Record<string, unknown> = { instructions: [instructionsPath] };
+    if (ctx.mcp) config.mcp = { "ai-storm": { type: "remote", url: ctx.mcp.url } };
+    return {
+      files: [
+        { path: configPath, content: JSON.stringify(config, null, 2) },
+        { path: instructionsPath, content: ctx.prime ?? "" }
+      ],
+      env: { OPENCODE_CONFIG: configPath }
+    };
+  }
+};
+```
+
+`fileLaunch` is pure — it returns _what_ to write and _what_ env to set; it
+performs no I/O itself. Each backend's `create()`:
+
+1. Creates a per-session temp dir (`mkdtempSync`) if `profile.fileLaunch` is set.
+2. Calls `computeFileLaunch(profile, ctx)` and, if it returns a result, writes
+   each `files` entry and merges `env` into the child process environment
+   (nodepty: the spawn `env` object; tmux: folded into the existing `-e
+KEY=VALUE` args).
+3. Cleans up the temp dir on launch failure AND on `kill()` — this is new
+   backend-side bookkeeping no argv-only profile needs, since argv has nothing
+   to clean up after the process exits.
+
+`profileUsesMcp(profile)` (`= !!profile.mcpArgs || !!profile.usesMcp`) replaces
+every prior `profile.mcpArgs ?` truthiness check (priming-text selection, MCP
+session-token minting in both backends) — those gates care whether MCP is
+wired _at all_, not specifically whether it's argv-wired.
+
+**tmux restart-survival caveat:** a tmux session survives a backend restart,
+but the in-memory record of its temp dir's path does not (unlike the MCP token,
+which is persisted via a tmux user-option and restored in `reconcile()`). A
+backend restart followed by `kill()` therefore leaves that one temp dir behind.
+Accepted as a known, documented limitation for the first file-based harness
+rather than building path-persistence for it — see the code comment at the
+tmux backend's `create()`.
+
+### 4.5 Registering a profile
 
 Add it to the `PROFILES` map and, if the CLI's binary name differs from the
 profile name, to `commandProfileName`:
@@ -208,7 +278,8 @@ const PROFILES: Record<string, HarnessProfile> = {
   default: DEFAULT_PROFILE,
   claude: CLAUDE_PROFILE,
   pi: PI_PROFILE,
-  codex: CODEX_PROFILE
+  codex: CODEX_PROFILE,
+  opencode: OPENCODE_PROFILE
   // + your new profile
 };
 
@@ -287,3 +358,6 @@ pnpm --filter backend test extraction
       if the harness's TUI preserves code fences)
 - [ ] Tests added in `extraction.test.ts` per §5 above
 - [ ] Manual live smoke run once against the real CLI
+- [ ] If your profile writes files (`fileLaunch`, §4.4): backend-side temp-file
+      bookkeeping is cleaned up both on launch failure and on `kill()` — see
+      `nodepty-backend.ts` / `tmux-backend.ts` for the pattern

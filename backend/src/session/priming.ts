@@ -6,7 +6,7 @@
  */
 
 import { getFacilitationMode } from "@ai-storm/shared";
-import { commandProfileName, getProfile } from "./extraction/index.ts";
+import { commandProfileName, getProfile, profileUsesMcp } from "./extraction/index.ts";
 
 /**
  * The §4.1 session-priming instruction. Delivered to a contract-aware harness
@@ -105,9 +105,9 @@ function formatBackground(background?: string): string {
  * is exactly the base instruction.
  *
  * The BASE segment is capability-conditional (mcp-idea-capture §5): an
- * MCP-wired profile (`mcpArgs` present) is taught the capture tools; everything
- * else keeps the byte-identical «IDEA» marker prime. Mode/background segments
- * are capability-neutral and shared by both.
+ * MCP-wired profile (argv `mcpArgs` or file/env `usesMcp`) is taught the
+ * capture tools; everything else keeps the byte-identical «IDEA» marker
+ * prime. Mode/background segments are capability-neutral and shared by both.
  */
 export function harnessSetup(
   command: string,
@@ -117,7 +117,7 @@ export function harnessSetup(
   const harnessProfile = commandProfileName(command);
   const profile = getProfile(harnessProfile);
   if (!profile.supportsIdeaContract) return { harnessProfile, prime: undefined };
-  const base = profile.mcpArgs ? MCP_PRIME_INSTRUCTION : PRIME_INSTRUCTION;
+  const base = profileUsesMcp(profile) ? MCP_PRIME_INSTRUCTION : PRIME_INSTRUCTION;
   const prime = [base, getFacilitationMode(mode).prime, formatBackground(background)].filter(Boolean).join("\n\n");
   return { harnessProfile, prime };
 }
