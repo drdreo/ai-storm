@@ -1,98 +1,24 @@
 /**
  * Unit tests for `applyIdeas` (#135), the one AI write-path that renders extracted
- * {@link Idea}s as cards + typed edges. Runs against a minimal fake tldraw
- * `Editor` implementing only what `ingest.ts` (and its `idea-card` helpers) call —
+ * {@link Idea}s as cards + typed edges. Runs against the shared {@link EditorFake}
  * so the real ref-minting, link resolution, grid/anchor placement, and supersede
  * ghosting are what's under test, not a mock of them.
  */
 import { describe, it, expect } from "vitest";
-import type { Editor } from "tldraw";
-import type { Idea } from "@ai-storm/shared";
+import { EditorFake } from "../../../testing";
 import { applyIdeas } from "./ingest";
-
-interface FakeShape {
-  id: string;
-  type: string;
-  x: number;
-  y: number;
-  props: Record<string, unknown>;
-  meta: Record<string, unknown>;
-}
-
-interface FakeBinding {
-  type: string;
-  fromId: string;
-  toId: string;
-  props: { terminal: "start" | "end"; [k: string]: unknown };
-}
-
-/** The narrow slice of tldraw's `Editor` that `applyIdeas` actually calls. */
-class FakeEditor {
-  shapes = new Map<string, FakeShape>();
-  bindings: FakeBinding[] = [];
-
-  getCurrentPageShapes(): FakeShape[] {
-    return [...this.shapes.values()];
-  }
-
-  getShape(id: string): FakeShape | undefined {
-    return this.shapes.get(id);
-  }
-
-  createShape(shape: Partial<FakeShape> & { id: string; type: string }): void {
-    this.shapes.set(shape.id, {
-      x: 0,
-      y: 0,
-      props: {},
-      meta: {},
-      ...shape
-    } as FakeShape);
-  }
-
-  createBinding(binding: FakeBinding): void {
-    this.bindings.push(binding);
-  }
-
-  updateShape(update: { id: string; props?: Record<string, unknown>; meta?: Record<string, unknown> }): void {
-    const shape = this.shapes.get(update.id);
-    if (!shape) return;
-    if (update.props) shape.props = { ...shape.props, ...update.props };
-    if (update.meta) shape.meta = { ...shape.meta, ...update.meta };
-  }
-
-  run(fn: () => void): void {
-    fn();
-  }
-
-  /** Every idea-card currently on the board. */
-  cards(): FakeShape[] {
-    return this.getCurrentPageShapes().filter((s) => s.type === "idea-card");
-  }
-
-  /** The arrow shapes (typed edges) created by `connect`. */
-  arrows(): FakeShape[] {
-    return this.getCurrentPageShapes().filter((s) => s.type === "arrow");
-  }
-}
-
-function editor(): FakeEditor {
-  return new FakeEditor();
-}
-
-/** Drive the real `applyIdeas` against the fake, which implements its used surface. */
-const apply = (e: FakeEditor, ideas: Idea[]) => applyIdeas(e as unknown as Editor, ideas);
 
 describe("applyIdeas", () => {
   it("is a no-op for an empty batch", () => {
-    const e = editor();
-    apply(e, []);
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), []);
     expect(e.cards()).toHaveLength(0);
     expect(e.arrows()).toHaveLength(0);
   });
 
   it("creates an AI-origin card per idea with kind-tinted color and a minted ref", () => {
-    const e = editor();
-    apply(e, [{ title: "First", body: "b1", kind: "problem" }]);
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [{ title: "First", body: "b1", kind: "problem" }]);
 
     const cards = e.cards();
     expect(cards).toHaveLength(1);
@@ -109,8 +35,8 @@ describe("applyIdeas", () => {
   });
 
   it("mints sequential a<n> refs across a batch", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { title: "A", body: "" },
       { title: "B", body: "" },
       { title: "C", body: "" }
@@ -119,16 +45,16 @@ describe("applyIdeas", () => {
   });
 
   it("continues the ref sequence from persisted cards across calls", () => {
-    const e = editor();
-    apply(e, [{ title: "A", body: "" }]);
-    apply(e, [{ title: "B", body: "" }]);
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [{ title: "A", body: "" }]);
+    applyIdeas(e.asEditor(), [{ title: "B", body: "" }]);
     // The second call must not reuse a1 — it reads the persisted max.
     expect(e.cards().map((c) => c.meta.ref)).toEqual(["a1", "a2"]);
   });
 
   it("honours a producer-stamped id (MCP i<n>) without perturbing the a<n> mint", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { id: "i7", title: "MCP card", body: "" },
       { title: "canvas card", body: "" }
     ]);
@@ -138,8 +64,8 @@ describe("applyIdeas", () => {
   });
 
   it("anchors a linked card beside its resolved target and draws a relation arrow", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { id: "i1", title: "Target", body: "" },
       { title: "Child", body: "", links: [{ to: "i1", relation: "about" }] }
     ]);
@@ -153,12 +79,12 @@ describe("applyIdeas", () => {
     expect(arrows).toHaveLength(1);
     expect(arrows[0].meta.relation).toBe("about");
     // Two bindings (start + end) wire the arrow to both cards.
-    expect(e.bindings.filter((b) => b.fromId === arrows[0].id)).toHaveLength(2);
+    expect(e.getBindingsFromShape(arrows[0])).toHaveLength(2);
   });
 
   it("ghosts the target of a supersedes link and styles the arrow red/dashed", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { id: "i1", title: "Old", body: "" },
       { title: "New", body: "", links: [{ to: "i1", relation: "supersedes" }] }
     ]);
@@ -173,8 +99,8 @@ describe("applyIdeas", () => {
   });
 
   it("resolves links against cards minted earlier in the same batch", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { title: "Parent", body: "" }, // becomes a1
       { title: "Child", body: "", links: [{ to: "a1" }] }
     ]);
@@ -185,15 +111,15 @@ describe("applyIdeas", () => {
   });
 
   it("drops an unresolved link and lands the card on the grid", () => {
-    const e = editor();
-    apply(e, [{ title: "Orphan", body: "", links: [{ to: "does-not-exist" }] }]);
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [{ title: "Orphan", body: "", links: [{ to: "does-not-exist" }] }]);
     expect(e.arrows()).toHaveLength(0);
     expect(e.cards()).toHaveLength(1);
   });
 
   it("connects every resolved link of a merge, not just the first", () => {
-    const e = editor();
-    apply(e, [
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
       { id: "i1", title: "A", body: "" },
       { id: "i2", title: "B", body: "" },
       {

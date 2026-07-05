@@ -1,44 +1,16 @@
 /**
  * Unit tests for the framerate-throttled {@link RenderScheduler} (#135, PRD §5.1).
- * A manual frame pump stands in for requestAnimationFrame so we control exactly
- * when frames fire: enqueues only buffer, and a single sink call drains the
- * batch per frame. Covers the double-buffer swap, per-frame cap + overflow
- * carry, synchronous flush, and disposal.
+ * The shared {@link FrameClockFake} stands in for requestAnimationFrame so we control
+ * exactly when frames fire: enqueues only buffer, and a single sink call drains the
+ * batch per frame. Covers the double-buffer swap, per-frame cap + overflow carry,
+ * synchronous flush, and disposal.
  */
 import { describe, it, expect, vi } from "vitest";
+import { FrameClockFake } from "../../testing";
 import { RenderScheduler } from "./render-scheduler";
 
-/**
- * A hand-driven rAF: `requestFrame` stores the callback instead of running it;
- * `tick()` fires the one pending callback. Mirrors how the browser coalesces
- * many enqueues into a single frame.
- */
-function fakeClock() {
-  let next = 1;
-  const pending = new Map<number, () => void>();
-  return {
-    requestFrame: (cb: () => void) => {
-      const handle = next++;
-      pending.set(handle, cb);
-      return handle;
-    },
-    cancelFrame: (handle: number) => {
-      pending.delete(handle);
-    },
-    /** Fire every callback scheduled as of now (a real frame boundary). */
-    tick() {
-      const cbs = [...pending.values()];
-      pending.clear();
-      for (const cb of cbs) cb();
-    },
-    get scheduled() {
-      return pending.size;
-    }
-  };
-}
-
 function makeScheduler<T>(maxPerFrame = 0) {
-  const clock = fakeClock();
+  const clock = new FrameClockFake();
   const batches: T[][] = [];
   const scheduler = new RenderScheduler<T>({
     sink: (batch) => batches.push(batch),
@@ -115,7 +87,7 @@ describe("RenderScheduler", () => {
   });
 
   it("does not drop items written during the sink (back/front swap)", () => {
-    const clock = fakeClock();
+    const clock = new FrameClockFake();
     const batches: number[][] = [];
     let scheduler: RenderScheduler<number>;
     scheduler = new RenderScheduler<number>({
