@@ -1,18 +1,13 @@
 /**
- * WebSocket message codec (#137) — the single choke point that turns wire
- * bytes into a typed {@link ClientMessage} and a typed {@link ServerMessage}
- * back into wire bytes. `server.ts` calls only `decode`/`encode`; it never
- * touches `JSON.parse`/`JSON.stringify` itself, so the wire format (framing,
- * encoding) can change here without touching the Hono route or its dispatch
- * logic.
+ * Serializes a {@link ServerMessage} into the wire string sent to the client
+ * (#137). Client messages already have a canonical parser/validator in
+ * `@ai-storm/shared`'s `parseClientMessage`; this is its outgoing
+ * counterpart, so `server.ts` never calls `JSON.stringify` on a socket
+ * message directly.
  */
 
 import type { ServerMessage } from "@ai-storm/shared";
 
-/** Decode a raw WebSocket text frame into a typed client message, or throw. */
-export { parseClientMessage as decodeClientMessage } from "@ai-storm/shared";
-
-/** Encode a typed server message into the wire string sent to the client. */
 export function encodeServerMessage(msg: ServerMessage): string {
   return JSON.stringify(msg);
 }

@@ -24,8 +24,8 @@ import { mcpRoutes } from "./mcp/endpoint.ts";
 import { fsRoutes } from "./fs/routes.ts";
 import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import type { ClientMessage, ServerMessage } from "@ai-storm/shared";
-import { decodeClientMessage, encodeServerMessage } from "./ws/codec.ts";
+import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
+import { encodeServerMessage } from "./ws/codec.ts";
 
 let connectionSeq = 0;
 
@@ -134,7 +134,7 @@ export function buildApp(config: ServerConfig) {
           let msg;
           try {
             log.debug("ws.message", { conn, message: String(evt.data).slice(0, 100) });
-            msg = decodeClientMessage(String(evt.data));
+            msg = parseClientMessage(String(evt.data));
           } catch (err) {
             const m = err instanceof Error ? err.message : String(err);
             log.warn("ws.bad_message", { conn, error: m });
