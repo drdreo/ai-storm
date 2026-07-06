@@ -63,6 +63,28 @@ describe("applyIdeas", () => {
     expect(refs).toEqual(["i7", "a1"]);
   });
 
+  it("remints a stamped id that collides with a card already on the board (#210)", () => {
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [{ id: "i1", title: "Original", body: "" }]);
+    // A restarted backend re-issues i1; honouring it would make @i1 ambiguous.
+    applyIdeas(e.asEditor(), [{ id: "i1", title: "Impostor", body: "" }]);
+
+    const original = e.cards().find((c) => c.props.title === "Original")!;
+    const impostor = e.cards().find((c) => c.props.title === "Impostor")!;
+    // The existing card keeps its ref; the incoming card gets a fresh canvas mint.
+    expect(original.meta.ref).toBe("i1");
+    expect(impostor.meta.ref).toBe("a1");
+  });
+
+  it("remints a stamped id that collides within the same batch (#210)", () => {
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
+      { id: "i1", title: "First", body: "" },
+      { id: "i1", title: "Second", body: "" }
+    ]);
+    expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1", "a1"]);
+  });
+
   it("anchors a linked card beside its resolved target and draws a relation arrow", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [

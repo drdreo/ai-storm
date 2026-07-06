@@ -23,9 +23,11 @@
  *
  * Ref minting (§3.3) also lives here: `i1`, `i2`, … per session, a namespace
  * disjoint from the canvas's `a<n>` mint, surviving attach/detach cycles and
- * resetting with the session. (A backend restart resets the counter too; a
- * collision with pre-restart `i<n>` refs is possible but harmless — dedupe is
- * by identity, not ref, and refs only need to resolve cards, not order them.)
+ * resetting with the session. A backend restart resets the counter too, and a
+ * re-issued `i<n>` is NOT harmless: the agent holds the old ref, so follow-up
+ * links become ambiguous and lineage corrupts (#210). `mintRef` therefore
+ * fast-forwards past every `i<n>` visible in the board snapshot before
+ * issuing, and the canvas remints on collision as a last-resort guard.
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -73,6 +75,25 @@ interface Entry {
   boardSnapshot: BoardIdeasSnapshot | null;
   /** Next `i<n>` index — session-scoped, survives reattach, dies with kill(). */
   nextRef: number;
+}
+
+/** Backend-minted ref pattern — the `i<n>` namespace (§3.3). */
+const MCP_MINT_REF = /^i(\d+)$/;
+
+/**
+ * Fast-forward a (possibly restart-reset) `nextRef` counter past every `i<n>`
+ * ref already on the board (#210): a re-issued ref would collide with a card
+ * the agent already holds a handle to, corrupting follow-up links. The snapshot
+ * covers the current page only, so this is best-effort — the canvas keeps a
+ * remint guard for anything it can't see.
+ */
+function skipMintedRefs(nextRef: number, snapshot: BoardIdeasSnapshot | null): number {
+  if (!snapshot) return nextRef;
+  for (const card of snapshot.cards) {
+    const m = card.ref ? MCP_MINT_REF.exec(card.ref) : null;
+    if (m) nextRef = Math.max(nextRef, Number(m[1]) + 1);
+  }
+  return nextRef;
 }
 
 /** Constant-time token comparison (the token is the only auth on the endpoint). */
@@ -163,7 +184,10 @@ export class McpSessionRegistry {
       get boardSnapshot() {
         return entry.boardSnapshot;
       },
-      mintRef: () => `i${entry.nextRef++}`
+      mintRef: () => {
+        entry.nextRef = skipMintedRefs(entry.nextRef, entry.boardSnapshot);
+        return `i${entry.nextRef++}`;
+      }
     };
   }
 }
