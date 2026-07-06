@@ -45,14 +45,14 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   return { ...target, ideaSink, scoreSink, ideas, scores, completions };
 }
 
-function snapshot(title: string): BoardIdeasSnapshot {
+function snapshot(title: string, ref = "a1"): BoardIdeasSnapshot {
   return {
     version: 1,
     pageId: "page:current",
     updatedAt: 1720000000000,
     cards: [
       {
-        ref: "a1",
+        ref,
         id: "shape:one",
         kind: "feature",
         title,
@@ -65,7 +65,7 @@ function snapshot(title: string): BoardIdeasSnapshot {
       }
     ],
     edges: [],
-    selection: { refs: ["a1"], ids: ["shape:one"] },
+    selection: { refs: [ref], ids: ["shape:one"] },
     filter: { kind: "feature" }
   };
 }
@@ -374,6 +374,44 @@ describe("get_board_ideas — active board read tool (#196)", () => {
     const detached = await callTool(app, "ws1", w.token, "get_board_ideas", {});
     expect(detached.result!.isError).toBe(true);
     expect(detached.result!.content[0].text).toContain("not attached");
+  });
+});
+
+describe("ref minting — board-state collision guard (#210)", () => {
+  it("fast-forwards a reset counter past i<n> refs already on the board", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    // A pre-restart capture left i3 on the board; the fresh counter starts at 1.
+    registry.updateBoardSnapshot("ws1", snapshot("Pre-restart card", "i3"));
+
+    const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Post-restart idea" });
+    expect(textOf(body)).toContain("@i4");
+    expect(w.ideas[0].id).toBe("i4");
+  });
+
+  it("ignores canvas-minted a<n> refs and mints from i1 without a snapshot", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+
+    const first = await callTool(app, "ws1", w.token, "capture_idea", { title: "No snapshot yet" });
+    expect(textOf(first)).toContain("@i1");
+
+    // An a<n> ref lives in the canvas namespace and must not perturb the counter.
+    registry.updateBoardSnapshot("ws1", snapshot("Canvas card", "a9"));
+    const second = await callTool(app, "ws1", w.token, "capture_idea", { title: "Still sequential" });
+    expect(textOf(second)).toContain("@i2");
+  });
+
+  it("never moves the counter backwards when the snapshot lags behind it", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    registry.updateBoardSnapshot("ws1", snapshot("Stale snapshot", "i1"));
+
+    const first = await callTool(app, "ws1", w.token, "capture_idea", { title: "One" });
+    expect(textOf(first)).toContain("@i2");
+    // Snapshot still says i1 (the browser hasn't re-published), but nextRef is 3.
+    const second = await callTool(app, "ws1", w.token, "capture_idea", { title: "Two" });
+    expect(textOf(second)).toContain("@i3");
   });
 });
 

@@ -95,8 +95,19 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
       // tool path mints `i<n>` and already returned it to the agent, so the
       // card MUST carry it for follow-up links/scores to resolve. The `i<n>`
       // namespace is disjoint from our `a<n>` mint (see core/canvas/refs.ts),
-      // so honouring it can never collide with — or advance — `nextRef`.
-      const ref = idea.id ?? `a${nextRef++}`;
+      // so honouring it never advances `nextRef` — but a restarted backend can
+      // re-issue an `i<n>` that is already on the board (#210). Honouring the
+      // duplicate would make the ref ambiguous, so remint a fresh canvas ref
+      // instead: the old card keeps its identity, and the new card still lands
+      // (its stale backend ref was already wrong either way).
+      let ref = idea.id ?? `a${nextRef++}`;
+      if (idea.id && (refToShape.has(idea.id) || resolveRef(editor, idea.id))) {
+        ref = `a${nextRef++}`;
+        console.warn(
+          `[ai-storm] capture ref collision: backend-stamped @${idea.id} already exists on the board; ` +
+            `reminted incoming card "${idea.title}" as @${ref} (#210)`
+        );
+      }
       const id = createShapeId();
       editor.createShape<IdeaCardShape>({
         id,
