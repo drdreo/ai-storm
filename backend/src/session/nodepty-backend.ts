@@ -137,15 +137,34 @@ export class NodePtySessionBackend implements SessionBackend {
     // Unconfigured registry → undefined → markers.
     const mcpTarget = profileUsesMcp(profile) ? this.#mcp.registerSession(projectId) : undefined;
     const mcpContext = mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined;
+
+    // File/env/args launch injection (harness-authoring.md §4.x): profiles with
+    // no CLI seam for priming/MCP config write a temp file instead — opencode's
+    // config via env var, pi's capture extension via `-e <path>` args. Applied
+    // BEFORE argv assembly so its args can join the launch argv. Pure
+    // computation in harness.ts; disk I/O and cleanup live in applyFileLaunch
+    // (shared with tmux-backend.ts).
+    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
+      this.#mcp.removeSession(projectId)
+    );
+    const fileLaunchDir = applied?.dir ?? null;
+    const fileLaunchEnv = applied?.env;
+
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
-    // model default (if any), MCP wiring, and the system-prompt injection seam.
-    const requestedArgs = launchArgsForProfile(profile, baseArgs, spec.prime, mcpContext);
+    // model default (if any), MCP wiring, the system-prompt injection seam,
+    // then any file-launch args (e.g. pi's `-e <extension>`).
+    const requestedArgs = [
+      ...launchArgsForProfile(profile, baseArgs, spec.prime, mcpContext),
+      ...(applied?.args ?? [])
+    ];
 
     let launch;
     try {
       launch = resolveLaunch(requested, requestedArgs);
     } catch (err) {
-      // The minted token must not outlive a launch that never happened.
+      // Neither the minted token nor the temp dir may outlive a launch that
+      // never happened.
+      if (fileLaunchDir) rmSync(fileLaunchDir, { recursive: true, force: true });
       this.#mcp.removeSession(projectId);
       const message =
         err instanceof LaunchNotFoundError
@@ -153,16 +172,6 @@ export class NodePtySessionBackend implements SessionBackend {
           : `Failed to resolve "${requested}": ` + (err instanceof Error ? err.message : String(err));
       throw new Error(message, { cause: err });
     }
-
-    // File/env launch injection (harness-authoring.md §4.x): profiles with no
-    // CLI seam for priming/MCP (e.g. opencode) write a temp config instead.
-    // Pure computation in harness.ts; disk I/O and cleanup live in
-    // applyFileLaunch (shared with tmux-backend.ts).
-    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
-      this.#mcp.removeSession(projectId)
-    );
-    const fileLaunchDir = applied?.dir ?? null;
-    const fileLaunchEnv = applied?.env;
 
     const cols = spec.cols ?? 120;
     const rows = spec.rows ?? 32;

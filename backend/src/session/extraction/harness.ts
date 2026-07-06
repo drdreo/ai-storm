@@ -9,6 +9,7 @@
  */
 
 import { join } from "node:path";
+import { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server
@@ -110,6 +111,14 @@ export interface FileLaunchResult {
   files: Array<{ path: string; content: string }>;
   /** Env vars the backend must merge into the child process environment. */
   env: Record<string, string>;
+  /**
+   * Extra CLI args the backend must append to the launch argv, for harnesses
+   * whose file wiring is referenced by flag rather than env var (pi's
+   * `-e <extension.ts>`, #177). Appended after `launchArgsForProfile`'s output
+   * and additive to caller-supplied args (pi's `-e` is repeatable, so a
+   * caller's own extensions still load alongside).
+   */
+  args?: string[];
 }
 
 /** Thin pass-through mirroring how `launchArgsForProfile` wraps `mcpArgs` —
@@ -151,15 +160,39 @@ export const CLAUDE_PROFILE: HarnessProfile = {
  * The pi harness profile. Pi intentionally supports the same system-prompt and
  * model flags we rely on for Claude Code, so it can be primed at launch through
  * the same profile seam and then driven as a real interactive TUI.
+ *
+ * Deterministic capture (#177): pi has no MCP support and never will, but its
+ * native extension seam is equivalent — `fileLaunch` writes a generated
+ * extension (pi-extension.ts, verified against pi 0.80.3) that registers
+ * `capture_idea`/`capture_score`/`mark_idea_done` as first-class pi tools and
+ * forwards each call to the session's capture endpoint. The extension IS an
+ * MCP client (one `tools/call` POST per capture), so `usesMcp` is accurate:
+ * it mints the session token/URL in both backends and selects the
+ * tool-teaching prime (mcp-idea-capture §5). The marker scanner keeps running
+ * underneath as the silent floor (§7) — a tool lapse logs `idea.fallback_scan`.
  */
 export const PI_PROFILE: HarnessProfile = {
   name: "pi",
   supportsIdeaContract: true,
   systemPromptFlag: "--append-system-prompt",
-  modelFlag: "--model"
+  modelFlag: "--model",
   // No defaultModel: pi is multi-provider and already has user/project default
   // model settings. Forcing haiku here would break users authenticated through
   // OpenAI, Copilot, Gemini, etc.; explicit `--model` args still pass through.
+  usesMcp: true,
+  fileLaunch: (ctx) => {
+    // No endpoint to forward to (unconfigured registry, e.g. unit tests) →
+    // no extension; the session stays on the marker floor.
+    if (!ctx.mcp) return undefined;
+    const extensionPath = join(ctx.dir, PI_EXTENSION_FILENAME);
+    return {
+      files: [{ path: extensionPath, content: piCaptureExtensionSource(ctx.mcp.url) }],
+      env: {},
+      // `-e` is repeatable and additive to auto-discovered extensions, so
+      // caller-supplied `-e` args coexist with this injection.
+      args: ["-e", extensionPath]
+    };
+  }
 };
 
 /**

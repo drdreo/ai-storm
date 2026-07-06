@@ -29,9 +29,12 @@ import {
   PI_PROFILE,
   CODEX_PROFILE,
   OPENCODE_PROFILE,
+  PI_EXTENSION_FILENAME,
   type Idea,
   type McpLaunchContext
 } from "./extraction/index.ts";
+import { TOOLS } from "../mcp/endpoint.ts";
+import { McpSessionRegistry } from "../mcp/registry.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { NodePtySessionBackend } from "./nodepty-backend.ts";
 import { fakeTmux } from "./test-support/fake-tmux.ts";
@@ -68,6 +71,12 @@ describe("profiles", () => {
     expect(getProfile("pi")).toBe(PI_PROFILE);
     expect(PI_PROFILE.supportsIdeaContract).toBe(true);
     expect(PI_PROFILE.systemPromptFlag).toBe("--append-system-prompt");
+  });
+
+  it("wires pi's capture channel via a generated extension (fileLaunch), not MCP argv (#177)", () => {
+    expect(PI_PROFILE.usesMcp).toBe(true);
+    expect(PI_PROFILE.mcpArgs).toBeUndefined();
+    expect(typeof PI_PROFILE.fileLaunch).toBe("function");
   });
 
   it("resolves the codex profile with developer-instructions priming", () => {
@@ -133,12 +142,14 @@ describe("profileUsesMcp — argv or file/env MCP wiring", () => {
     expect(profileUsesMcp(CLAUDE_PROFILE)).toBe(true);
   });
 
-  it("is true for a profile with usesMcp (opencode), which has no mcpArgs", () => {
+  it("is true for profiles with usesMcp (opencode, pi), which have no mcpArgs", () => {
     expect(profileUsesMcp(OPENCODE_PROFILE)).toBe(true);
+    // pi's generated extension is an MCP client over plain fetch (#177) —
+    // usesMcp mints the session token and selects the tool-teaching prime.
+    expect(profileUsesMcp(PI_PROFILE)).toBe(true);
   });
 
-  it("is false for profiles with neither (pi, codex, default)", () => {
-    expect(profileUsesMcp(PI_PROFILE)).toBe(false);
+  it("is false for profiles with neither (codex, default)", () => {
     expect(profileUsesMcp(CODEX_PROFILE)).toBe(false);
     expect(profileUsesMcp(DEFAULT_PROFILE)).toBe(false);
   });
@@ -181,6 +192,39 @@ describe("computeFileLaunch — opencode's file/env launch injection", () => {
   it("returns undefined for profiles with no fileLaunch (byte-identical to before)", () => {
     expect(computeFileLaunch(CLAUDE_PROFILE, { dir: "/tmp/x", prime: PRIME })).toBeUndefined();
     expect(computeFileLaunch(CODEX_PROFILE, { dir: "/tmp/x", prime: PRIME })).toBeUndefined();
+  });
+});
+
+describe("computeFileLaunch — pi's generated capture extension (#177)", () => {
+  const mcp: McpLaunchContext = {
+    url: "http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef",
+    serverName: "ai-storm"
+  };
+
+  it("writes the extension into the session dir and injects it via `-e <path>` args", () => {
+    const result = computeFileLaunch(PI_PROFILE, { dir: "/tmp/ai-storm-pi-xyz", mcp, prime: PRIME });
+    expect(result).toBeDefined();
+    expect(result!.files).toHaveLength(1);
+    const ext = result!.files[0];
+    expect(ext.path.endsWith(PI_EXTENSION_FILENAME)).toBe(true);
+    expect(result!.args).toEqual(["-e", ext.path]);
+    // Priming stays argv-based for pi (--append-system-prompt) — no env wiring.
+    expect(result!.env).toEqual({});
+    // The per-session endpoint URL (token embedded backend-side) is baked in.
+    expect(ext.content).toContain(JSON.stringify(mcp.url));
+  });
+
+  it("registers every tool the capture endpoint dispatches (name parity)", () => {
+    const result = computeFileLaunch(PI_PROFILE, { dir: "/tmp/ai-storm-pi-xyz", mcp, prime: PRIME });
+    const source = result!.files[0].content;
+    expect(TOOLS.length).toBeGreaterThanOrEqual(3);
+    for (const tool of TOOLS) {
+      expect(source).toContain(`name: ${JSON.stringify(tool.name)}`);
+    }
+  });
+
+  it("skips the extension entirely when no MCP context is available (markers-only floor)", () => {
+    expect(computeFileLaunch(PI_PROFILE, { dir: "/tmp/ai-storm-pi-xyz", prime: PRIME })).toBeUndefined();
   });
 });
 
@@ -865,6 +909,95 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
 
     await backend.kill("ws9");
     expect(existsSync(configPath)).toBe(false);
+  });
+
+  /** Resolve the tmux launch text through the long-command script indirection:
+   *  launches over 200 chars are written to a temp script (`bash '<path>'`). */
+  const launchText = (launch: string): string => {
+    const viaScript = launch.match(/^bash '(.+)'$/);
+    return viaScript ? readFileSync(viaScript[1], "utf-8") : launch;
+  };
+
+  it("injects the generated pi capture extension via `-e` when MCP is configured (#177)", async () => {
+    const registry = new McpSessionRegistry();
+    registry.configure("http://127.0.0.1:8787");
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
+    await backend.create({ projectId: "wsPi1", command: "pi", prime: PRIME });
+
+    const launch = launchText(fake.sessions.get("ai-storm-wsPi1")?.launch ?? "");
+    // Priming stays argv-based; the extension rides `-e <temp path>`.
+    expect(launch).toContain("--append-system-prompt");
+    expect(launch).toContain("'-e'");
+    expect(launch).toContain(PI_EXTENSION_FILENAME);
+    expect(launch).not.toContain("--mcp-config");
+
+    // The extension exists on disk with this session's endpoint URL baked in.
+    const extPath = launch.match(/'([^']*ai-storm-capture\.ts)'/)?.[1];
+    expect(extPath).toBeDefined();
+    expect(existsSync(extPath!)).toBe(true);
+    const url = registry.registerSession("wsPi1")!.url; // idempotent → same token
+    expect(readFileSync(extPath!, "utf-8")).toContain(JSON.stringify(url));
+
+    // Temp files follow the existing fileLaunch lifecycle: removed on kill().
+    await backend.kill("wsPi1");
+    expect(existsSync(extPath!)).toBe(false);
+  });
+
+  it("keeps caller-supplied pi `-e` extensions alongside the injected one (additive, not replaced)", async () => {
+    const registry = new McpSessionRegistry();
+    registry.configure("http://127.0.0.1:8787");
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
+    await backend.create({ projectId: "wsPi2", command: "pi", args: ["-e", "/home/user/my-ext.ts"], prime: PRIME });
+
+    const launch = launchText(fake.sessions.get("ai-storm-wsPi2")?.launch ?? "");
+    expect(launch).toContain("my-ext.ts");
+    expect(launch).toContain(PI_EXTENSION_FILENAME);
+    await backend.kill("wsPi2");
+  });
+
+  it("launches pi markers-only (no extension, no temp dir) when MCP is not configured", async () => {
+    const fake = fakeTmux();
+    // A private, UNconfigured registry → registerSession declines → no extension.
+    const backend = new TmuxSessionBackend({
+      tmux: fake.tmux,
+      sleep: async () => {},
+      registry: new McpSessionRegistry()
+    });
+    await backend.create({ projectId: "wsPi3", command: "pi", prime: PRIME });
+
+    const launch = launchText(fake.sessions.get("ai-storm-wsPi3")?.launch ?? "");
+    expect(launch).toContain("--append-system-prompt");
+    expect(launch).not.toContain(PI_EXTENSION_FILENAME);
+    expect(launch).not.toContain("'-e'");
+    await backend.kill("wsPi3");
+  });
+});
+
+describe("NodePtySessionBackend — pi capture extension launch injection (#177)", () => {
+  it("writes the extension with the session's endpoint URL and cleans it up on kill()", async () => {
+    const registry = new McpSessionRegistry();
+    registry.configure("http://127.0.0.1:8787");
+    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith("ai-storm-pi-")));
+
+    const backend = new NodePtySessionBackend({ registry });
+    // Empty command → the default shell (always resolvable), with the harness
+    // profile forced to pi so its fileLaunch runs regardless of what binary
+    // actually launches.
+    await backend.create({ projectId: "ptyPi1", command: "", harnessProfile: "pi", prime: PRIME });
+
+    const afterCreate = readdirSync(tmpdir()).filter((n) => n.startsWith("ai-storm-pi-"));
+    const created = afterCreate.find((n) => !before.has(n));
+    expect(created).toBeDefined();
+    const dir = join(tmpdir(), created!);
+    const extPath = join(dir, PI_EXTENSION_FILENAME);
+    expect(existsSync(extPath)).toBe(true);
+    const url = registry.registerSession("ptyPi1")!.url; // idempotent → same token
+    expect(readFileSync(extPath, "utf-8")).toContain(JSON.stringify(url));
+
+    await backend.kill("ptyPi1");
+    expect(existsSync(dir)).toBe(false);
   });
 });
 
