@@ -74,4 +74,13 @@ describe("handoffCardsToText", () => {
   it("returns an empty string when every card is a ghost", () => {
     expect(handoffCardsToText([card({ superseded: true })])).toBe("");
   });
+
+  it("tags the heading with the card's ref when one is supplied (#125)", () => {
+    expect(handoffCardsToText([card({ title: "Pinned", starred: true, ref: "a1" })])).toBe(
+      "### ★ ✨ Feature: Pinned [@a1]"
+    );
+    expect(handoffCardsToText([card({ title: "Linked", body: "the body", ref: "i2" })])).toBe(
+      "### ✨ Feature: Linked [@i2]\n\nthe body"
+    );
+  });
 });

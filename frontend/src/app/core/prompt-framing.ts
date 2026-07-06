@@ -214,10 +214,13 @@ const SPEC_BODIES: Record<SpecFormat, (opts: SpecOptions) => string> = {
     createIssues
       ? `Turn the brainstorm board below into GitHub issues and CREATE them: for each work item, run ` +
         `\`gh issue create\` in the current working directory with a clear title, a well-structured ` +
-        `body, and suggested labels. When done, output ONLY a summary of what was created — a table ` +
-        `with one row per issue: title and URL. If \`gh\` is unavailable or unauthorized, fall back to ` +
-        `outputting the issues as ready-to-file drafts (one \`##\` section per issue: title, body, ` +
-        `suggested labels), prefixed with a one-line explanation of why they were not created.`
+        `body, and suggested labels. Each card below is tagged with a bracketed ref like [@a1]; end ` +
+        `every created issue's body with a line \`Origin: ai-storm card @a1\` naming the ref(s) of the ` +
+        `card(s) it came from. When done, output ONLY a summary of what was created — a table with one ` +
+        `row per issue: title, URL, and the source card ref(s). If \`gh\` is unavailable or ` +
+        `unauthorized, fall back to outputting the issues as ready-to-file drafts (one \`##\` section ` +
+        `per issue: title, body, suggested labels), prefixed with a one-line explanation of why they ` +
+        `were not created.`
       : `Turn the brainstorm board below into a set of ready-to-file GitHub issues — draft them, do ` +
         `NOT create them. Output one \`##\` section per issue containing the issue title, a ` +
         `well-structured body, and suggested labels. Output only the issues markdown, nothing else.`,

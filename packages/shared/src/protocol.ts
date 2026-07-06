@@ -407,6 +407,13 @@ export interface AgentArtifact {
   kind: "github-issue";
   title: string;
   url: string;
+  /**
+   * Short refs of the source cards this issue was created from (#125), parsed
+   * from the run's summary table when the hand-off payload was ref-annotated.
+   * The client uses them to stamp the created issue's link back onto the
+   * originating cards. Absent when the run carried no refs.
+   */
+  refs?: string[];
 }
 
 /**

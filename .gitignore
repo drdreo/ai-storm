@@ -14,3 +14,4 @@ Thumbs.db
 agent-orchestrator.yaml
 # Throwaway spike artifacts (screenshots, harnesses)
 frontend/spike-*
+**/worktrees

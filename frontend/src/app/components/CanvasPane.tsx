@@ -105,6 +105,10 @@ export function CanvasPane() {
   // SpecPanel is code-split (#138) and only mounted once opened for the first
   // time — never unmounted again after, so its close animation keeps working.
   const [specEverOpened, setSpecEverOpened] = useState(false);
+  // Picker preset for intent-carrying openers (#125): the card context menu's
+  // "Create GitHub issue" opens the panel as issues + create. A fresh object per
+  // fire so repeating the action re-applies it; cleared by a plain hand-off.
+  const [specPreset, setSpecPreset] = useState<{ format: SpecFormat; createIssues: boolean } | null>(null);
   if (specOpen && !specEverOpened) setSpecEverOpened(true);
   // Run history (#104): same open/ever-opened split as the SpecPanel.
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -129,6 +133,13 @@ export function CanvasPane() {
     canvas.onReferenceIdeas((cards) => {
       const ws = selectActive(useProjectStore.getState());
       if (ws) agent.referenceIdeas(ws.id, cards);
+    });
+    // Create GitHub issue from selection (#125): open the hand-off panel preset
+    // to issues + create — the selection scopes the payload, the user confirms
+    // the side effect with Generate.
+    canvas.onCreateIssue(() => {
+      setSpecPreset({ format: "issues", createIssues: true });
+      setSpecOpen(true);
     });
   }, []);
 
@@ -205,7 +216,11 @@ export function CanvasPane() {
       triagedOnly: false
     });
   // Open the panel even if the board is empty — it shows the empty/why state.
-  const handoff = () => setSpecOpen(true);
+  // A plain hand-off carries no preset — the panel keeps its last-used format.
+  const handoff = () => {
+    setSpecPreset(null);
+    setSpecOpen(true);
+  };
   const generateSpec = (format: SpecFormat, opts: SpecOptions) => {
     if (active) agent.generateSpec(active.id, active.terminal, format, opts);
   };
@@ -328,6 +343,7 @@ export function CanvasPane() {
               projectName={active?.title}
               boardEmpty={specBoardEmpty}
               onGenerate={generateSpec}
+              preset={specPreset}
             />
           </Suspense>
         </ErrorBoundary>

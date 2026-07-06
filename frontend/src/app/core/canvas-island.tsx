@@ -49,7 +49,7 @@ export {
   selectedText,
   serializeBoardIdeasSnapshot
 } from "./canvas/serialize";
-export { applyScore, applyCompletion } from "./canvas/layout";
+export { applyScore, applyCompletion, applyIssueLinks } from "./canvas/layout";
 export { exportBoard, importBoard } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];
@@ -64,6 +64,8 @@ export interface CanvasBridge {
   onCardVerb: CardVerbHandler;
   /** Fired when "Reference in terminal" (#194) is picked on selected cards. */
   onReferenceIdeas(cards: readonly ReferencedIdea[]): void;
+  /** Fired when "Create GitHub issue" (#125) is picked on selected cards. */
+  onCreateIssue?(): void;
   /** Shares the live per-project filter atom with app-level commands (#96). */
   onFilterMount?(controller: { get(): BoardFilter; set(filter: BoardFilter): void }): () => void;
 }
@@ -115,10 +117,16 @@ export function CanvasIsland({
   const components = useMemo<TLComponents>(
     () => ({
       MainMenu: () => <CanvasMainMenu $filter={$filter} />,
-      // The context menu gets the reference seam (#194) and the session flag so
-      // "Reference in terminal" can fire — or explain itself when disabled.
+      // The context menu gets the reference seam (#194), the create-issue seam
+      // (#125), and the session flag so both can fire — or explain themselves
+      // when disabled.
       ContextMenu: (props) => (
-        <CanvasContextMenu {...props} onReference={bridge.onReferenceIdeas} sessionAttached={sessionAttached} />
+        <CanvasContextMenu
+          {...props}
+          onReference={bridge.onReferenceIdeas}
+          onCreateIssue={bridge.onCreateIssue}
+          sessionAttached={sessionAttached}
+        />
       ),
       // Surface the manual "Idea" tool (#31) next to tldraw's native tools.
       Toolbar: IdeaToolbar,

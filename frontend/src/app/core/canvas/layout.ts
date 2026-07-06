@@ -5,8 +5,9 @@
  * user-triggered (never auto-rewrite a manual placement).
  */
 import { atom, type Atom, Box, type Editor, type TLShapeId } from "tldraw";
-import type { Completion, Score } from "@ai-storm/shared";
+import type { AgentArtifact, Completion, Score } from "@ai-storm/shared";
 import { layoutMindMap, layoutPriorityGrid, type GridFrame, type ScoredCard } from "../idea-layout";
+import { githubIssueKey, type IssueLink } from "../issue-links";
 import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
 
@@ -155,6 +156,33 @@ export function applyCompletion(editor: Editor, completion: Completion): void {
   const shape = editor.getShape(id);
   if (!shape || shape.type !== "idea-card") return;
   editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, done: completion.done } });
+}
+
+/**
+ * Stamp created-issue links back onto their source cards (#125): each artifact
+ * from a finished create-issues run carries the short refs of the cards it was
+ * generated from (parsed server-side from the run's summary table); resolve
+ * each ref and write the issue onto that card's `meta.issue` — the back-link
+ * the card renders as a clickable chip. Unknown refs are ignored (the card may
+ * have been deleted); a later artifact for the same card wins (last write, like
+ * a re-triage). Stored on `meta`, so no schema migration — like the score (#60).
+ */
+export function applyIssueLinks(editor: Editor, artifacts: readonly AgentArtifact[]): void {
+  for (const artifact of artifacts) {
+    const issue: IssueLink = {
+      provider: "github",
+      key: githubIssueKey(artifact.url) ?? artifact.url,
+      url: artifact.url,
+      title: artifact.title
+    };
+    for (const ref of artifact.refs ?? []) {
+      const id = resolveRef(editor, ref);
+      if (!id) continue;
+      const shape = editor.getShape(id);
+      if (!shape || shape.type !== "idea-card") continue;
+      editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, issue } });
+    }
+  }
 }
 
 /**

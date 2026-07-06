@@ -22,6 +22,7 @@ import { harnessSetup } from "./session/priming.ts";
 import { mcpRegistry } from "./mcp/registry.ts";
 import { mcpRoutes } from "./mcp/endpoint.ts";
 import { fsRoutes } from "./fs/routes.ts";
+import { issueRoutes } from "./issues/routes.ts";
 import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
@@ -87,6 +88,7 @@ export function buildApp(config: ServerConfig) {
   mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
   app.route("/mcp", mcpRoutes(mcpRegistry));
   app.route("/api/fs", fsRoutes());
+  app.route("/api/issues", issueRoutes());
 
   app.get(
     "/pty",

@@ -6,7 +6,8 @@
       "Bash(gh issue *)",
       "Bash(git *)",
       "Bash(pnpm run *)",
-      "Bash(gh pr create --title 'style\\(ui\\): improve disabled tldraw filter buttons with opacity' --body ' *)"
+      "Bash(gh pr create --title 'style\\(ui\\): improve disabled tldraw filter buttons with opacity' --body ' *)",
+      "mcp__ai-storm__mark_idea_done"
     ]
   }
 }

@@ -16,6 +16,7 @@ interface Harness {
   sendInput: ReturnType<typeof vi.fn>;
   focusTerminal: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
+  applyIssueLinks: ReturnType<typeof vi.fn>;
   /** Push a backend message to the store's project subscription. */
   receive: (msg: ServerMessage) => void;
 }
@@ -41,10 +42,12 @@ async function makeStore(opts: { attached: boolean }): Promise<Harness> {
       }
     }
   }));
+  const applyIssueLinks = vi.fn();
   vi.doMock("./canvas.store", () => ({
     canvas: {
       serializeForHandoff: () => "★ [feature] Dark mode — the one card",
-      serializeForTriage: () => "@a1 [feature] Dark mode\n@a2 [feature] Light mode"
+      serializeForTriage: () => "@a1 [feature] Dark mode\n@a2 [feature] Light mode",
+      applyIssueLinks
     }
   }));
 
@@ -55,6 +58,7 @@ async function makeStore(opts: { attached: boolean }): Promise<Harness> {
     sendInput,
     focusTerminal,
     send,
+    applyIssueLinks,
     receive: (msg) => handlers.forEach((h) => h(msg))
   };
 }
@@ -267,5 +271,19 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
     const run = h.useAgentStore.getState().runs["ws1"];
     expect(run?.status).toBe("exit");
     expect(run?.artifacts).toEqual(artifacts);
+  });
+
+  it("stamps agent-artifacts back onto the source cards (#125)", () => {
+    h.agent.generateSpec("ws1", config, "issues", { createIssues: true });
+    const artifacts = [
+      {
+        kind: "github-issue" as const,
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12",
+        refs: ["a1"]
+      }
+    ];
+    h.receive({ type: "agent-artifacts", projectId: "ws1", artifacts });
+    expect(h.applyIssueLinks).toHaveBeenCalledWith("ws1", artifacts);
   });
 });

@@ -1,4 +1,4 @@
-import type { Completion, Idea, Score } from "@ai-storm/shared";
+import type { AgentArtifact, Completion, Idea, Score } from "@ai-storm/shared";
 import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 import { backend } from "./backend.store";
@@ -6,6 +6,7 @@ import {
   applyIdeas as islandApplyIdeas,
   applyScore as islandApplyScore,
   applyCompletion as islandApplyCompletion,
+  applyIssueLinks as islandApplyIssueLinks,
   type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
@@ -78,6 +79,8 @@ const mountWaiters = new Map<string, Array<() => void>>();
 let cardVerbHandler: ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void) | null = null;
 /** Fired when "Reference in terminal" (#194) is picked on selected cards. */
 let referenceHandler: ((cards: readonly ReferencedIdea[]) => void) | null = null;
+/** Fired when "Create GitHub issue" (#125) is picked on selected cards. */
+let createIssueHandler: (() => void) | null = null;
 let filterController: {
   get(): BoardFilter;
   set(filter: BoardFilter): void;
@@ -146,6 +149,7 @@ export const canvas = {
     onBoardChanged: () => scheduleBoardSnapshot(),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
     onReferenceIdeas: (cards) => referenceHandler?.(cards),
+    onCreateIssue: () => createIssueHandler?.(),
     onFilterMount: (controller) => {
       filterController = {
         get: controller.get,
@@ -217,9 +221,9 @@ export const canvas = {
    * one. Superseded ghosts are excluded and keep-marks (#59) flagged with ★; the
    * agent turns this into a generated spec artifact via {@link agent.generateSpec}.
    */
-  serializeForHandoff(projectId: string): string {
+  serializeForHandoff(projectId: string, opts: { withRefs?: boolean } = {}): string {
     if (!editor || projectId !== activeId) return "";
-    return serializeForHandoff(editor);
+    return serializeForHandoff(editor, opts);
   },
 
   /** Apply an extracted triage score to its target card's meta (#60). */
@@ -234,6 +238,14 @@ export const canvas = {
   applyCompletion(projectId: string, completion: Completion): void {
     if (editor && projectId === activeId) {
       islandApplyCompletion(editor, completion);
+      scheduleBoardSnapshot();
+    }
+  },
+
+  /** Stamp created-issue links back onto their source cards' meta (#125). */
+  applyIssueLinks(projectId: string, artifacts: readonly AgentArtifact[]): void {
+    if (editor && projectId === activeId) {
+      islandApplyIssueLinks(editor, artifacts);
       scheduleBoardSnapshot();
     }
   },
@@ -416,6 +428,11 @@ export const canvas = {
   /** Register the reference-in-terminal sink (#194) — see the context menu / verb bar. */
   onReferenceIdeas(cb: (cards: readonly ReferencedIdea[]) => void): void {
     referenceHandler = cb;
+  },
+
+  /** Register the create-issue sink (#125) — see the context menu's "Create GitHub issue". */
+  onCreateIssue(cb: () => void): void {
+    createIssueHandler = cb;
   },
 
   /** Tear down a deleted project's canvas state and its persisted store. */
