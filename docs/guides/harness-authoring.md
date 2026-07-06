@@ -179,22 +179,26 @@ export const CLAUDE_PROFILE: HarnessProfile = {
 `systemPromptValue` is omitted, so `launchArgsForProfile` pairs
 `--append-system-prompt` with the raw prime text verbatim.
 
-### 4.2 pi — Claude's flags for priming, a generated extension for capture
+### 4.2 pi — one generated extension carries BOTH the prime and the capture tools
 
 ```ts
 export const PI_PROFILE: HarnessProfile = {
   name: "pi",
   supportsIdeaContract: true,
-  systemPromptFlag: "--append-system-prompt",
   modelFlag: "--model",
   // No defaultModel: pi is multi-provider with its own user/project default —
   // forcing "haiku" here would break users on OpenAI/Copilot/Gemini backends.
   usesMcp: true,
   fileLaunch: (ctx) => {
-    if (!ctx.mcp) return undefined; // no endpoint → marker floor
+    if (!ctx.mcp && !ctx.prime) return undefined; // nothing to deliver
     const extensionPath = join(ctx.dir, PI_EXTENSION_FILENAME);
     return {
-      files: [{ path: extensionPath, content: piCaptureExtensionSource(ctx.mcp.url) }],
+      files: [
+        {
+          path: extensionPath,
+          content: piCaptureExtensionSource({ endpointUrl: ctx.mcp?.url, prime: ctx.prime })
+        }
+      ],
       env: {},
       args: ["-e", extensionPath]
     };
@@ -202,29 +206,43 @@ export const PI_PROFILE: HarnessProfile = {
 };
 ```
 
-pi intentionally exposes the same prompt/model flags as Claude Code, so
-priming reuses the identical argv seam. Capture is different: pi has **no MCP
-support and never will** (pi's guidance is "build CLI tools or an extension
-instead"), so instead of `mcpArgs` the profile uses `fileLaunch` (#177) to
-write a **generated TypeScript extension** (`pi-extension.ts` →
-`ai-storm-capture.ts` in the session temp dir) and load it with pi's
-repeatable `-e <file>` flag — this is the `args` field of `FileLaunchResult`,
-which both backends append to the launch argv. The extension registers
-`capture_idea` / `capture_score` / `mark_idea_done` as first-class pi tools
-(schema-validated, called deterministically like `read`/`bash`) and forwards
-each call to the session's capture endpoint as a single JSON-RPC `tools/call`
-POST — the extension is effectively a minimal MCP client, which is why the
-profile sets `usesMcp: true` (token minting + tool-teaching prime). Backend
-validation failures come back as `isError` results and are **re-thrown**
-inside the extension, because pi marks a tool call failed only when `execute`
-throws — that keeps the self-correcting retry loop intact.
+pi has **no MCP support and never will** (pi's guidance is "build CLI tools
+or an extension instead"), so instead of `mcpArgs` the profile uses
+`fileLaunch` (#177) to write a **generated TypeScript extension**
+(`pi-extension.ts` → `ai-storm-capture.ts` in the session temp dir) and load
+it with pi's repeatable `-e <file>` flag — this is the `args` field of
+`FileLaunchResult`, which both backends append to the launch argv. The
+extension registers `capture_idea` / `capture_score` / `mark_idea_done` as
+first-class pi tools (schema-validated, called deterministically like
+`read`/`bash`) and forwards each call to the session's capture endpoint as a
+single JSON-RPC `tools/call` POST — the extension is effectively a minimal
+MCP client, which is why the profile sets `usesMcp: true` (token minting +
+tool-teaching prime). Backend validation failures come back as `isError`
+results and are **re-thrown** inside the extension, because pi marks a tool
+call failed only when `execute` throws — that keeps the self-correcting retry
+loop intact.
+
+**Why the prime rides the extension too, even though pi supports
+`--append-system-prompt`:** on Windows `pi` installs as an npm `.cmd` shim,
+which `resolveLaunch` must wrap as `cmd.exe /d /s /c pi.CMD <args>` — and
+cmd's parser **truncates the launch line at the first newline** of the
+multi-line prime (quotes do not span lines in cmd), silently swallowing every
+argument after it, `-e` included. The `.ps1` shim route survives newlines but
+strips embedded double quotes instead (both verified empirically). Argv is
+simply not a transport for multi-line text through npm shims on Windows, so
+the extension appends the prime per turn via pi's `before_agent_start` event
+(`{ systemPrompt: event.systemPrompt + "\n\n" + PRIME }`) — one mechanism on
+every platform, and pi's argv stays a single-line `-e <path>`. When MCP is
+unavailable but a prime exists, the extension is still generated as the prime
+carrier (tools omitted).
 
 Verified against **pi 0.80.3** (`docs/extensions.md` + `dist` type
 declarations in the published package): `-e`/`--extension` semantics
 (repeatable, additive to auto-discovered extensions, TS loaded via jiti), the
 `registerTool` signature (typebox `parameters`, `{ content: [{type:"text",…}] }`
-result, throw-to-error), and the `StringEnum` requirement for enums. Re-verify
-those four points when bumping the pinned pi version.
+result, throw-to-error), the `StringEnum` requirement for enums, and
+`before_agent_start` system-prompt chaining. Re-verify those five points when
+bumping the pinned pi version.
 
 ### 4.3 Codex — a different launch seam entirely
 

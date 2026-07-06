@@ -14,6 +14,17 @@
  * backend-side — never derived from model output, same posture as
  * `McpLaunchContext`).
  *
+ * The PRIME rides in here too — pi is NOT primed via `--append-system-prompt`
+ * argv like Claude. On Windows the `pi` binary resolves to an npm `.cmd` shim
+ * that must be wrapped as `cmd.exe /c`, and cmd's parser stops at the first
+ * newline (quotes do not span lines), so a multi-line argv prime truncates the
+ * launch line and swallows every argument after it (verified empirically
+ * against pi 0.80.3 / cmd.exe; the `.ps1` shim route survives newlines but
+ * strips embedded double quotes instead). A file has no such failure mode, so
+ * the extension appends the prime to the system prompt itself via pi's
+ * `before_agent_start` event — one mechanism on every platform, and pi's argv
+ * stays a single-line `-e <path>` that any wrapper transports intact.
+ *
  * Verified against pi 0.80.3 (docs/extensions.md + dist/core/extensions/types.d.ts):
  *  - `-e <path>` / `--extension <path>` loads a TS module via jiti, repeatable,
  *    additive to auto-discovered extensions.
@@ -26,6 +37,9 @@
  *    keeps the self-correcting validation loop (mcp-idea-capture §2) intact.
  *  - String enums must use `StringEnum` from `@earendil-works/pi-ai`
  *    (`Type.Union`/`Type.Literal` breaks Google-provider schemas).
+ *  - `before_agent_start` fires before each agent loop; returning
+ *    `{ systemPrompt }` replaces the system prompt for that turn (chained,
+ *    non-cumulative — each turn rebuilds from the base).
  *
  * The tool names, descriptions, and constraints below mirror `TOOLS` in
  * `backend/src/mcp/endpoint.ts` (typebox here vs. JSON Schema there — the two
@@ -38,19 +52,54 @@
 /** Filename the extension is written under in the session temp dir. */
 export const PI_EXTENSION_FILENAME = "ai-storm-capture.ts";
 
+/** What gets baked into the generated extension. At least one of the two must
+ *  be present or `PI_PROFILE.fileLaunch` skips generation entirely. */
+export interface PiExtensionInputs {
+  /** Per-session capture endpoint; absent → no tools are registered. */
+  endpointUrl?: string;
+  /** Session prime; absent → the system prompt is left untouched. */
+  prime?: string;
+}
+
 /**
- * Render the extension source with the per-session capture endpoint baked in.
- * Pure string building — the backend writes the file via the shared
+ * Render the extension source with the per-session capture endpoint and prime
+ * baked in. Pure string building — the backend writes the file via the shared
  * `fileLaunch` seam (file-launch.ts), which also owns cleanup on kill/failure.
  */
-export function piCaptureExtensionSource(endpointUrl: string): string {
-  return `/**
+export function piCaptureExtensionSource({ endpointUrl, prime }: PiExtensionInputs): string {
+  const header = `/**
  * ai-storm capture extension — GENERATED at session launch; do not edit.
  * Forwards capture tool calls to this session's ai-storm backend endpoint as
- * single-message JSON-RPC (the same tools/call surface MCP clients use).
+ * single-message JSON-RPC (the same tools/call surface MCP clients use), and
+ * appends the session prime to the system prompt (argv priming does not
+ * survive pi's Windows .cmd shim — see pi-extension.ts in ai-storm).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+`;
+  // The prime segment: appended per turn via before_agent_start (chained,
+  // non-cumulative — pi rebuilds the base system prompt each turn).
+  const primeSegment = prime
+    ? `
+const PRIME = ${JSON.stringify(prime)};
+`
+    : "";
+  const primeRegistration = prime
+    ? `
+  pi.on("before_agent_start", async (event) => ({
+    systemPrompt: event.systemPrompt + "\\n\\n" + PRIME
+  }));
+`
+    : "";
+  const toolsSegment = endpointUrl ? toolsSource(endpointUrl) : "";
+  const toolsRegistration = endpointUrl ? TOOLS_REGISTRATION : "";
+  return `${header}${toolsSegment}${primeSegment}
+export default function (pi: ExtensionAPI) {${primeRegistration}${toolsRegistration}}
+`;
+}
+
+/** The forwarding plumbing + typebox imports — only present when an endpoint is. */
+function toolsSource(endpointUrl: string): string {
+  return `import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 
 const ENDPOINT = ${JSON.stringify(endpointUrl)};
@@ -84,8 +133,11 @@ async function forward(name: string, args: unknown): Promise<string> {
   if (msg.result?.isError) throw new Error(text || "capture failed");
   return text || "ok";
 }
+`;
+}
 
-export default function (pi: ExtensionAPI) {
+/** The three `pi.registerTool` calls, inserted into the default export's body. */
+const TOOLS_REGISTRATION = `
   pi.registerTool({
     name: "capture_idea",
     label: "Capture idea",
@@ -149,6 +201,4 @@ export default function (pi: ExtensionAPI) {
       return { content: [{ type: "text", text: await forward("mark_idea_done", params) }], details: {} };
     }
   });
-}
 `;
-}
