@@ -12,6 +12,7 @@
  */
 
 import type { SpecFormat } from "@ai-storm/shared";
+import { normalizeKind } from "./idea-descriptors";
 
 /**
  * The intent behind feeding a selection into the prompt — one per card verb
@@ -66,6 +67,57 @@ export function framePrompt(
   const body = PROMPT_TEMPLATES[intent](trimmed);
   const directive = refs.length ? refDirective(refs, intent) : "";
   return directive ? `${directive}\n\n${body}` : body;
+}
+
+/**
+ * The card facts {@link frameReference} folds into a reference block (#194) — a
+ * structural subset of `SerializedSelectedIdeaCard` (the #192 normalized
+ * serializer), declared here so this module stays tldraw-import-free.
+ */
+export interface ReferencedIdea {
+  ref: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  starred?: boolean;
+  done?: boolean;
+  superseded?: boolean;
+  score?: { impact: number; effort: number; confidence?: number };
+}
+
+/** One card's reference-block lines: `@ref [kind] Title (flags)` + the body. */
+function referenceLine(card: ReferencedIdea): string {
+  const ref = card.ref ? `@${card.ref} ` : "";
+  const kind = normalizeKind(card.kind);
+  const tag = kind ? `[${kind}] ` : "";
+  const flags = [
+    card.starred ? "★ marked" : "",
+    card.done ? "✓ done" : "",
+    card.superseded ? "superseded" : "",
+    card.score ? `impact ${card.score.impact}/5 · effort ${card.score.effort}/5` : ""
+  ].filter(Boolean);
+  const suffix = flags.length ? ` (${flags.join(" · ")})` : "";
+  const heading = `${ref}${tag}${card.title.trim()}${suffix}`.trim();
+  const body = card.body?.trim();
+  return body ? `${heading}\n${body}` : heading;
+}
+
+/**
+ * Frame selected cards into a plain reference block (#194) — the verb-free
+ * hand-off: unlike {@link framePrompt}, it carries NO preset intent and NO
+ * tagging directive; it just puts the selection (led by each card's stable
+ * `@ref`) in front of the agent and leaves the next prompt entirely to the
+ * user. Same editable-seam invariant as the verb templates: trailing space, no
+ * trailing newline, so nothing auto-submits and the cursor lands ready. Same
+ * echo rule too: no literal `«…»` marker tokens (PD-008 — the screen is
+ * scanned). Returns `''` for an empty list.
+ */
+export function frameReference(cards: readonly ReferencedIdea[]): string {
+  const blocks = cards.map(referenceLine).filter((block) => block.trim());
+  if (blocks.length === 0) return "";
+  const example = cards.find((card) => card.ref)?.ref;
+  const refHint = example ? ` (like @${example})` : "";
+  return `Referenced canvas ideas:\n\n${blocks.join("\n\n")}\n\nUse the refs above${refHint} when discussing these ideas. `;
 }
 
 /**

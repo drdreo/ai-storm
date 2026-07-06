@@ -7,7 +7,7 @@
  */
 import { stopEventPropagation, TldrawUiButton, TldrawUiButtonLabel, TldrawUiToolbar, track, useEditor } from "tldraw";
 import { cardToText, serializeCards } from "../canvas-text";
-import type { PromptIntent } from "../prompt-framing";
+import type { PromptIntent, ReferencedIdea } from "../prompt-framing";
 import type { IdeaCardShape } from "./idea-card";
 import { serializeSelectedIdeas, type SerializedSelectedIdeas } from "./serialize";
 
@@ -42,9 +42,12 @@ function sourceRefs(payload: SerializedSelectedIdeas): string[] {
  */
 export const CardVerbBar = track(function CardVerbBar({
   onVerb,
+  onReference,
   disabled = false
 }: {
   onVerb: CardVerbHandler;
+  /** Fires "Reference in terminal" (#194) with the normalized selected cards. */
+  onReference?: (cards: readonly ReferencedIdea[]) => void;
   /** No live session (#106): the verbs type into a terminal that isn't there, so
    *  they render disabled with a "start a session" hint rather than silently no-op. */
   disabled?: boolean;
@@ -74,6 +77,28 @@ export const CardVerbBar = track(function CardVerbBar({
     if (!text.trim()) return;
     onVerb(text, "combine", sourceRefs(payload));
   };
+
+  // Reference in terminal (#194): the verb-free hand-off — @ref block in, user
+  // types the follow-up prompt. Offered for one card AND for multi-selects,
+  // where Combine was previously the only move.
+  const fireReference = () => {
+    const payload = serializeSelectedIdeas(editor);
+    if (payload) onReference?.(payload.cards);
+  };
+  const referenceButton = onReference && (
+    <TldrawUiButton
+      type="normal"
+      disabled={disabled}
+      onClick={fireReference}
+      tooltip={
+        disabled
+          ? disabledTip
+          : `Put the selected ${multi ? "cards" : "card"} in front of the agent by @ref — you type the prompt`
+      }
+    >
+      <TldrawUiButtonLabel>❯ Reference</TldrawUiButtonLabel>
+    </TldrawUiButton>
+  );
 
   return (
     <div
@@ -117,6 +142,7 @@ export const CardVerbBar = track(function CardVerbBar({
             </TldrawUiButton>
           ))
         )}
+        {referenceButton}
       </TldrawUiToolbar>
     </div>
   );

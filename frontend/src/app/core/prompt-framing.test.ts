@@ -11,11 +11,13 @@ import { describe, it, expect } from "vitest";
 import type { SpecFormat } from "@ai-storm/shared";
 import {
   framePrompt,
+  frameReference,
   frameTriage,
   frameSpec,
   PROMPT_TEMPLATES,
   SPEC_FORMATS,
-  type PromptIntent
+  type PromptIntent,
+  type ReferencedIdea
 } from "./prompt-framing";
 
 describe("framePrompt", () => {
@@ -216,6 +218,75 @@ describe("PROMPT_TEMPLATES", () => {
 
   it("discuss frames with the expected scaffold", () => {
     expect(PROMPT_TEMPLATES.discuss("S")).toBe("Regarding these notes from the canvas:\n\nS\n\nLet's discuss: ");
+  });
+});
+
+describe("frameReference (#194)", () => {
+  const card = (over: Partial<ReferencedIdea> = {}): ReferencedIdea => ({
+    ref: "a1",
+    kind: "feature",
+    title: "Offline sync",
+    body: "Cache CRDT ops offline",
+    ...over
+  });
+
+  it('returns "" for an empty selection', () => {
+    expect(frameReference([])).toBe("");
+  });
+
+  it('returns "" when every card frames to nothing', () => {
+    expect(frameReference([card({ ref: null, kind: "", title: "   ", body: "  " })])).toBe("");
+  });
+
+  it("leads each card with its @ref, kind tag, and title, body on the next lines", () => {
+    const out = frameReference([card()]);
+    expect(out).toContain("Referenced canvas ideas:");
+    expect(out).toContain("@a1 [feature] Offline sync\nCache CRDT ops offline");
+  });
+
+  it("references every selected card, each with its own ref", () => {
+    const out = frameReference([card(), card({ ref: "a2", kind: "risk", title: "Conflict resolution", body: "" })]);
+    expect(out).toContain("@a1 [feature] Offline sync");
+    expect(out).toContain("@a2 [risk] Conflict resolution");
+  });
+
+  it("carries NO preset verb — only the neutral refs hint follows the cards", () => {
+    const out = frameReference([card()]);
+    expect(out).toContain("Use the refs above (like @a1) when discussing these ideas.");
+    // None of the verb scaffolds leak in.
+    expect(out).not.toMatch(/Let's discuss|Expand on|stress-test|into ONE stronger/);
+  });
+
+  it("keeps the editable-cursor invariant (trailing space, no trailing newline)", () => {
+    const out = frameReference([card()]);
+    expect(out.endsWith(" ")).toBe(true);
+    expect(out.endsWith("\n")).toBe(false);
+    expect(out.endsWith("\n ")).toBe(false);
+  });
+
+  it("never embeds a literal marker token (echo safety, PD-008)", () => {
+    const out = frameReference([card({ title: "Marker safety" })]);
+    expect(out).not.toContain("«IDEA");
+    expect(out).not.toContain("«SCORE");
+    expect(out).not.toContain("<<IDEA");
+  });
+
+  it("annotates marked/done/superseded/scored cards compactly", () => {
+    const out = frameReference([
+      card({ starred: true, done: true, superseded: true, score: { impact: 5, effort: 2, confidence: 4 } })
+    ]);
+    expect(out).toContain("★ marked");
+    expect(out).toContain("✓ done");
+    expect(out).toContain("superseded");
+    expect(out).toContain("impact 5/5 · effort 2/5");
+  });
+
+  it("tolerates a missing ref and an unknown kind (still references the card)", () => {
+    const out = frameReference([card({ ref: null, kind: "" })]);
+    expect(out).toContain("Offline sync");
+    expect(out).not.toContain("@");
+    // No ref anywhere → the refs hint drops its example.
+    expect(out).toContain("Use the refs above when discussing these ideas.");
   });
 });
 
