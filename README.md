@@ -89,13 +89,12 @@ project's persisted store (the React `key` changes) and swaps the kept-alive
 xterm instance — sub-100ms. Detaching a project tears down its pipeline, render
 scheduler, and PTY.
 
-## Quick start (the `ai-storm` command)
+## Getting started
 
-The fastest way to run ai-storm is the bundled launcher CLI (#216) — one
-command starts the daemon with the built client served on the same origin,
-picks a free port, opens your browser, and captures logs.
+You need [Node.js](https://nodejs.org) (24 LTS recommended) and
+[git](https://git-scm.com). Everything else is checked and installed for you.
 
-Install (clones to `~/.ai-storm/app`, builds, and puts `ai-storm` on your PATH):
+**1. Install** — paste one line into a terminal:
 
 ```sh
 # Linux / macOS
@@ -105,22 +104,31 @@ curl -fsSL https://raw.githubusercontent.com/drdreo/ai-storm/main/scripts/instal
 irm https://raw.githubusercontent.com/drdreo/ai-storm/main/scripts/install.ps1 | iex
 ```
 
-Already have a clone? `node packages/cli/bin/ai-storm.ts` works directly.
+**2. Run:**
 
 ```sh
-ai-storm doctor    # preflight: Node, pnpm, tmux, AI harnesses (claude/codex/pi/opencode)
-ai-storm           # start the daemon + open http://127.0.0.1:8787
-ai-storm status    # pid, port, health
-ai-storm logs -f   # stream the backend log
-ai-storm stop      # stop the daemon (durable tmux sessions survive)
-ai-storm update    # git pull --ff-only, rebuild, restart if running
+ai-storm
 ```
 
-The daemon runs detached; logs and the pidfile live in a per-user state dir
-(`~/.local/state/ai-storm` on Linux, `~/Library/Application Support/ai-storm`
-on macOS, `%LOCALAPPDATA%\ai-storm` on Windows). If the default port 8787 is
-taken by another app, the launcher walks forward to the next free port; if an
-ai-storm daemon already answers there, it just reopens the browser tab.
+That's it — the app opens in your browser at `http://127.0.0.1:8787` and
+keeps running in the background until you stop it.
+
+Everyday commands:
+
+| Command           | What it does                                    |
+| ----------------- | ----------------------------------------------- |
+| `ai-storm`        | Start the app and open it in your browser       |
+| `ai-storm stop`   | Stop it (your brainstorm sessions survive)      |
+| `ai-storm update` | Get the latest version                          |
+| `ai-storm doctor` | Something not working? This says what's missing |
+| `ai-storm status` | Is it running, and where                        |
+| `ai-storm logs`   | Show the app's log (add `-f` to stream it)      |
+
+Good to know: if port 8787 is busy, the launcher picks the next free one. Logs
+live in `~/.local/state/ai-storm` (Linux), `~/Library/Application
+Support/ai-storm` (macOS) or `%LOCALAPPDATA%\ai-storm` (Windows). Already have
+a clone? `node packages/cli/bin/ai-storm.ts` runs the same launcher without
+installing anything. Distribution rationale: PD-023.
 
 ## Requirements
 

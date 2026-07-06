@@ -194,6 +194,37 @@ decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
 
+### PD-023 — Distribution is a launcher CLI over a git checkout, not an app bundle
+
+`(2026-07-06, accepted, extends PD-003; #216)`
+
+- **Decision:** ai-storm ships as a **launcher CLI** (`packages/cli`, the `ai-storm` command) plus
+  one-line **bootstrap installers** (`scripts/install.sh` / `install.ps1`) that clone the repo to a
+  per-user directory, build it, and put a shim on PATH — not as an Electron/Tauri shell, an npm
+  package, or a single-file binary. The launcher supervises the _existing_ backend unchanged
+  (spawns `backend/src/main.ts --static frontend/dist`, so one detached process serves API,
+  WebSocket and client same-origin), tracks it via a pidfile + `/health` polling, walks to the next
+  free port on conflict, and opens the default browser. Three deliberate constraints: (1) the CLI
+  is **dependency-free** (Node built-ins only, run through native type stripping) so it works on a
+  fresh clone before any `pnpm install`; (2) runtime state (pidfile, logs) lives in a per-user
+  state dir _outside_ the checkout so updates never collide with a running daemon; (3) the upgrade
+  path is `git pull --ff-only` + rebuild (`ai-storm update`) — a dirty tree aborts rather than
+  clobbers.
+- **Why:** The two-terminal pnpm workflow was the last "developer-only" seam (#216). But the users
+  are developers with AI CLIs already on PATH (PD-003), and the browser is the UI (PD-016) — a
+  webview shell adds ~100MB and an update infrastructure for zero capability. Binary packaging
+  (SEA/pkg) fights the native `node-pty` module and the harness subprocesses; npm publishing adds
+  a release pipeline before the product is stable. A git checkout is the honest distribution for a
+  source-first project: `update` is a pull, rollback is a checkout, and the installer is ~100
+  auditable lines per platform. The dependency-free rule keeps the bootstrap free of
+  chicken-and-egg (the tool that runs `pnpm install` cannot need it).
+- **Affects:** New `packages/cli` (lifecycle: `start`/`stop`/`restart`/`status`/`logs`/`doctor`/
+  `update`) and `scripts/install.{sh,ps1}`; README "Getting started". Backend and frontend are
+  untouched — the launcher composes existing seams (`--static`, `/health`, `AI_STORM_PORT`).
+  Preflight UX (tmux/Node/harness checks) reuses the same requirements the backend enforces at
+  boot (§9). Revisit if ai-storm ever targets non-developer users — that's when an app bundle
+  earns its weight.
+
 ### PD-022 — Subprocess safeguards are sized for local-first, not hosted
 
 `(2026-07-03, accepted, extends PD-003/PD-007; #142)`
