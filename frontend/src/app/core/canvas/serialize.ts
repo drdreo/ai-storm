@@ -5,6 +5,7 @@
  * No mutation here (except `cardRef`'s lazy ref mint); these just read the editor.
  */
 import type { Editor } from "tldraw";
+import type { BoardIdeaCard, BoardIdeaEdge, BoardIdeasSnapshot } from "@ai-storm/shared";
 import { handoffCardsToText, serializeCards } from "../canvas-text";
 import { isTriageableKind, normalizeKind } from "../idea-descriptors";
 import type { BoardCard, BoardEdge, BoardSnapshot } from "../summarize.ts";
@@ -134,6 +135,65 @@ export function serializeSelectedIdeas(editor: Editor): SerializedSelectedIdeas 
 export function serializeSelectedIdeasJson(editor: Editor): string | null {
   const payload = serializeSelectedIdeas(editor);
   return payload ? JSON.stringify(payload) : null;
+}
+
+/**
+ * Current-page idea state for MCP read tools (#196). This deliberately mirrors
+ * the compact #192 selected-idea payload, but reads every idea card on the active
+ * page and includes light spatial/filter/selection context so the terminal AI
+ * can reason about the board it is attached to without seeing other projects.
+ */
+export function serializeBoardIdeasSnapshot(
+  editor: Editor,
+  filter?: Record<string, unknown>,
+  now = Date.now()
+): BoardIdeasSnapshot {
+  const cards = cardsInOrder(editor);
+  const refs = new Map<string, string | null>();
+  const payloadCards: BoardIdeaCard[] = cards.map((card) => {
+    const meta = card.meta as IdeaCardMeta;
+    const ref = cardRef(editor, card.id) ?? null;
+    refs.set(card.id, ref);
+    return {
+      ref,
+      id: card.id as string,
+      kind: card.props.kind,
+      title: card.props.title,
+      body: card.props.body,
+      origin: card.props.origin,
+      createdAt: meta.createdAt,
+      starred: !!meta.starred,
+      done: !!meta.done,
+      superseded: card.props.superseded,
+      score: meta.score,
+      position: { x: card.x, y: card.y }
+    };
+  });
+
+  const cardIds = new Set(cards.map((card) => card.id));
+  const edges: BoardIdeaEdge[] = ideaEdges(editor, cardIds).map((edge) => ({
+    from: refs.get(edge.from as string) ?? null,
+    to: refs.get(edge.to as string) ?? null,
+    fromId: edge.from as string,
+    toId: edge.to as string,
+    relation: edge.relation
+  }));
+
+  const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
+  return {
+    version: 1,
+    pageId: editor.getCurrentPageId() as string,
+    updatedAt: now,
+    cards: payloadCards,
+    edges,
+    selection: {
+      refs: selectedCards
+        .map((card) => refs.get(card.id) ?? cardRef(editor, card.id) ?? null)
+        .filter((r): r is string => !!r),
+      ids: selectedCards.map((card) => card.id as string)
+    },
+    ...(filter ? { filter } : {})
+  };
 }
 
 /**

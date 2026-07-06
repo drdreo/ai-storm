@@ -122,6 +122,7 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       break;
     case "session-status":
       applyStatus(projectId, msg.status);
+      if (msg.status === "attached") canvas.publishBoardSnapshot(projectId);
       break;
     case "exit":
       active.get(projectId)?.scheduler.flushNow();

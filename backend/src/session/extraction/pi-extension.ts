@@ -201,4 +201,17 @@ const TOOLS_REGISTRATION = `
       return { content: [{ type: "text", text: await forward("mark_idea_done", params) }], details: {} };
     }
   });
+
+  pi.registerTool({
+    name: "get_board_ideas",
+    label: "Get board ideas",
+    description:
+      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
+      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
+    promptSnippet: "Read the active ai-storm board ideas",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, params) {
+      return { content: [{ type: "text", text: await forward("get_board_ideas", params) }], details: {} };
+    }
+  });
 `;

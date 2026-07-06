@@ -319,6 +319,14 @@ async function dispatch(
         });
       }
       break;
+    case "board-snapshot":
+      mcpRegistry.updateBoardSnapshot(msg.projectId, msg.snapshot);
+      log.debug("board.snapshot", {
+        project: msg.projectId,
+        cards: msg.snapshot.cards.length,
+        edges: msg.snapshot.edges.length
+      });
+      break;
     case "agent":
       // Concurrency ceiling (#142): each run is a full harness process; an
       // unbounded burst of `agent` messages would fork-bomb the host.

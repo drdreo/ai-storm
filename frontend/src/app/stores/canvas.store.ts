@@ -1,6 +1,7 @@
 import type { Completion, Idea, Score } from "@ai-storm/shared";
 import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
+import { backend } from "./backend.store";
 import {
   applyIdeas as islandApplyIdeas,
   applyScore as islandApplyScore,
@@ -10,6 +11,7 @@ import {
   exportBoard as islandExportBoard,
   importBoard as islandImportBoard,
   selectedText,
+  serializeBoardIdeasSnapshot,
   serializeEditor,
   serializeForHandoff,
   serializeForTriage
@@ -80,9 +82,36 @@ let filterController: {
   get(): BoardFilter;
   set(filter: BoardFilter): void;
 } | null = null;
+let snapshotTimer: number | null = null;
 
 function bumpIdeasTick(): void {
   useCanvasStore.setState((s) => ({ ideasTick: s.ideasTick + 1 }));
+}
+
+function publishBoardSnapshot(): void {
+  if (!editor || !activeId) return;
+  backend.send({
+    type: "board-snapshot",
+    projectId: activeId,
+    snapshot: serializeBoardIdeasSnapshot(
+      editor,
+      filterController?.get() as unknown as Record<string, unknown> | undefined
+    )
+  });
+}
+
+function scheduleBoardSnapshot(): void {
+  if (snapshotTimer !== null) clearTimeout(snapshotTimer);
+  snapshotTimer = setTimeout(() => {
+    snapshotTimer = null;
+    publishBoardSnapshot();
+  }, 100) as unknown as number;
+}
+
+function publishBoardSnapshotFor(projectId: string): boolean {
+  if (!editor || projectId !== activeId) return false;
+  publishBoardSnapshot();
+  return true;
 }
 
 function onEditorMount(ed: Editor): void {
@@ -103,6 +132,7 @@ function onEditorMount(ed: Editor): void {
     mountWaiters.delete(activeId!);
     waiters.forEach((resolve) => resolve());
   }
+  scheduleBoardSnapshot();
 }
 
 export const canvas = {
@@ -113,12 +143,20 @@ export const canvas = {
    */
   bridge: {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
+    onBoardChanged: () => scheduleBoardSnapshot(),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
     onReferenceIdeas: (cards) => referenceHandler?.(cards),
     onFilterMount: (controller) => {
-      filterController = controller;
+      filterController = {
+        get: controller.get,
+        set: (filter) => {
+          controller.set(filter);
+          scheduleBoardSnapshot();
+        }
+      };
+      scheduleBoardSnapshot();
       return () => {
-        if (filterController === controller) filterController = null;
+        if (filterController?.get === controller.get) filterController = null;
       };
     }
   } as CanvasBridge,
@@ -155,6 +193,7 @@ export const canvas = {
     if (editor && projectId === activeId) {
       islandApplyIdeas(editor, ideas);
       bumpIdeasTick();
+      scheduleBoardSnapshot();
     } else {
       const q = pending.get(projectId) ?? [];
       q.push(...ideas);
@@ -185,12 +224,18 @@ export const canvas = {
 
   /** Apply an extracted triage score to its target card's meta (#60). */
   applyScore(projectId: string, score: Score): void {
-    if (editor && projectId === activeId) islandApplyScore(editor, score);
+    if (editor && projectId === activeId) {
+      islandApplyScore(editor, score);
+      scheduleBoardSnapshot();
+    }
   },
 
   /** Apply a done/reopen change to its target card's meta (#167). */
   applyCompletion(projectId: string, completion: Completion): void {
-    if (editor && projectId === activeId) islandApplyCompletion(editor, completion);
+    if (editor && projectId === activeId) {
+      islandApplyCompletion(editor, completion);
+      scheduleBoardSnapshot();
+    }
   },
 
   /**
@@ -221,6 +266,11 @@ export const canvas = {
     return serializeEditor(editor);
   },
 
+  /** Push the mounted project's current board read model to the backend MCP registry (#196). */
+  publishBoardSnapshot(projectId: string): boolean {
+    return publishBoardSnapshotFor(projectId);
+  },
+
   /** Plain text of the current selection — or the whole canvas (PRD §3.6). */
   getSelectedText(): string {
     return editor ? selectedText(editor) : "";
@@ -231,6 +281,7 @@ export const canvas = {
     if (!editor || projectId !== activeId) return false;
     createUserIdea(editor, editor.getViewportPageBounds().center);
     bumpIdeasTick();
+    scheduleBoardSnapshot();
     return true;
   },
 
@@ -238,6 +289,7 @@ export const canvas = {
   arrangeMindMap(projectId: string): boolean {
     if (!editor || projectId !== activeId || ideaCards(editor).length === 0) return false;
     layoutArrangeMindMap(editor);
+    scheduleBoardSnapshot();
     return true;
   },
 
@@ -245,6 +297,7 @@ export const canvas = {
   arrangePriorityGrid(projectId: string): boolean {
     if (!editor || projectId !== activeId || ideaCards(editor).length === 0) return false;
     layoutArrangePriorityGrid(editor);
+    scheduleBoardSnapshot();
     return true;
   },
 
@@ -302,6 +355,7 @@ export const canvas = {
     if (!editor || projectId !== activeId) return false;
     islandImportBoard(editor, board);
     bumpIdeasTick();
+    scheduleBoardSnapshot();
     return true;
   },
 
@@ -350,6 +404,7 @@ export const canvas = {
   patchFilter(projectId: string, patch: Partial<BoardFilter>): boolean {
     if (!editor || projectId !== activeId || !filterController) return false;
     filterController.set({ ...filterController.get(), ...patch });
+    scheduleBoardSnapshot();
     return true;
   },
 

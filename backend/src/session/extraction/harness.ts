@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { log } from "../../log.ts";
 import { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 
+const AI_STORM_MCP_TOOLS = ["capture_idea", "capture_score", "mark_idea_done", "get_board_ideas"] as const;
+
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server
  * at launch (mcp-idea-capture §4.3). Built backend-side at `create()` — the
@@ -162,7 +164,7 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     "--mcp-config",
     JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
     "--allowedTools",
-    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`
+    AI_STORM_MCP_TOOLS.map((tool) => `mcp__${serverName}__${tool}`).join(",")
   ]
 };
 
@@ -246,7 +248,7 @@ export const CODEX_PROFILE: HarnessProfile = {
     "-c",
     `mcp_servers.${serverName}.enabled=true`,
     "-c",
-    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(AI_STORM_MCP_TOOLS)}`,
     "-c",
     `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`
   ]
