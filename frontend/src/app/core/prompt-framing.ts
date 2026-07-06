@@ -18,7 +18,8 @@ import { normalizeKind } from "./idea-descriptors";
  * The intent behind feeding a selection into the prompt — one per card verb
  * (#13 `discuss`; #15 `expand` / `challenge` / `find-risks`). Adding a verb is:
  * widen this union, add a matching {@link PROMPT_TEMPLATES} entry, and add a row
- * to `CARD_VERBS` in `discuss-toolbar.ts` (the menu item that carries it).
+ * to `CARD_VERBS` in `canvas/CardVerbBar.tsx` (the Templates dropdown entry that
+ * carries it, #195).
  */
 export type PromptIntent = "discuss" | "expand" | "challenge" | "find-risks" | "combine";
 
