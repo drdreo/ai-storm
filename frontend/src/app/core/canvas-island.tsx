@@ -36,7 +36,6 @@ import {
 import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { FilterChips } from "./canvas/FilterChips";
 import { PriorityGridOverlay } from "./canvas/PriorityGridOverlay";
-import { copyTextOptions } from "./canvas/copy-text";
 import type { BoardFilter } from "./canvas/filter";
 
 // Re-export the editor-driven ports the stores drive against the mounted project.
@@ -132,7 +131,6 @@ export function CanvasIsland({
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
         overrides={[ideaToolOverrides, focusModeOverrides]}
-        options={copyTextOptions}
         components={components}
         onMount={(ed) => {
           // Debug hook: the mounted project's live tldraw editor, reachable from

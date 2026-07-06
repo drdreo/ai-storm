@@ -39,6 +39,7 @@ import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
 import { serializeCards } from "../canvas-text";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import { serializeSelectedIdeasJson } from "./serialize";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
 import { activeBoardLayout, arrangeMindMap, arrangePriorityGrid, markSelected, markSelectedDone } from "./layout";
 import { createUserIdea } from "./idea-tool";
@@ -345,12 +346,16 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
   const openQuestionCount = cards.filter(isOpenQuestion).length;
   const doneCount = cards.filter(isDone).length;
 
-  // Copy the current pure-card selection as markdown (#106) — the context-menu twin
-  // of Ctrl/Cmd+C (see copy-text). Written here directly so it works on a mixed
-  // selection too, copying just the idea cards.
+  // Copy the current card selection as markdown (#106/#193). Plain Ctrl/Cmd+C is
+  // native tldraw copy again; explicit text exports live here in the context menu.
   const copyAsMarkdown = () => {
     const text = serializeCards(selectedCards.map(content));
-    if (text.trim()) void navigator.clipboard?.writeText(text);
+    if (text.trim()) void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
+
+  const copyAsJson = () => {
+    const text = serializeSelectedIdeasJson(editor);
+    if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
   };
 
   // Focus the selected cards' cluster (#131) — the right-click twin of
@@ -389,6 +394,12 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
             }
             readonlyOk
             onSelect={copyAsMarkdown}
+          />
+          <TldrawUiMenuItem
+            id="copy-cards-json"
+            label={selectedCards.length > 1 ? `Copy ${selectedCards.length} cards as JSON` : "Copy card as JSON"}
+            readonlyOk
+            onSelect={copyAsJson}
           />
         </TldrawUiMenuGroup>
       ) : (
