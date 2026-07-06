@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { tokenizeCommand, hasFlag, assertNoControlCharacters, assertCmdSafeTokens, resolveLaunch } from "./resolve.ts";
+import {
+  tokenizeCommand,
+  hasFlag,
+  assertNoControlCharacters,
+  assertCmdSafeTokens,
+  resolveLaunch,
+  windowsKnownInstallCandidates
+} from "./resolve.ts";
 
 describe("resolveLaunch strictness", () => {
   const NL = String.fromCharCode(10);
@@ -98,5 +105,21 @@ describe("hasFlag", () => {
   it("is false when the flag is absent", () => {
     expect(hasFlag(["--foo", "--modeling"], "--model")).toBe(false);
     expect(hasFlag([], "--model")).toBe(false);
+  });
+});
+
+describe("windowsKnownInstallCandidates", () => {
+  it("finds the standard Codex install path even when PATH lookup misses", () => {
+    const env = { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" };
+    const expected = "C:\\Users\\me\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe";
+
+    expect(windowsKnownInstallCandidates("codex", env, (path) => path === expected)).toEqual([expected]);
+    expect(windowsKnownInstallCandidates("codex.exe", env, (path) => path === expected)).toEqual([expected]);
+  });
+
+  it("ignores other harness commands", () => {
+    expect(
+      windowsKnownInstallCandidates("claude", { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" }, () => true)
+    ).toEqual([]);
   });
 });

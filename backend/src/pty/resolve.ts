@@ -9,6 +9,8 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { win32 as pathWin32 } from "node:path";
 import { log } from "../log.ts";
 
 export interface ResolvedLaunch {
@@ -123,7 +125,7 @@ export function resolveLaunch(command: string, args: string[], opts: ResolveOpti
     return wrapByExtension(command, args, opts);
   }
 
-  const candidates = whereExe(command);
+  const candidates = [...whereExe(command), ...windowsKnownInstallCandidates(command)];
   log.debug("resolve.candidates", { command, candidates: candidates.join(" | ") });
   if (candidates.length === 0) throw new LaunchNotFoundError(command);
 
@@ -149,6 +151,31 @@ function chooseBest(candidates: string[]): string {
   return candidates[0];
 }
 
+export function windowsKnownInstallCandidates(
+  command: string,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync
+): string[] {
+  const normalized = command.toLowerCase();
+  if (normalized !== "codex" && normalized !== "codex.exe") return [];
+
+  const roots = [
+    env.LOCALAPPDATA,
+    env.USERPROFILE ? pathWin32.join(env.USERPROFILE, "AppData", "Local") : undefined,
+    env.ProgramFiles,
+    env["ProgramFiles(x86)"]
+  ].filter((root): root is string => !!root);
+
+  const seen = new Set<string>();
+  return roots
+    .map((root) => pathWin32.join(root, "Programs", "OpenAI", "Codex", "bin", "codex.exe"))
+    .filter((candidate) => {
+      const key = candidate.toLowerCase();
+      if (seen.has(key) || !exists(candidate)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 function whereExe(command: string): string[] {
   try {
     const out = spawnSync("where.exe", [command], { encoding: "utf8" });
