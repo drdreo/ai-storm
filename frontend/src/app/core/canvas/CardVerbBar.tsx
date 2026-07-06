@@ -1,11 +1,26 @@
 /**
- * The card-verb bar (#13/#15/#62) — the bidirectional-canvas seam. With exactly
- * one idea card selected, a small action bar floats above it offering the single-
- * card AI verbs; with 2+ selected it offers the multi-select **Combine** verb
- * (#62, PD-019). Picking one serializes the selection and fires the handler
- * (wired to the terminal). Rendered `InFrontOfTheCanvas` by {@link ../canvas-island}.
+ * The card-verb bar (#13/#15/#62; repositioned #195) — the bidirectional-canvas
+ * seam. With idea cards selected, a small action bar floats above them. The
+ * primary action is **❯ Reference** (#194): hand the selection to the terminal
+ * agent as a plain @ref block and let the user type the prompt. The preset verb
+ * templates (Discuss/Expand/Challenge/Find risks for one card; Combine for 2+,
+ * PD-019) are kept as optional scaffolding, demoted into a **Templates** dropdown
+ * (#195). Picking one serializes the selection and fires the handler (wired to
+ * the terminal). Rendered `InFrontOfTheCanvas` by {@link ../canvas-island}.
  */
-import { stopEventPropagation, TldrawUiButton, TldrawUiButtonLabel, TldrawUiToolbar, track, useEditor } from "tldraw";
+import {
+  stopEventPropagation,
+  TldrawUiButton,
+  TldrawUiButtonLabel,
+  TldrawUiDropdownMenuContent,
+  TldrawUiDropdownMenuGroup,
+  TldrawUiDropdownMenuItem,
+  TldrawUiDropdownMenuRoot,
+  TldrawUiDropdownMenuTrigger,
+  TldrawUiToolbar,
+  track,
+  useEditor
+} from "tldraw";
 import { cardToText, serializeCards } from "../canvas-text";
 import type { PromptIntent, ReferencedIdea } from "../prompt-framing";
 import type { IdeaCardShape } from "./idea-card";
@@ -30,15 +45,18 @@ function sourceRefs(payload: SerializedSelectedIdeas): string[] {
 }
 
 /**
- * The bidirectional-canvas seam (#13, #15, #62): a small action bar over the
- * selected idea card(s). Clicking a verb serializes the selection, mints/looks up
- * each source ref, and fires the handler (wired to `AgentService.discussText`,
- * which types a framed prompt into the terminal). Rendered as `InFrontOfTheCanvas`,
- * so it lives natively above the canvas.
+ * The bidirectional-canvas seam (#13, #15, #62; repositioned #195): a small
+ * action bar over the selected idea card(s). **❯ Reference** leads — the generic,
+ * verb-free hand-off (#194) — and the preset templates sit behind a secondary
+ * **Templates** dropdown, so the bar no longer forces an expand/discuss/challenge
+ * framing when the user only wants to provide context. Picking a template
+ * serializes the selection, mints/looks up each source ref, and fires the handler
+ * (wired to `AgentService.discussText`, which types a framed prompt into the
+ * terminal). Rendered as `InFrontOfTheCanvas`, so it lives natively above the canvas.
  *
- * One selected card → the single-card verbs. Two or more → the **Combine** verb
- * only (PD-019): a merge is convergent, so the single-card moves (discuss/expand/
- * challenge) don't apply to a multi-card selection.
+ * One selected card → the single-card templates. Two or more → the **Combine**
+ * template only (PD-019): a merge is convergent, so the single-card moves
+ * (discuss/expand/challenge) don't apply to a multi-card selection.
  */
 export const CardVerbBar = track(function CardVerbBar({
   onVerb,
@@ -79,8 +97,8 @@ export const CardVerbBar = track(function CardVerbBar({
   };
 
   // Reference in terminal (#194): the verb-free hand-off — @ref block in, user
-  // types the follow-up prompt. Offered for one card AND for multi-selects,
-  // where Combine was previously the only move.
+  // types the follow-up prompt. The PRIMARY action (#195): it leads the bar for
+  // one card and for multi-selects alike.
   const fireReference = () => {
     const payload = serializeSelectedIdeas(editor);
     if (payload) onReference?.(payload.cards);
@@ -99,6 +117,12 @@ export const CardVerbBar = track(function CardVerbBar({
       <TldrawUiButtonLabel>❯ Reference</TldrawUiButtonLabel>
     </TldrawUiButton>
   );
+
+  // The preset templates (#195): optional prompt scaffolding layered on top of
+  // the reference flow, demoted behind a dropdown so they read as secondary.
+  const templates = multi
+    ? [{ label: "✦ Combine into one", fire: fireCombine }]
+    : CARD_VERBS.map((verb) => ({ label: verb.label, fire: () => fire(verb.intent) }));
 
   return (
     <div
@@ -120,29 +144,29 @@ export const CardVerbBar = track(function CardVerbBar({
       {/* Native tldraw toolbar + buttons: hover/focus states, keyboard nav, and
           tooltips come from tldraw's own UI layer (its CSS is already loaded). */}
       <TldrawUiToolbar label="Card actions">
-        {multi ? (
-          <TldrawUiButton
-            type="normal"
-            disabled={disabled}
-            onClick={fireCombine}
-            tooltip={disabled ? disabledTip : `Merge the ${cards.length} selected cards into one stronger idea`}
-          >
-            <TldrawUiButtonLabel>✦ Combine into one</TldrawUiButtonLabel>
-          </TldrawUiButton>
-        ) : (
-          CARD_VERBS.map((verb) => (
+        {referenceButton}
+        <TldrawUiDropdownMenuRoot id="card-verb-templates">
+          <TldrawUiDropdownMenuTrigger>
             <TldrawUiButton
-              key={verb.intent}
               type="normal"
               disabled={disabled}
-              tooltip={disabled ? disabledTip : undefined}
-              onClick={() => fire(verb.intent)}
+              tooltip={disabled ? disabledTip : "Preset prompt templates — reference the selection with a framing"}
             >
-              <TldrawUiButtonLabel>{verb.label}</TldrawUiButtonLabel>
+              <TldrawUiButtonLabel>Templates ▾</TldrawUiButtonLabel>
             </TldrawUiButton>
-          ))
-        )}
-        {referenceButton}
+          </TldrawUiDropdownMenuTrigger>
+          <TldrawUiDropdownMenuContent side="bottom" align="end">
+            <TldrawUiDropdownMenuGroup>
+              {templates.map((template) => (
+                <TldrawUiDropdownMenuItem key={template.label}>
+                  <TldrawUiButton type="menu" onClick={template.fire}>
+                    <TldrawUiButtonLabel>{template.label}</TldrawUiButtonLabel>
+                  </TldrawUiButton>
+                </TldrawUiDropdownMenuItem>
+              ))}
+            </TldrawUiDropdownMenuGroup>
+          </TldrawUiDropdownMenuContent>
+        </TldrawUiDropdownMenuRoot>
       </TldrawUiToolbar>
     </div>
   );

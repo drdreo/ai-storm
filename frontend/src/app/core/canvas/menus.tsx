@@ -397,6 +397,23 @@ export const CanvasContextMenu = track(function CanvasContextMenu({
     <DefaultContextMenu {...props}>
       {selectedCards.length > 0 ? (
         <TldrawUiMenuGroup id="ai-storm-card">
+          {/* Reference in terminal (#194) leads the group (#195) — the generic
+              hand-off is the primary AI workflow, ahead of the local card
+              actions. tldraw hides disabled context-menu items, so without a
+              live session this slot disappears; the verb bar's ❯ Reference
+              button stays visible there with the "start a session" tooltip
+              instead. */}
+          <TldrawUiMenuItem
+            id="reference-in-terminal"
+            label={
+              selectedCards.length > 1
+                ? `❯ Reference ${selectedCards.length} cards in terminal`
+                : "❯ Reference in terminal"
+            }
+            disabled={!sessionAttached}
+            readonlyOk
+            onSelect={referenceInTerminal}
+          />
           <TldrawUiMenuItem id="focus" label={focusMode ? "Exit focus" : "⤢ Focus cards"} onSelect={focusSelected} />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />
           <TldrawUiMenuItem
@@ -417,21 +434,6 @@ export const CanvasContextMenu = track(function CanvasContextMenu({
             label={selectedCards.length > 1 ? `Copy ${selectedCards.length} cards as JSON` : "Copy card as JSON"}
             readonlyOk
             onSelect={copyAsJson}
-          />
-          {/* Reference in terminal (#194) — tldraw hides disabled context-menu
-              items, so without a live session this slot disappears; the verb
-              bar's ❯ Reference button stays visible there with the
-              "start a session" tooltip instead. */}
-          <TldrawUiMenuItem
-            id="reference-in-terminal"
-            label={
-              selectedCards.length > 1
-                ? `❯ Reference ${selectedCards.length} cards in terminal`
-                : "❯ Reference in terminal"
-            }
-            disabled={!sessionAttached}
-            readonlyOk
-            onSelect={referenceInTerminal}
           />
         </TldrawUiMenuGroup>
       ) : (
