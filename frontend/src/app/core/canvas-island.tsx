@@ -37,6 +37,7 @@ import { IDEA_TOOLS, ideaToolOverrides, IdeaToolbar } from "./canvas/idea-tool";
 import { FilterChips } from "./canvas/FilterChips";
 import { PriorityGridOverlay } from "./canvas/PriorityGridOverlay";
 import type { BoardFilter } from "./canvas/filter";
+import type { ReferencedIdea } from "./prompt-framing";
 
 // Re-export the editor-driven ports the stores drive against the mounted project.
 export { applyIdeas } from "./canvas/ingest";
@@ -58,6 +59,8 @@ export interface CanvasBridge {
   onEditorMount(editor: Editor): void;
   /** Fired when a card verb (#13/#15) is picked on a selected card. */
   onCardVerb: CardVerbHandler;
+  /** Fired when "Reference in terminal" (#194) is picked on selected cards. */
+  onReferenceIdeas(cards: readonly ReferencedIdea[]): void;
   /** Shares the live per-project filter atom with app-level commands (#96). */
   onFilterMount?(controller: { get(): BoardFilter; set(filter: BoardFilter): void }): () => void;
 }
@@ -103,7 +106,11 @@ export function CanvasIsland({
   const components = useMemo<TLComponents>(
     () => ({
       MainMenu: () => <CanvasMainMenu $filter={$filter} />,
-      ContextMenu: CanvasContextMenu,
+      // The context menu gets the reference seam (#194) and the session flag so
+      // "Reference in terminal" can fire — or explain itself when disabled.
+      ContextMenu: (props) => (
+        <CanvasContextMenu {...props} onReference={bridge.onReferenceIdeas} sessionAttached={sessionAttached} />
+      ),
       // Surface the manual "Idea" tool (#31) next to tldraw's native tools.
       Toolbar: IdeaToolbar,
       // Focus-mode exit (#131) is appended to the native top-left QuickActions,
@@ -115,7 +122,7 @@ export function CanvasIsland({
       InFrontOfTheCanvas: () => (
         <>
           <CanvasEmptyState actions={emptyStateActions} />
-          <CardVerbBar onVerb={bridge.onCardVerb} disabled={!sessionAttached} />
+          <CardVerbBar onVerb={bridge.onCardVerb} onReference={bridge.onReferenceIdeas} disabled={!sessionAttached} />
           <FilterChips $filter={$filter} />
           <FilterApplier $filter={$filter} />
         </>

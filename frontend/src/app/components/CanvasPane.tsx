@@ -124,6 +124,12 @@ export function CanvasPane() {
       const ws = selectActive(useProjectStore.getState());
       if (ws) agent.discussText(ws.id, text, intent, sourceRefs);
     });
+    // Reference in terminal (#194): the verb-free hand-off — the selection is
+    // typed into the live PTY as an @ref block, the user owns the next prompt.
+    canvas.onReferenceIdeas((cards) => {
+      const ws = selectActive(useProjectStore.getState());
+      if (ws) agent.referenceIdeas(ws.id, cards);
+    });
   }, []);
 
   // Gather the cross-project idea index whenever the palette opens (#124). A

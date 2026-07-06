@@ -113,6 +113,58 @@ describe("agent.discussText (#13)", () => {
   });
 });
 
+describe("agent.referenceIdeas (#194)", () => {
+  const cards = [
+    { ref: "a1", kind: "feature", title: "Offline sync", body: "Cache ops" },
+    { ref: "a2", kind: "risk", title: "Conflict resolution", body: "" }
+  ];
+
+  let h: Harness;
+
+  describe("attached with selected cards", () => {
+    beforeEach(async () => {
+      h = await makeStore({ attached: true });
+    });
+
+    it("types the @ref block into the PTY unsubmitted (no trailing carriage return)", () => {
+      expect(h.agent.referenceIdeas("ws1", cards)).toBe(true);
+      expect(h.sendInput).toHaveBeenCalledTimes(1);
+      const [id, data] = h.sendInput.mock.calls[0];
+      expect(id).toBe("ws1");
+      expect(data).toContain("@a1 [feature] Offline sync");
+      expect(data).toContain("@a2 [risk] Conflict resolution");
+      expect(data.endsWith("\r")).toBe(false);
+      expect(data.endsWith("\n")).toBe(false);
+      expect(data.endsWith(" ")).toBe(true);
+    });
+
+    it("carries no preset verb prompt — the user owns the follow-up", () => {
+      h.agent.referenceIdeas("ws1", cards);
+      const [, data] = h.sendInput.mock.calls[0];
+      expect(data).not.toMatch(/Let's discuss|Expand on|stress-test|into ONE stronger/);
+    });
+
+    it("focuses the terminal after typing the block", () => {
+      h.agent.referenceIdeas("ws1", cards);
+      expect(h.focusTerminal).toHaveBeenCalledWith("ws1");
+    });
+
+    it("returns false and sends nothing for an empty selection", () => {
+      expect(h.agent.referenceIdeas("ws1", [])).toBe(false);
+      expect(h.sendInput).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("not attached", () => {
+    it("returns false and sends nothing", async () => {
+      h = await makeStore({ attached: false });
+      expect(h.agent.referenceIdeas("ws1", cards)).toBe(false);
+      expect(h.sendInput).not.toHaveBeenCalled();
+      expect(h.focusTerminal).not.toHaveBeenCalled();
+    });
+  });
+});
+
 describe("agent.generateSpec run metadata + capabilities (#120)", () => {
   const config = { agentCommand: "claude", agentArgs: [], cwd: "/repo" } as never;
 

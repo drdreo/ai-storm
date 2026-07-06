@@ -3,7 +3,15 @@ import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
 import { ingestion } from "./ingestion.store";
-import { framePrompt, frameTriage, frameSpec, type PromptIntent, type SpecOptions } from "../core/prompt-framing";
+import {
+  framePrompt,
+  frameReference,
+  frameTriage,
+  frameSpec,
+  type PromptIntent,
+  type ReferencedIdea,
+  type SpecOptions
+} from "../core/prompt-framing";
 import type { AgentArtifact, SpecFormat, TerminalConfig } from "@ai-storm/shared";
 import { log } from "../../lib/log";
 
@@ -188,6 +196,25 @@ export const agent = {
     if (!prompt) return false;
     // No '\r': the prompt stays editable in the terminal until the user submits.
     ingestion.sendInput(projectId, prompt);
+    ingestion.focusTerminal(projectId);
+    return true;
+  },
+
+  /**
+   * Reference in terminal (#194) — type the selected cards into the LIVE session
+   * as a plain, verb-free reference block: stable `@refs` plus card content, no
+   * preset prompt. Like {@link discussText} it is NOT submitted (no trailing
+   * '\r'), so the user types whatever follow-up they want and hits Enter.
+   *
+   * @returns `true` if the block was typed; `false` if no session is attached or
+   *   the selection frames to nothing.
+   */
+  referenceIdeas(projectId: string, cards: readonly ReferencedIdea[]): boolean {
+    if (!ingestion.isAttached(projectId)) return false;
+    const block = frameReference(cards);
+    if (!block) return false;
+    // No '\r': the block stays editable — the user owns the next prompt.
+    ingestion.sendInput(projectId, block);
     ingestion.focusTerminal(projectId);
     return true;
   },

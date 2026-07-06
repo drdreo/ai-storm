@@ -23,7 +23,7 @@ import {
 } from "../core/canvas/layout";
 import type { SearchableIdea } from "../core/canvas/search";
 import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
-import type { PromptIntent } from "../core/prompt-framing";
+import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
 import type { PortableBoard } from "../core/project-portable";
@@ -74,6 +74,8 @@ const pending = new Map<string, Idea[]>();
 const mountWaiters = new Map<string, Array<() => void>>();
 /** Fired when a card verb (#13 Discuss / #15 expand/challenge/find-risks) is picked. */
 let cardVerbHandler: ((text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void) | null = null;
+/** Fired when "Reference in terminal" (#194) is picked on selected cards. */
+let referenceHandler: ((cards: readonly ReferencedIdea[]) => void) | null = null;
 let filterController: {
   get(): BoardFilter;
   set(filter: BoardFilter): void;
@@ -112,6 +114,7 @@ export const canvas = {
   bridge: {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
+    onReferenceIdeas: (cards) => referenceHandler?.(cards),
     onFilterMount: (controller) => {
       filterController = controller;
       return () => {
@@ -353,6 +356,11 @@ export const canvas = {
   /** Register the card-verb sink (#13/#15/#62) — see {@link CanvasIsland}'s verb bar. */
   onCardVerb(cb: (text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void): void {
     cardVerbHandler = cb;
+  },
+
+  /** Register the reference-in-terminal sink (#194) — see the context menu / verb bar. */
+  onReferenceIdeas(cb: (cards: readonly ReferencedIdea[]) => void): void {
+    referenceHandler = cb;
   },
 
   /** Tear down a deleted project's canvas state and its persisted store. */

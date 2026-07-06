@@ -37,9 +37,10 @@ import {
 } from "tldraw";
 import { kindLabel, KNOWN_KINDS, normalizeKind } from "../idea-descriptors";
 import { serializeCards } from "../canvas-text";
+import type { ReferencedIdea } from "../prompt-framing";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { content, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
-import { serializeSelectedIdeasJson } from "./serialize";
+import { serializeSelectedIdeas, serializeSelectedIdeasJson } from "./serialize";
 import { applyFilter, boardFacets, EMPTY_FILTER, type BoardFilter } from "./filter";
 import { activeBoardLayout, arrangeMindMap, arrangePriorityGrid, markSelected, markSelectedDone } from "./layout";
 import { createUserIdea } from "./idea-tool";
@@ -331,7 +332,16 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
  * label between Mark / Unmark to match group state (the same toggle
  * {@link markSelected} performs).
  */
-export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiContextMenuProps): React.JSX.Element {
+export const CanvasContextMenu = track(function CanvasContextMenu({
+  onReference,
+  sessionAttached = false,
+  ...props
+}: TLUiContextMenuProps & {
+  /** Fires "Reference in terminal" (#194) with the normalized selected cards. */
+  onReference?: (cards: readonly ReferencedIdea[]) => void;
+  /** Whether a live session backs this project — gates the reference action. */
+  sessionAttached?: boolean;
+}): React.JSX.Element {
   const editor = useEditor();
   const focusMode = useUiStore((s) => s.focusMode);
   const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
@@ -356,6 +366,13 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
   const copyAsJson = () => {
     const text = serializeSelectedIdeasJson(editor);
     if (text) void navigator.clipboard?.writeText(text).catch(() => undefined);
+  };
+
+  // Reference in terminal (#194): hand the selection to the live agent as a
+  // plain @ref block — no preset verb; the user types the follow-up prompt.
+  const referenceInTerminal = () => {
+    const payload = serializeSelectedIdeas(editor);
+    if (payload) onReference?.(payload.cards);
   };
 
   // Focus the selected cards' cluster (#131) — the right-click twin of
@@ -400,6 +417,21 @@ export const CanvasContextMenu = track(function CanvasContextMenu(props: TLUiCon
             label={selectedCards.length > 1 ? `Copy ${selectedCards.length} cards as JSON` : "Copy card as JSON"}
             readonlyOk
             onSelect={copyAsJson}
+          />
+          {/* Reference in terminal (#194) — tldraw hides disabled context-menu
+              items, so without a live session this slot disappears; the verb
+              bar's ❯ Reference button stays visible there with the
+              "start a session" tooltip instead. */}
+          <TldrawUiMenuItem
+            id="reference-in-terminal"
+            label={
+              selectedCards.length > 1
+                ? `❯ Reference ${selectedCards.length} cards in terminal`
+                : "❯ Reference in terminal"
+            }
+            disabled={!sessionAttached}
+            readonlyOk
+            onSelect={referenceInTerminal}
           />
         </TldrawUiMenuGroup>
       ) : (
