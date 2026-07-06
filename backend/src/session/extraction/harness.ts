@@ -79,6 +79,9 @@ export interface HarnessProfile {
    * marker prime (§5) — one mechanism per session.
    */
   mcpArgs?: (ctx: McpLaunchContext) => string[];
+
+  /** Config key that makes profile MCP argv injection caller-owned when present. */
+  mcpConfigKey?: (ctx: McpLaunchContext) => string;
   /**
    * True if this harness wires MCP through a non-argv channel (e.g. a config
    * file discovered via env var) rather than `mcpArgs`. Profiles that set
@@ -218,9 +221,10 @@ export const PI_PROFILE: HarnessProfile = {
 /**
  * The Codex CLI profile. Codex has no `--append-system-prompt` flag; the
  * supported launch seam is a one-off config override, so we inject the same
- * idea contract as `developer_instructions` via `-c`. `--no-alt-screen` keeps
- * the conversation in tmux's normal scrollback so `capture-pane` can see the
- * emitted `«IDEA»` / `«SCORE»` markers instead of an alternate-screen TUI.
+ * idea contract as `developer_instructions` via `-c`. Codex MCP uses that
+ * same config override seam for the session-scoped Streamable HTTP server.
+ * `--no-alt-screen` keeps the conversation in tmux's normal scrollback so
+ * `capture-pane` can still see marker fallback lines.
  */
 export const CODEX_PROFILE: HarnessProfile = {
   name: "codex",
@@ -234,7 +238,18 @@ export const CODEX_PROFILE: HarnessProfile = {
   // Codex docs list gpt-5.4-mini for lighter coding tasks; users can still
   // override with explicit `--model` / `-c model_reasoning_effort=...` args.
   defaultModel: "gpt-5.4-mini",
-  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
+  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
+  mcpConfigKey: ({ serverName }) => `mcp_servers.${serverName}.url`,
+  mcpArgs: ({ url, serverName }) => [
+    "-c",
+    `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
+    "-c",
+    `mcp_servers.${serverName}.enabled=true`,
+    "-c",
+    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+    "-c",
+    `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`
+  ]
 };
 
 /**
@@ -307,7 +322,7 @@ export function launchArgsForProfile(
   const configArgs = Object.entries(profile.defaultConfig ?? {}).flatMap(([key, value]) =>
     hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`]
   );
-  const mcpArgs = profile.mcpArgs && mcp && !hasFlag(baseArgs, "--mcp-config") ? profile.mcpArgs(mcp) : [];
+  const mcpArgs = profile.mcpArgs && mcp && !hasMcpOverride(profile, baseArgs, mcp) ? profile.mcpArgs(mcp) : [];
   const primeArgs =
     profile.systemPromptFlag && prime && !hasSystemPromptOverride(profile, baseArgs)
       ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime]
@@ -321,6 +336,12 @@ function hasFlag(args: readonly string[], flag: string): boolean {
 
 function hasSystemPromptOverride(profile: HarnessProfile, args: readonly string[]): boolean {
   return !!profile.systemPromptConfigKey && hasConfigOverride(args, profile.systemPromptConfigKey);
+}
+
+function hasMcpOverride(profile: HarnessProfile, args: readonly string[], mcp: McpLaunchContext): boolean {
+  if (hasFlag(args, "--mcp-config")) return true;
+  const key = profile.mcpConfigKey?.(mcp);
+  return !!key && hasConfigOverride(args, key);
 }
 
 function hasConfigOverride(args: readonly string[], key: string): boolean {

@@ -233,17 +233,17 @@ mcpArgs: ({ url, serverName }) => [
 `developer_instructions`:
 
 ```ts
-mcpArgs: ({ url }) => [
-  "-c", `mcp_servers.ai_storm.url=${JSON.stringify(url)}`,
-  // plus whatever approval/enable key the pinned codex version requires — verify (§11.2)
+mcpArgs: ({ url, serverName }) => [
+  "-c", `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
+  "-c", `mcp_servers.${serverName}.enabled=true`,
+  "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+  "-c", `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`,
 ],
 ```
 
-> ⚠️ Codex's **HTTP** MCP transport is the newer path (the long-standing one is stdio
-> `command`-launched servers) and its config keys have churned across versions. §11.2 makes
-> verification against the pinned codex version an explicit migration step; until verified, the
-> codex profile simply omits `mcpArgs` and stays on the marker fallback — graceful degradation by
-> construction.
+> Codex MCP is wired through launch-time config overrides for the session-scoped Streamable HTTP
+> endpoint. The marker scanner remains active as the fallback floor and to surface `idea.fallback_scan`
+> telemetry if the model emits markers instead of using tools.
 
 **pi** — has **no MCP support by design** (pi's guidance: build a CLI tool or an extension
 instead). Resolved by #177 through pi's native extension seam instead of MCP config: `fileLaunch`
