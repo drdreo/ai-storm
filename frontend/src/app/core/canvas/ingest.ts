@@ -6,7 +6,22 @@
 import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
 import type { Idea, IdeaRelation } from "@ai-storm/shared";
 import { normalizeKind, kindColor } from "../idea-descriptors";
-import { CARD_W, CARD_H, ideaCards, maxRefIndex, resolveRef, type IdeaCardShape } from "./idea-card";
+import {
+  CARD_MAX_W,
+  CARD_W,
+  ideaCardSizeForContent,
+  ideaCards,
+  maxRefIndex,
+  resolveRef,
+  type IdeaCardShape
+} from "./idea-card";
+
+const GRID_X = 120;
+const GRID_Y = 140;
+const GRID_COLS = 3;
+const GRID_COL_W = CARD_MAX_W + 70;
+const GRID_ROW_GAP = 70;
+const LINKED_CHILD_GAP = 48;
 
 /**
  * Draw a native arrow bound to both cards and tag it with its relation. The
@@ -58,7 +73,12 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
   // Seed the ref counter from the persisted shapes (not an in-memory count) so
   // minted refs never collide across sessions (idea-graph §4).
   let nextRef = maxRefIndex(editor) + 1;
-  let gridIndex = ideaCards(editor).length;
+  const cards = ideaCards(editor);
+  const gridColY = Array.from({ length: GRID_COLS }, () => GRID_Y);
+  for (const card of cards) {
+    const col = Math.max(0, Math.min(GRID_COLS - 1, Math.round((card.x - GRID_X) / GRID_COL_W)));
+    gridColY[col] = Math.max(gridColY[col], card.y + card.props.h + GRID_ROW_GAP);
+  }
   // One timestamp for the whole batch — its cards are born together (#124).
   const createdAt = Date.now();
 
@@ -73,24 +93,24 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         .filter((r): r is { link: typeof r.link; id: TLShapeId } => !!r.id);
       // The first resolved link anchors layout; the rest still get connectors.
       const targetId = links[0]?.id;
+      const kind = normalizeKind(idea.kind) ?? "";
+      const size = ideaCardSizeForContent({ kind, title: idea.title, body: idea.body, origin: "ai" });
 
       let x: number;
       let y: number;
       if (targetId) {
         const target = editor.getShape(targetId) as IdeaCardShape | undefined;
-        const n = childOffset.get(targetId) ?? 0;
-        childOffset.set(targetId, n + 1);
+        const yOffset = childOffset.get(targetId) ?? 0;
+        childOffset.set(targetId, yOffset + size.h + LINKED_CHILD_GAP);
         x = (target?.x ?? 0) + (target?.props.w ?? CARD_W) + 90;
-        y = (target?.y ?? 0) + n * 165;
+        y = (target?.y ?? 0) + yOffset;
       } else {
-        const col = gridIndex % 3;
-        const row = Math.floor(gridIndex / 3);
-        gridIndex += 1;
-        x = 120 + col * 320;
-        y = 140 + row * 200;
+        const col = gridColY.indexOf(Math.min(...gridColY));
+        x = GRID_X + col * GRID_COL_W;
+        y = gridColY[col];
+        gridColY[col] += size.h + GRID_ROW_GAP;
       }
 
-      const kind = normalizeKind(idea.kind) ?? "";
       // Honour a producer-stamped ref (mcp-idea-capture §3.3): the backend MCP
       // tool path mints `i<n>` and already returned it to the agent, so the
       // card MUST carry it for follow-up links/scores to resolve. The `i<n>`
@@ -116,8 +136,8 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         y,
         meta: { ref, createdAt },
         props: {
-          w: CARD_W,
-          h: CARD_H,
+          w: size.w,
+          h: size.h,
           kind,
           title: idea.title,
           body: idea.body,

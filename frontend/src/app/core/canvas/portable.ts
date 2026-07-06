@@ -9,8 +9,21 @@
 import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
 import { normalizeKind, kindColor } from "../idea-descriptors";
 import type { PortableBoard } from "../project-portable";
-import { CARD_W, CARD_H, cardRef, ideaCards, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
+import {
+  CARD_MAX_W,
+  cardRef,
+  ideaCardSizeForContent,
+  ideaCards,
+  type IdeaCardMeta,
+  type IdeaCardShape
+} from "./idea-card";
 import { ideaEdges } from "./edges";
+
+const GRID_X = 120;
+const GRID_Y = 140;
+const GRID_COLS = 3;
+const GRID_COL_W = CARD_MAX_W + 70;
+const GRID_ROW_GAP = 70;
 
 /** Snapshot the live board into its portable, ref-keyed JSON form for export. */
 export function exportBoard(editor: Editor): PortableBoard {
@@ -71,19 +84,20 @@ export function importBoard(editor: Editor, board: PortableBoard): void {
   const refToShape = new Map<string, TLShapeId>();
 
   editor.run(() => {
-    board.cards.forEach((card, i) => {
+    const gridColY = Array.from({ length: GRID_COLS }, () => GRID_Y);
+    board.cards.forEach((card) => {
       const id = createShapeId();
-      const col = i % 3;
-      const row = Math.floor(i / 3);
+      const col = gridColY.indexOf(Math.min(...gridColY));
+      const size = ideaCardSizeForContent(card);
       editor.createShape<IdeaCardShape>({
         id,
         type: "idea-card",
-        x: 120 + col * 320,
-        y: 140 + row * 200,
+        x: GRID_X + col * GRID_COL_W,
+        y: gridColY[col],
         meta: { ref: card.ref, starred: card.starred } satisfies IdeaCardMeta,
         props: {
-          w: CARD_W,
-          h: CARD_H,
+          w: size.w,
+          h: size.h,
           kind: card.kind,
           title: card.title,
           body: card.body,
@@ -92,6 +106,7 @@ export function importBoard(editor: Editor, board: PortableBoard): void {
           color: (kindColor(normalizeKind(card.kind)) as TLDefaultColorStyle) ?? "blue"
         }
       });
+      gridColY[col] += size.h + GRID_ROW_GAP;
       refToShape.set(card.ref, id);
     });
 
