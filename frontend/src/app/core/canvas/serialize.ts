@@ -11,6 +11,34 @@ import type { BoardCard, BoardEdge, BoardSnapshot } from "../summarize.ts";
 import { ideaEdges } from "./edges";
 import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 
+export interface SerializedSelectedIdeaCard {
+  ref: string | null;
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  origin: IdeaCardShape["props"]["origin"];
+  createdAt?: number;
+  starred: boolean;
+  done: boolean;
+  superseded: boolean;
+  score?: IdeaCardMeta["score"];
+}
+
+export interface SerializedSelectedIdeaEdge {
+  from: string | null;
+  to: string | null;
+  fromId: string;
+  toId: string;
+  relation: string;
+}
+
+export interface SerializedSelectedIdeas {
+  version: 1;
+  cards: SerializedSelectedIdeaCard[];
+  edges: SerializedSelectedIdeaEdge[];
+}
+
 /** Serialize every idea card to a normalized markdown document (PRD §3.2). */
 export function serializeEditor(editor: Editor): string {
   return serializeCards(cardsInOrder(editor).map(content));
@@ -57,6 +85,55 @@ export function selectedText(editor: Editor): string {
   const selected = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   if (selected.length === 0) return serializeEditor(editor);
   return serializeCards(selected.map(content));
+}
+
+/**
+ * Canonical selected-card payload (#192): compact ai-storm data for copy/reference
+ * workflows. Mixed selections are explicit: non-idea shapes are ignored, and a
+ * selection with no idea cards returns `null`. Selected cards are ref-minted before
+ * serialization; `null` is only used if a ref could not be minted at this layer.
+ */
+export function serializeSelectedIdeas(editor: Editor): SerializedSelectedIdeas | null {
+  const selectedIds = new Set(editor.getSelectedShapes().map((s) => s.id));
+  const selectedCards = cardsInOrder(editor).filter((card) => selectedIds.has(card.id));
+  if (selectedCards.length === 0) return null;
+
+  const refs = new Map<string, string | null>();
+  const cards: SerializedSelectedIdeaCard[] = selectedCards.map((card) => {
+    const meta = card.meta as IdeaCardMeta;
+    const ref = cardRef(editor, card.id) ?? null;
+    refs.set(card.id, ref);
+    return {
+      ref,
+      id: card.id as string,
+      kind: card.props.kind,
+      title: card.props.title,
+      body: card.props.body,
+      origin: card.props.origin,
+      createdAt: meta.createdAt,
+      starred: !!meta.starred,
+      done: !!meta.done,
+      superseded: card.props.superseded,
+      score: meta.score
+    };
+  });
+
+  const selectedCardIds = new Set(selectedCards.map((card) => card.id));
+  const edges: SerializedSelectedIdeaEdge[] = ideaEdges(editor, selectedCardIds).map((edge) => ({
+    from: refs.get(edge.from as string) ?? null,
+    to: refs.get(edge.to as string) ?? null,
+    fromId: edge.from as string,
+    toId: edge.to as string,
+    relation: edge.relation
+  }));
+
+  return { version: 1, cards, edges };
+}
+
+/** JSON form of {@link serializeSelectedIdeas}, for downstream clipboard/tooling callers. */
+export function serializeSelectedIdeasJson(editor: Editor): string | null {
+  const payload = serializeSelectedIdeas(editor);
+  return payload ? JSON.stringify(payload) : null;
 }
 
 /**
