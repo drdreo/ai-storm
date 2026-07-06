@@ -347,6 +347,7 @@ export const CanvasContextMenu = track(function CanvasContextMenu({
   const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const allStarred = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).starred);
   const allDone = selectedCards.length > 0 && selectedCards.every((s) => (s.meta as IdeaCardMeta).done);
+  const copyLabel = selectedCards.length > 1 ? `Copy ${selectedCards.length} cards` : "Copy card";
 
   // Board-wide "select by trait" (#106): counts drive the disabled state so a verb
   // that would select nothing greys out rather than silently no-op'ing.
@@ -421,20 +422,12 @@ export const CanvasContextMenu = track(function CanvasContextMenu({
             label={allDone ? "Reopen" : "✓ Mark done"}
             onSelect={() => markSelectedDone(editor)}
           />
-          <TldrawUiMenuItem
-            id="copy-cards-md"
-            label={
-              selectedCards.length > 1 ? `⧉ Copy ${selectedCards.length} cards as markdown` : "⧉ Copy card as markdown"
-            }
-            readonlyOk
-            onSelect={copyAsMarkdown}
-          />
-          <TldrawUiMenuItem
-            id="copy-cards-json"
-            label={selectedCards.length > 1 ? `Copy ${selectedCards.length} cards as JSON` : "Copy card as JSON"}
-            readonlyOk
-            onSelect={copyAsJson}
-          />
+          <TldrawUiMenuSubmenu id="copy-cards" label={copyLabel} size="small">
+            <TldrawUiMenuGroup id="copy-cards-formats">
+              <TldrawUiMenuItem id="copy-cards-md" label="Markdown" readonlyOk onSelect={copyAsMarkdown} />
+              <TldrawUiMenuItem id="copy-cards-json" label="JSON" readonlyOk onSelect={copyAsJson} />
+            </TldrawUiMenuGroup>
+          </TldrawUiMenuSubmenu>
         </TldrawUiMenuGroup>
       ) : (
         // Right-click on empty canvas: drop a tracked user idea where they clicked
