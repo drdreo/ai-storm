@@ -17,6 +17,9 @@ import { Check, MoreHorizontal } from "lucide-react";
 import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { defaultProjectColor, PROJECT_COLORS } from "../../core/models";
 import { project } from "../../stores/project.store";
+import { useBackendStore } from "../../stores/backend.store";
+import { useIngestionStore } from "../../stores/ingestion.store";
+import { sessionIndicator } from "../../core/session-status";
 import type { DragKind } from "./useSidebarDnd";
 
 /** Hover explanation for the project status badge (the ringed accent dot). */
@@ -27,19 +30,49 @@ const STATUS_HINT: Record<ProjectStatus, string> = {
   error: "Session error — open the project for details"
 };
 
+/** What the dot/tooltip actually renders — the one place status and connection are merged. */
+type DotDisplay = { shape: "idle" | "active" | "streaming" | "pending" | "error"; hint: string };
+
+/**
+ * A project's cached `status` (#178) is only updated by inbound server
+ * messages, so it stays "active"/"streaming" after the websocket drops —
+ * the sidebar would otherwise keep showing a session as live while the
+ * backend is actually connecting or offline. This is the single place that
+ * reconciles the persisted `status` with the live connection/attach state
+ * (via `sessionIndicator`, the same derivation the Control Hub header uses)
+ * into one display value — callers below never read `ws.status` directly.
+ */
+function useDotDisplay(ws: ProjectMeta): DotDisplay {
+  const connState = useBackendStore((s) => s.state);
+  const attached = useIngestionStore((s) => !!s.attached[ws.id]);
+
+  if (ws.status === "error") return { shape: "error", hint: STATUS_HINT.error };
+
+  const claimsLive = ws.status === "active" || ws.status === "streaming";
+  if (claimsLive) {
+    const indicator = sessionIndicator(connState, attached, ws.status);
+    if (indicator.tone !== "ok") return { shape: "pending", hint: indicator.label };
+    return { shape: ws.status, hint: STATUS_HINT[ws.status] };
+  }
+  return { shape: "idle", hint: STATUS_HINT.idle };
+}
+
 /** The project status/accent dot, shared by the row and the drag overlay. */
 export function StatusDot({ ws }: { ws: ProjectMeta }) {
   const accent = ws.color ?? defaultProjectColor(ws.id);
+  const { shape, hint } = useDotDisplay(ws);
   return (
     <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true" data-testid="status-dot">
       <span
         className={cn(
           "size-2.5",
-          ws.status === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
-          ws.status === "active" && "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
-          ws.status === "streaming" && "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse"
+          shape === "error" ? "rounded-[2px] bg-destructive" : "rounded-full",
+          shape === "active" && "ring-2 ring-emerald-500 ring-offset-2 ring-offset-sidebar",
+          shape === "streaming" && "ring-2 ring-sky-500 ring-offset-2 ring-offset-sidebar animate-pulse",
+          shape === "pending" && "ring-2 ring-amber-500 ring-offset-2 ring-offset-sidebar animate-pulse"
         )}
-        style={ws.status === "error" ? undefined : { backgroundColor: accent }}
+        style={shape === "error" ? undefined : { backgroundColor: accent }}
+        title={shape === "pending" ? hint : undefined}
       />
     </span>
   );
@@ -91,6 +124,7 @@ export function SortableProjectRow(props: ProjectRowProps) {
   }
 
   const accent = ws.color ?? defaultProjectColor(ws.id);
+  const { shape, hint } = useDotDisplay(ws);
   return (
     // "group/ws-row", not the ambient "group/menu-item" every SidebarMenuItem
     // carries: a row nested inside a folder is a DOM descendant of the
@@ -104,11 +138,11 @@ export function SortableProjectRow(props: ProjectRowProps) {
         onClick={() => project.setActive(ws.id)}
         onDoubleClick={() => props.onStartRename(ws.id)}
         onPointerDown={listeners?.onPointerDown as React.PointerEventHandler<HTMLButtonElement> | undefined}
-        tooltip={ws.status === "idle" ? ws.title : `${ws.title} · ${STATUS_HINT[ws.status]}`}
+        tooltip={shape === "idle" ? ws.title : `${ws.title} · ${hint}`}
       >
         <StatusDot ws={ws} />
         <span className="truncate">{ws.title}</span>
-        <span className="sr-only">— {ws.status}</span>
+        <span className="sr-only">— {shape}</span>
       </SidebarMenuButton>
 
       <DropdownMenu>
