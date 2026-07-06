@@ -89,6 +89,39 @@ project's persisted store (the React `key` changes) and swaps the kept-alive
 xterm instance — sub-100ms. Detaching a project tears down its pipeline, render
 scheduler, and PTY.
 
+## Quick start (the `ai-storm` command)
+
+The fastest way to run ai-storm is the bundled launcher CLI (#216) — one
+command starts the daemon with the built client served on the same origin,
+picks a free port, opens your browser, and captures logs.
+
+Install (clones to `~/.ai-storm/app`, builds, and puts `ai-storm` on your PATH):
+
+```sh
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/drdreo/ai-storm/main/scripts/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/drdreo/ai-storm/main/scripts/install.ps1 | iex
+```
+
+Already have a clone? `node packages/cli/bin/ai-storm.ts` works directly.
+
+```sh
+ai-storm doctor    # preflight: Node, pnpm, tmux, AI harnesses (claude/codex/pi/opencode)
+ai-storm           # start the daemon + open http://127.0.0.1:8787
+ai-storm status    # pid, port, health
+ai-storm logs -f   # stream the backend log
+ai-storm stop      # stop the daemon (durable tmux sessions survive)
+ai-storm update    # git pull --ff-only, rebuild, restart if running
+```
+
+The daemon runs detached; logs and the pidfile live in a per-user state dir
+(`~/.local/state/ai-storm` on Linux, `~/Library/Application Support/ai-storm`
+on macOS, `%LOCALAPPDATA%\ai-storm` on Windows). If the default port 8787 is
+taken by another app, the launcher walks forward to the next free port; if an
+ai-storm daemon already answers there, it just reopens the browser tab.
+
 ## Requirements
 
 - **Node.js** ≥ 24.15 (backend runtime — uses native TS type-stripping)
@@ -98,9 +131,10 @@ scheduler, and PTY.
 The unit tests run on [Vitest](https://vitest.dev) (a devDependency installed via
 `corepack pnpm install`), so they need no extra runtime beyond Node itself.
 
-## Running
+## Running (development)
 
-Two processes. **Backend** (Node + Hono + node-pty):
+For everyday use, prefer the launcher above. For development you want the Vite
+dev server's HMR, so run two processes. **Backend** (Node + Hono + node-pty):
 
 ```sh
 cd backend

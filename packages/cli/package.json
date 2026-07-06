@@ -1,0 +1,17 @@
+{
+  "name": "ai-storm-cli",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Desktop-grade launcher for ai-storm: one command to build, run, supervise and update the local daemon (#216).",
+  "bin": {
+    "ai-storm": "./bin/ai-storm.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "vitest": "^4.1.8"
+  }
+}
