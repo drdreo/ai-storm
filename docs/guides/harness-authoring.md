@@ -251,21 +251,33 @@ export const CODEX_PROFILE: HarnessProfile = {
   name: "codex",
   supportsIdeaContract: true,
   systemPromptFlag: "-c",
+  systemPromptConfigKey: "developer_instructions",
   systemPromptValue: (prime) => `developer_instructions=${JSON.stringify(prime)}`,
   defaultArgs: ["--no-alt-screen"],
   modelFlag: "--model",
-  defaultModel: "gpt-5.3-codex-spark",
-  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
+  defaultModel: "gpt-5.4-mini",
+  defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
+  mcpConfigKey: ({ serverName }) => `mcp_servers.${serverName}.url`,
+  mcpArgs: ({ url, serverName }) => [
+    "-c",
+    `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
+    "-c",
+    `mcp_servers.${serverName}.enabled=true`,
+    "-c",
+    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+    "-c",
+    `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`
+  ]
 };
 ```
 
 Codex has no `--append-system-prompt` equivalent, so priming rides its `-c
 key=value` config-override flag instead — `systemPromptValue` does the
-key-wrapping. `--no-alt-screen` is load-bearing: without it Codex renders on
-the terminal's alternate screen, which `tmux capture-pane` cannot see, so
-marker lines would never reach the scanner. Codex also has no `mcpArgs` yet
-(its HTTP MCP transport and config keys are the newer, less-verified surface —
-see mcp-idea-capture.md §4.3).
+key-wrapping. Codex MCP uses the same config-override seam with
+`mcp_servers.ai-storm.*` keys for the session-scoped Streamable HTTP endpoint.
+`--no-alt-screen` remains load-bearing as the marker fallback: without it Codex
+renders on the terminal's alternate screen, which `tmux capture-pane` cannot
+see.
 
 ### 4.4 opencode — no CLI flags at all; file/env wiring instead
 

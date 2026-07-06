@@ -83,6 +83,7 @@ describe("profiles", () => {
     expect(getProfile("codex")).toBe(CODEX_PROFILE);
     expect(CODEX_PROFILE.supportsIdeaContract).toBe(true);
     expect(CODEX_PROFILE.systemPromptFlag).toBe("-c");
+    expect(CODEX_PROFILE.systemPromptConfigKey).toBe("developer_instructions");
     expect(CODEX_PROFILE.systemPromptValue?.("Emit «IDEA» lines")).toBe('developer_instructions="Emit «IDEA» lines"');
     expect(CODEX_PROFILE.defaultArgs).toContain("--no-alt-screen");
   });
@@ -100,9 +101,9 @@ describe("profiles", () => {
     expect(PI_PROFILE.defaultModel).toBeUndefined();
   });
 
-  it("defaults Codex to the fast/cheap spark model at medium reasoning", () => {
+  it("defaults Codex to the fast/cheap mini model at medium reasoning", () => {
     expect(CODEX_PROFILE.modelFlag).toBe("--model");
-    expect(CODEX_PROFILE.defaultModel).toBe("gpt-5.3-codex-spark");
+    expect(CODEX_PROFILE.defaultModel).toBe("gpt-5.4-mini");
     expect(CODEX_PROFILE.defaultConfig).toEqual({ model_reasoning_effort: '"medium"' });
   });
 
@@ -149,8 +150,11 @@ describe("profileUsesMcp — argv or file/env MCP wiring", () => {
     expect(profileUsesMcp(PI_PROFILE)).toBe(true);
   });
 
-  it("is false for profiles with neither (codex, default)", () => {
-    expect(profileUsesMcp(CODEX_PROFILE)).toBe(false);
+  it("is true for Codex now that it wires Streamable HTTP MCP via config overrides", () => {
+    expect(profileUsesMcp(CODEX_PROFILE)).toBe(true);
+  });
+
+  it("is false for profiles with neither", () => {
     expect(profileUsesMcp(DEFAULT_PROFILE)).toBe(false);
   });
 });
@@ -810,7 +814,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     await backend.kill("ws2");
   });
 
-  it("injects Codex developer instructions, disables alternate screen, and selects spark medium", async () => {
+  it("injects Codex developer instructions, disables alternate screen, and selects mini medium", async () => {
     const fake = fakeTmux();
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {} });
     await backend.create({ projectId: "ws4", command: "codex", prime: PRIME });
@@ -818,7 +822,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     const launch = fake.sessions.get("ai-storm-ws4")?.launch ?? "";
     expect(launch).toContain("--no-alt-screen");
     expect(launch).toContain("--model");
-    expect(launch).toContain("gpt-5.3-codex-spark");
+    expect(launch).toContain("gpt-5.4-mini");
     expect(launch).toContain("model_reasoning_effort=");
     expect(launch).toContain("medium");
     expect(launch).toContain("-c");
@@ -841,7 +845,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     expect((launch.match(/--no-alt-screen/g) ?? []).length).toBe(1);
     expect(launch).toContain("--model");
     expect(launch).toContain("gpt-5.5");
-    expect(launch).not.toContain("gpt-5.3-codex-spark");
+    expect(launch).not.toContain("gpt-5.4-mini");
     expect(launch).toContain("high");
     expect((launch.match(/model_reasoning_effort=/g) ?? []).length).toBe(1);
   });
@@ -937,6 +941,23 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     return viaScript ? readFileSync(viaScript[1], "utf-8") : launch;
   };
 
+  it("wires Codex to the session MCP endpoint when the registry is configured", async () => {
+    const registry = new McpSessionRegistry();
+    registry.configure("http://127.0.0.1:8787");
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
+    await backend.create({ projectId: "wsCodexMcp", command: "codex", prime: PRIME });
+
+    const launch = launchText(fake.sessions.get("ai-storm-wsCodexMcp")?.launch ?? "");
+    const url = registry.registerSession("wsCodexMcp")!.url;
+    expect(registry.isRegistered("wsCodexMcp")).toBe(true);
+    expect(launch).toContain(`mcp_servers.ai-storm.url=${JSON.stringify(url)}`);
+    expect(launch).toContain("mcp_servers.ai-storm.enabled=true");
+    expect(launch).toContain('mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done"]');
+    expect(launch).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
+
+    await backend.kill("wsCodexMcp");
+  });
   it("injects the generated pi capture extension via `-e` when MCP is configured (#177)", async () => {
     const registry = new McpSessionRegistry();
     registry.configure("http://127.0.0.1:8787");
@@ -1141,6 +1162,43 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     // The whole MCP block is the caller's responsibility then — no stray allow-list.
     expect(args).not.toContain("--allowedTools");
   });
+  it("wires Codex MCP through config overrides", () => {
+    const args = launchArgsForProfile(CODEX_PROFILE, [], PRIME, ctx);
+    expect(args).toContain('mcp_servers.ai-storm.url="http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef"');
+    expect(args).toContain("mcp_servers.ai-storm.enabled=true");
+    expect(args).toContain('mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done"]');
+    expect(args).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
+    expect(args.filter((a) => a === "-c")).toHaveLength(6);
+  });
+
+  it("does not inject Codex MCP config when caller supplies the server URL", () => {
+    const args = launchArgsForProfile(
+      CODEX_PROFILE,
+      ["-c", 'mcp_servers.ai-storm.url="http://localhost/custom"'],
+      PRIME,
+      ctx
+    );
+    expect(args.filter((a) => a.includes("mcp_servers.ai-storm.url=")).length).toBe(1);
+    expect(args).not.toContain("mcp_servers.ai-storm.enabled=true");
+    expect(args).not.toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
+  });
+
+  it("is idempotent against combined model and MCP flags", () => {
+    const codexArgs = launchArgsForProfile(CODEX_PROFILE, ["--model=gpt-5.5"], PRIME);
+    expect(codexArgs.filter((a) => a === "--model")).toHaveLength(0);
+    expect(codexArgs).not.toContain("gpt-5.4-mini");
+
+    const claudeArgs = launchArgsForProfile(CLAUDE_PROFILE, ["--mcp-config={}"], PRIME, ctx);
+    expect(claudeArgs.filter((a) => a === "--mcp-config")).toHaveLength(0);
+    expect(claudeArgs).not.toContain("--allowedTools");
+  });
+
+  it("respects caller-supplied Codex developer instructions", () => {
+    const args = launchArgsForProfile(CODEX_PROFILE, ["-c", "developer_instructions=custom"], PRIME);
+    expect(args.filter((a) => a === "-c")).toHaveLength(2);
+    expect(args.filter((a) => a.includes("developer_instructions=")).length).toBe(1);
+    expect(args).toContain("developer_instructions=custom");
+  });
 
   it("without an MCP context the argv is byte-identical to before", () => {
     expect(launchArgsForProfile(CLAUDE_PROFILE, ["--verbose"], PRIME)).toEqual(
@@ -1149,8 +1207,8 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     expect(launchArgsForProfile(CLAUDE_PROFILE, [], PRIME)).not.toContain("--mcp-config");
   });
 
-  it("profiles without mcpArgs (codex, pi, default) ignore the context entirely", () => {
-    for (const profile of [CODEX_PROFILE, PI_PROFILE, DEFAULT_PROFILE]) {
+  it("profiles without mcpArgs (pi, default) ignore the context entirely", () => {
+    for (const profile of [PI_PROFILE, DEFAULT_PROFILE]) {
       expect(launchArgsForProfile(profile, ["--flag"], PRIME, ctx)).toEqual(
         launchArgsForProfile(profile, ["--flag"], PRIME)
       );
