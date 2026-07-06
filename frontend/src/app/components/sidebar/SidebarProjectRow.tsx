@@ -108,6 +108,11 @@ export function SortableProjectRow(props: ProjectRowProps) {
     disabled: isEditing
   });
   const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition };
+  // Called unconditionally — the row can bail out to the rename input below,
+  // and hooks can't follow that early return (#178 regression: this used to
+  // be a plain computation, but now subscribes to the backend/ingestion
+  // stores, so it must run on every render regardless of `isEditing`).
+  const { shape, hint } = useDotDisplay(ws);
 
   if (isEditing) {
     return (
@@ -124,7 +129,6 @@ export function SortableProjectRow(props: ProjectRowProps) {
   }
 
   const accent = ws.color ?? defaultProjectColor(ws.id);
-  const { shape, hint } = useDotDisplay(ws);
   return (
     // "group/ws-row", not the ambient "group/menu-item" every SidebarMenuItem
     // carries: a row nested inside a folder is a DOM descendant of the
