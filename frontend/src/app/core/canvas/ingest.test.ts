@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { EditorFake } from "../../../testing";
+import { CARD_H, CARD_W } from "./idea-card";
 import { applyIdeas } from "./ingest";
 
 describe("applyIdeas", () => {
@@ -156,5 +157,21 @@ describe("applyIdeas", () => {
     expect(e.arrows()).toHaveLength(2);
     // Both originals are ghosted.
     expect(e.cards().filter((c) => c.props.superseded).length).toBe(2);
+  });
+
+  it("sizes created cards from their initial content", () => {
+    const e = new EditorFake();
+    applyIdeas(e.asEditor(), [
+      {
+        title: "A deliberately long title that should make the idea card wider than the default card",
+        body: Array.from({ length: 10 }, (_, i) => `Detailed body line ${i + 1} with enough text to need room.`).join(
+          "\n"
+        )
+      }
+    ]);
+
+    const card = e.cards()[0];
+    expect(card.props.w).toBeGreaterThan(CARD_W);
+    expect(card.props.h).toBeGreaterThan(CARD_H);
   });
 });
