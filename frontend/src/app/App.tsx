@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useProjectStore, project } from "./stores/project.store";
 import { backend } from "./stores/backend.store";
+import { history } from "./stores/history.store";
 import { useUiStore } from "./stores/ui.store";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { CanvasPane } from "./components/CanvasPane";
@@ -50,11 +51,11 @@ export function App() {
     });
   }
 
-  // Boot sequence (PRD §3.5), run once on mount.
+  // Boot sequence (PRD §3.5), run once on mount. Run history (#104) rehydrates
+  // alongside the project registry — same CRDT-in-IndexedDB pattern.
   useEffect(() => {
     let cancelled = false;
-    project
-      .boot()
+    Promise.all([project.boot(), history.boot()])
       .then(() => {
         if (!cancelled) backend.connect();
       })

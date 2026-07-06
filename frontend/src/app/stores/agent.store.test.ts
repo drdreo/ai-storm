@@ -42,7 +42,10 @@ async function makeStore(opts: { attached: boolean }): Promise<Harness> {
     }
   }));
   vi.doMock("./canvas.store", () => ({
-    canvas: { serializeForHandoff: () => "★ [feature] Dark mode — the one card" }
+    canvas: {
+      serializeForHandoff: () => "★ [feature] Dark mode — the one card",
+      serializeForTriage: () => "@a1 [feature] Dark mode\n@a2 [feature] Light mode"
+    }
   }));
 
   const { agent, useAgentStore } = await import("./agent.store");
@@ -146,6 +149,49 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
       format: "issues"
     });
     expect(h.useAgentStore.getState().runs["ws1"]?.format).toBe("issues");
+  });
+
+  it("records spec run history: running at dispatch, done with the artifact on exit (#104)", async () => {
+    const { useHistoryStore } = await import("./history.store");
+    h.agent.generateSpec("ws1", config, "prd");
+
+    let entries = useHistoryStore.getState().entries;
+    expect(entries.length).toBe(1);
+    expect(entries[0]).toMatchObject({ projectId: "ws1", type: "spec", status: "running", format: "prd" });
+
+    h.receive({ type: "agent-status", projectId: "ws1", status: "spawned", pid: 1, format: "prd" });
+    h.receive({ type: "agent-status", projectId: "ws1", status: "stdout", data: "# PRD\n\nDark mode." });
+    h.receive({ type: "agent-status", projectId: "ws1", status: "exit", code: 0 });
+
+    entries = useHistoryStore.getState().entries;
+    expect(entries[0].status).toBe("done");
+    expect(entries[0].output).toBe("# PRD\n\nDark mode.");
+    expect(entries[0].exitCode).toBe(0);
+  });
+
+  it("records a run that exits without output as 'empty' (#104)", async () => {
+    const { useHistoryStore } = await import("./history.store");
+    h.agent.generateSpec("ws1", config, "prd");
+    h.receive({ type: "agent-status", projectId: "ws1", status: "spawned", pid: 1, format: "prd" });
+    h.receive({ type: "agent-status", projectId: "ws1", status: "exit", code: 0 });
+    expect(useHistoryStore.getState().entries[0].status).toBe("empty");
+  });
+
+  it("records a failed run as 'error' with the stderr tail (#104)", async () => {
+    const { useHistoryStore } = await import("./history.store");
+    h.agent.generateSpec("ws1", config, "prd");
+    h.receive({ type: "agent-status", projectId: "ws1", status: "spawned", pid: 1, format: "prd" });
+    h.receive({ type: "agent-status", projectId: "ws1", status: "error", data: "spawn failed" });
+    const entry = useHistoryStore.getState().entries[0];
+    expect(entry.status).toBe("error");
+    expect(entry.output).toContain("spawn failed");
+  });
+
+  it("triage records request metadata with the dispatched card count (#104)", async () => {
+    const { useHistoryStore } = await import("./history.store");
+    expect(h.agent.triage("ws1")).toBe(true);
+    const entry = useHistoryStore.getState().entries[0];
+    expect(entry).toMatchObject({ projectId: "ws1", type: "triage", status: "running", cardCount: 2, scoredCount: 0 });
   });
 
   it("applies agent-artifacts to the run and keeps them through exit", () => {

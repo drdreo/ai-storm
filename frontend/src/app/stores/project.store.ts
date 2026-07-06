@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
 import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
+import { history } from "./history.store";
 import { defaultTerminalConfig, defaultProjectColor } from "../core/models";
 import { compareByOrder, orderAfterAll } from "../core/sidebar-order";
 import { buildExportBundle, type ProjectExportBundle } from "../core/project-portable";
@@ -272,6 +273,7 @@ export const project = {
 
     map.delete(id);
     canvas.removeProject(id);
+    history.removeProject(id);
   },
 
   /**

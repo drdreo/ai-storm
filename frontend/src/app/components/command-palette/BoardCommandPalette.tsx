@@ -41,6 +41,7 @@ interface BoardCommandPaletteProps {
   onTriage(): void;
   onSummarize(): void;
   onStats(): void;
+  onHistory(): void;
   onHandoff(): void;
   onArrangeMindMap(): void;
   onArrangePriorityGrid(): void;

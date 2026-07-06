@@ -3,16 +3,17 @@ import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import * as Toolbar from "@radix-ui/react-toolbar";
-import { BarChart3, Command, FileOutput, Scale, ScrollText } from "lucide-react";
+import { BarChart3, Command, FileOutput, History, Scale, ScrollText } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { SpecFormat } from "@ai-storm/shared";
 import type { BoardStats } from "../core/board-stats";
 import { CanvasIsland } from "../core/canvas-island";
 import type { SearchableIdea } from "../core/canvas/search";
 import type { SpecOptions } from "../core/prompt-framing";
-import type { ConvergentSummary } from "../core/summarize.ts";
+import { type ConvergentSummary, summaryToMarkdown } from "../core/summarize.ts";
 import { agent } from "../stores/agent.store";
 import { canvas, useCanvasStore } from "../stores/canvas.store";
+import { history } from "../stores/history.store";
 import { ingestion, useIngestionStore } from "../stores/ingestion.store";
 import { ui, useUiStore } from "../stores/ui.store";
 import { selectActive, useProjectStore, project } from "../stores/project.store";
@@ -27,6 +28,10 @@ import { SummaryPanel } from "./SummaryPanel";
 // bundle. StatsPanel/SummaryPanel are a few KB each — not worth the same
 // treatment (see #138 PR discussion).
 const SpecPanel = lazy(() => import("./SpecPanel").then((m) => ({ default: m.SpecPanel })));
+
+// HistoryPanel (#104) pulls in the same markdown renderer as SpecPanel, so it
+// gets the same code-split treatment: loaded on first open, kept mounted after.
+const HistoryPanel = lazy(() => import("./HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
 
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
@@ -101,6 +106,10 @@ export function CanvasPane() {
   // time — never unmounted again after, so its close animation keeps working.
   const [specEverOpened, setSpecEverOpened] = useState(false);
   if (specOpen && !specEverOpened) setSpecEverOpened(true);
+  // Run history (#104): same open/ever-opened split as the SpecPanel.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEverOpened, setHistoryEverOpened] = useState(false);
+  if (historyOpen && !historyEverOpened) setHistoryEverOpened(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const focusMode = useUiStore((s) => s.focusMode);
   // Full-text search index (#124): gathered fresh each time the palette opens —
@@ -166,8 +175,14 @@ export function CanvasPane() {
   const triage = () => active && agent.triage(active.id);
   const summarize = () => {
     if (!active) return;
-    setSummary(canvas.summarize(active.id));
+    const fresh = canvas.summarize(active.id);
+    setSummary(fresh);
     setSummaryOpen(true);
+    // Snapshot the reading into run history (#104) so it can be recovered after
+    // the brainstorm moves on. Identical consecutive snapshots are collapsed.
+    if (fresh) {
+      history.recordSynthesis(active.id, fresh.isEmpty ? "" : summaryToMarkdown(fresh), fresh.cardCount);
+    }
   };
   const showStats = () => {
     if (!active) return;
@@ -251,6 +266,13 @@ export function CanvasPane() {
               <BarChart3 /> Stats
             </ToolbarVerb>
             <ToolbarVerb
+              onClick={() => setHistoryOpen(true)}
+              variant="ghost"
+              tip="Reopen past summaries, triage passes, and exported formats"
+            >
+              <History /> History
+            </ToolbarVerb>
+            <ToolbarVerb
               onClick={handoff}
               tip="Convert your board ideas into a structured format like a PRD, GitHub issue, or agent task list"
               disabled={!attached}
@@ -305,6 +327,19 @@ export function CanvasPane() {
         </ErrorBoundary>
       )}
 
+      {historyEverOpened && (
+        <ErrorBoundary name="History panel">
+          <Suspense fallback={null}>
+            <HistoryPanel
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              projectId={active?.id}
+              projectName={active?.title}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+
       <BoardCommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
@@ -318,6 +353,7 @@ export function CanvasPane() {
         onTriage={triage}
         onSummarize={summarize}
         onStats={showStats}
+        onHistory={() => setHistoryOpen(true)}
         onHandoff={handoff}
         onArrangeMindMap={() => active && canvas.arrangeMindMap(active.id)}
         onArrangePriorityGrid={() => active && canvas.arrangePriorityGrid(active.id)}
