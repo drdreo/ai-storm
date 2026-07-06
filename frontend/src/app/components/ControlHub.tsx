@@ -125,9 +125,7 @@ export function ControlHub({ onCollapse }: { onCollapse?: () => void }) {
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  {offline && (
-                    <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>
-                  )}
+                  {offline && <TooltipContent>Backend offline — start the backend to launch a session.</TooltipContent>}
                 </Tooltip>
               </Toolbar.Button>
             )}

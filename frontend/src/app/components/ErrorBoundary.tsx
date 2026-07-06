@@ -36,7 +36,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!this.state.error) return;
     const { resetKeys } = this.props;
     const prevKeys = prev.resetKeys;
-    if (resetKeys && prevKeys && (resetKeys.length !== prevKeys.length || resetKeys.some((k, i) => !Object.is(k, prevKeys[i])))) {
+    if (
+      resetKeys &&
+      prevKeys &&
+      (resetKeys.length !== prevKeys.length || resetKeys.some((k, i) => !Object.is(k, prevKeys[i])))
+    ) {
       this.setState({ error: null });
     }
   }

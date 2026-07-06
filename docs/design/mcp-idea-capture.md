@@ -245,8 +245,16 @@ mcpArgs: ({ url }) => [
 > codex profile simply omits `mcpArgs` and stays on the marker fallback — graceful degradation by
 > construction.
 
-**pi** — intentionally mirrors Claude Code's flags for the prompt/model seams; whether that extends
-to `--mcp-config` is unverified (§11.2). Same degradation: no `mcpArgs`, marker fallback.
+**pi** — has **no MCP support by design** (pi's guidance: build a CLI tool or an extension
+instead). Resolved by #177 through pi's native extension seam instead of MCP config: `fileLaunch`
+generates a TypeScript extension (`ai-storm-capture.ts`, loaded via pi's repeatable `-e` flag —
+the `args` field of `FileLaunchResult`) that registers the capture tools natively and forwards
+each call to this endpoint as a plain `tools/call` POST. The extension is a minimal MCP client, so
+the profile sets `usesMcp: true`. The **prime rides the same extension** (via pi's
+`before_agent_start` event) rather than `--append-system-prompt` argv: on Windows pi is an npm
+`.cmd` shim wrapped as `cmd.exe /c`, whose parser truncates the launch line at the first newline
+of a multi-line argv value, swallowing all later arguments. Verified against pi 0.80.3 (see
+harness-authoring.md §4.2).
 
 **default / bash / python** — no `mcpArgs`, no MCP, no priming (unchanged).
 
@@ -340,11 +348,11 @@ tool, the tool-lapse analog of today's near-miss telemetry. Near-miss logging it
 
 Unchanged in code, demoted in role:
 
-| Session type                                            | Primary path                     | Floor                              |
-| ------------------------------------------------------- | -------------------------------- | ---------------------------------- |
-| Harness with `mcpArgs` (claude; codex/pi once verified) | MCP tools                        | marker scan (logged when it fires) |
-| Contract-aware harness without MCP                      | marker scan (today's behaviour)  | near-miss telemetry                |
-| Bare shell / non-AI                                     | — (no priming, no scan emission) | —                                  |
+| Session type                                                                                 | Primary path                     | Floor                              |
+| -------------------------------------------------------------------------------------------- | -------------------------------- | ---------------------------------- |
+| Tool-wired harness (claude via `mcpArgs`; opencode/pi via `fileLaunch`; codex once verified) | MCP tools                        | marker scan (logged when it fires) |
+| Contract-aware harness without MCP                                                           | marker scan (today's behaviour)  | near-miss telemetry                |
+| Bare shell / non-AI                                                                          | — (no priming, no scan emission) | —                                  |
 
 This is the same defence-in-depth posture as the original extraction contract: explicit contract
 primary, heuristic floor secondary, every fallback observable. The §1 resize failure modes still

@@ -296,9 +296,22 @@ export class TmuxSessionBackend implements SessionBackend {
     // undefined → the session launches markers-only.
     const mcpTarget = profileUsesMcp(profile) ? this.#mcp.registerSession(projectId) : undefined;
     const mcpContext = mcpTarget ? { url: mcpTarget.url, serverName: MCP_SERVER_NAME } : undefined;
+
+    // File/env/args launch injection (harness-authoring.md §4.x): profiles with
+    // no CLI seam for priming/MCP config write a temp file instead — opencode's
+    // config rides an env var (folded into `-e KEY=VALUE` below), pi's capture
+    // extension rides `-e <path>` launch args (appended below). Applied BEFORE
+    // the launch line is built so its args can join it. Disk I/O and cleanup
+    // live in applyFileLaunch (shared with nodepty-backend.ts).
+    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
+      this.#mcp.removeSession(projectId)
+    );
+    const fileLaunchDir = applied?.dir;
+
     // Add profile-level launch args: defaults (e.g. codex --no-alt-screen),
-    // model default (if any), MCP wiring, and the system-prompt injection seam.
-    const args = launchArgsForProfile(profile, specArgs, spec.prime, mcpContext);
+    // model default (if any), MCP wiring, the system-prompt injection seam,
+    // then any file-launch args (e.g. pi's `-e <extension>`).
+    const args = [...launchArgsForProfile(profile, specArgs, spec.prime, mcpContext), ...(applied?.args ?? [])];
     // Build the launch command line. With no harness, the pane is just the
     // interactive keep-alive shell; otherwise the harness runs, then the
     // keep-alive shell takes over when it exits.
@@ -309,15 +322,6 @@ export class TmuxSessionBackend implements SessionBackend {
     for (const [key, value] of Object.entries(spec.env ?? {})) {
       envArgs.push("-e", `${key}=${value}`);
     }
-
-    // File/env launch injection (harness-authoring.md §4.x): profiles with no
-    // CLI seam for priming/MCP (e.g. opencode) write a temp config instead,
-    // and its env vars fold into the same `-e KEY=VALUE` mechanism above.
-    // Disk I/O and cleanup live in applyFileLaunch (shared with nodepty-backend.ts).
-    const applied = applyFileLaunch(profile, { mcp: mcpContext, prime: spec.prime, callerEnv: spec.env }, () =>
-      this.#mcp.removeSession(projectId)
-    );
-    const fileLaunchDir = applied?.dir;
     if (applied) {
       for (const [key, value] of Object.entries(applied.env)) envArgs.push("-e", `${key}=${value}`);
     }

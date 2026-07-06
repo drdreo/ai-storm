@@ -9,6 +9,8 @@
  */
 
 import { join } from "node:path";
+import { log } from "../../log.ts";
+import { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server
@@ -110,6 +112,14 @@ export interface FileLaunchResult {
   files: Array<{ path: string; content: string }>;
   /** Env vars the backend must merge into the child process environment. */
   env: Record<string, string>;
+  /**
+   * Extra CLI args the backend must append to the launch argv, for harnesses
+   * whose file wiring is referenced by flag rather than env var (pi's
+   * `-e <extension.ts>`, #177). Appended after `launchArgsForProfile`'s output
+   * and additive to caller-supplied args (pi's `-e` is repeatable, so a
+   * caller's own extensions still load alongside).
+   */
+  args?: string[];
 }
 
 /** Thin pass-through mirroring how `launchArgsForProfile` wraps `mcpArgs` —
@@ -148,18 +158,55 @@ export const CLAUDE_PROFILE: HarnessProfile = {
 };
 
 /**
- * The pi harness profile. Pi intentionally supports the same system-prompt and
- * model flags we rely on for Claude Code, so it can be primed at launch through
- * the same profile seam and then driven as a real interactive TUI.
+ * The pi harness profile. Pi mirrors Claude Code's `--model` flag, so model
+ * selection rides the same argv seam; priming and capture ride a generated
+ * extension instead (below).
+ *
+ * Deterministic capture (#177): pi has no MCP support and never will, but its
+ * native extension seam is equivalent — `fileLaunch` writes a generated
+ * extension (pi-extension.ts, verified against pi 0.80.3) that registers
+ * `capture_idea`/`capture_score`/`mark_idea_done` as first-class pi tools and
+ * forwards each call to the session's capture endpoint. The extension IS an
+ * MCP client (one `tools/call` POST per capture), so `usesMcp` is accurate:
+ * it mints the session token/URL in both backends and selects the
+ * tool-teaching prime (mcp-idea-capture §5). The marker scanner keeps running
+ * underneath as the silent floor (§7) — a tool lapse logs `idea.fallback_scan`.
+ *
+ * The PRIME also rides the extension — deliberately NO `systemPromptFlag`,
+ * even though pi supports `--append-system-prompt`: on Windows `pi` resolves
+ * to an npm `.cmd` shim wrapped as `cmd.exe /c`, and cmd's parser truncates
+ * the launch line at the first newline of a multi-line argv prime, swallowing
+ * every argument after it (the `-e` included; see pi-extension.ts). The
+ * extension appends the prime via pi's `before_agent_start` event instead —
+ * same behaviour on every platform, and pi's argv stays single-line.
  */
 export const PI_PROFILE: HarnessProfile = {
   name: "pi",
   supportsIdeaContract: true,
-  systemPromptFlag: "--append-system-prompt",
-  modelFlag: "--model"
+  modelFlag: "--model",
   // No defaultModel: pi is multi-provider and already has user/project default
   // model settings. Forcing haiku here would break users authenticated through
   // OpenAI, Copilot, Gemini, etc.; explicit `--model` args still pass through.
+  usesMcp: true,
+  fileLaunch: (ctx) => {
+    // Nothing to deliver (no endpoint AND no prime, e.g. an unconfigured
+    // registry in a bare test run) → no extension; marker floor only.
+    if (!ctx.mcp && !ctx.prime) return undefined;
+    const extensionPath = join(ctx.dir, PI_EXTENSION_FILENAME);
+    log.info(`writing pi extension at: ${extensionPath}`);
+    return {
+      files: [
+        {
+          path: extensionPath,
+          content: piCaptureExtensionSource({ endpointUrl: ctx.mcp?.url, prime: ctx.prime })
+        }
+      ],
+      env: {},
+      // `-e` is repeatable and additive to auto-discovered extensions, so
+      // caller-supplied `-e` args coexist with this injection.
+      args: ["-e", extensionPath]
+    };
+  }
 };
 
 /**

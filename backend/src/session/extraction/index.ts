@@ -36,6 +36,7 @@ export {
   type HarnessProfile,
   type McpLaunchContext
 } from "./harness.ts";
+export { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 export { scanIdeas, scanScores } from "./markers.ts";
 export { IdeaScanner, IdeaSink, ScoreScanner, ScoreSink } from "./scanner.ts";
 export type { Idea, Score } from "@ai-storm/shared";

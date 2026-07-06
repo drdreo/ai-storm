@@ -70,7 +70,10 @@ describe("RenderScheduler", () => {
     expect(scheduler.pending).toBe(3);
 
     clock.tick();
-    expect(batches).toEqual([[1, 2], [3, 4]]);
+    expect(batches).toEqual([
+      [1, 2],
+      [3, 4]
+    ]);
 
     clock.tick();
     expect(batches).toEqual([[1, 2], [3, 4], [5]]);

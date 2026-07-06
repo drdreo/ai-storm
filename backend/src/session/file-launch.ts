@@ -10,11 +10,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeFileLaunch, type FileLaunchContext, type HarnessProfile } from "./extraction/index.ts";
 
-/** Result of a successful apply: the temp dir to track for cleanup, and the
- *  env vars the caller must fold into the child process / launch command. */
+/** Result of a successful apply: the temp dir to track for cleanup, plus the
+ *  env vars and extra CLI args the caller must fold into the launch. */
 export interface AppliedFileLaunch {
   dir: string;
   env: Record<string, string>;
+  /** Extra launch argv (e.g. pi's `-e <extension.ts>`, #177); `[]` when the
+   *  profile's wiring is env-only (opencode). */
+  args: string[];
 }
 
 /**
@@ -45,7 +48,7 @@ export function applyFileLaunch(
       return undefined;
     }
     for (const file of result.files) writeFileSync(file.path, file.content, { encoding: "utf-8", mode: 0o600 });
-    return { dir, env: result.env };
+    return { dir, env: result.env, args: result.args ?? [] };
   } catch (err) {
     rmSync(dir, { recursive: true, force: true });
     onRollback();

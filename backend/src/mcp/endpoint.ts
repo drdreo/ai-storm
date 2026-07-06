@@ -46,7 +46,9 @@ const KIND_PATTERN = /^[a-z][\w-]*$/;
 /** Ref charset — the marker grammar's injection guard, applied to tool input too (§10). */
 const REF_PATTERN = /^[\w-]+$/;
 
-const TOOLS = [
+/** Exported for the pi-extension parity test (extraction.test.ts): the
+ *  generated pi extension must register every tool this endpoint dispatches. */
+export const TOOLS = [
   {
     name: "capture_idea",
     description:
