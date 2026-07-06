@@ -29,7 +29,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { Completion, Idea, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -62,6 +62,7 @@ export interface McpAttachment {
 export interface McpSession {
   /** The current attachment, or null while detached ("session not attached"). */
   attachment: McpAttachment | null;
+  boardSnapshot: BoardIdeasSnapshot | null;
   /** Mint the next session-scoped `i<n>` ref (§3.3). */
   mintRef: () => string;
 }
@@ -69,6 +70,7 @@ export interface McpSession {
 interface Entry {
   token: string;
   attachment: McpAttachment | null;
+  boardSnapshot: BoardIdeasSnapshot | null;
   /** Next `i<n>` index — session-scoped, survives reattach, dies with kill(). */
   nextRef: number;
 }
@@ -103,7 +105,7 @@ export class McpSessionRegistry {
     if (!this.#baseUrl) return undefined;
     let entry = this.#entries.get(projectId);
     if (!entry) {
-      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
+      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, boardSnapshot: null, nextRef: 1 };
       this.#entries.set(projectId, entry);
     }
     return { token: entry.token, url: `${this.#baseUrl}/mcp/${projectId}/${entry.token}` };
@@ -116,7 +118,7 @@ export class McpSessionRegistry {
    */
   restoreSession(projectId: string, token: string): void {
     if (this.#entries.has(projectId)) return; // live entry wins
-    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
+    this.#entries.set(projectId, { token, attachment: null, boardSnapshot: null, nextRef: 1 });
   }
 
   /** Route the tool path into this attachment's sinks/callbacks (no-op if the
@@ -130,6 +132,11 @@ export class McpSessionRegistry {
   detachSession(projectId: string): void {
     const entry = this.#entries.get(projectId);
     if (entry) entry.attachment = null;
+  }
+
+  updateBoardSnapshot(projectId: string, snapshot: BoardIdeasSnapshot): void {
+    const entry = this.#entries.get(projectId);
+    if (entry) entry.boardSnapshot = snapshot;
   }
 
   /** Kill: forget the project — its URL 404s and its `i<n>` counter resets. */
@@ -152,6 +159,9 @@ export class McpSessionRegistry {
     return {
       get attachment() {
         return entry.attachment;
+      },
+      get boardSnapshot() {
+        return entry.boardSnapshot;
       },
       mintRef: () => `i${entry.nextRef++}`
     };

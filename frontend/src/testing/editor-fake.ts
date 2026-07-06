@@ -105,6 +105,10 @@ export class EditorFake {
     return [...this.shapes.values()];
   }
 
+  getCurrentPageId(): string {
+    return "page:current";
+  }
+
   getShape(id: string): ShapeFake | undefined {
     return this.shapes.get(id);
   }

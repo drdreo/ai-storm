@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EditorFake, arrowShape, ideaCardShape } from "../../../testing";
-import { serializeSelectedIdeas, serializeSelectedIdeasJson } from "./serialize";
+import { serializeBoardIdeasSnapshot, serializeSelectedIdeas, serializeSelectedIdeasJson } from "./serialize";
 
 describe("serializeSelectedIdeas", () => {
   it("returns null when the selection contains no idea cards", () => {
@@ -117,5 +117,63 @@ describe("serializeSelectedIdeas", () => {
     expect(json).not.toContain("props");
     expect(json).not.toContain("base64");
     expect(JSON.parse(json!)).toMatchObject({ version: 1, cards: [{ title: "Plain data" }] });
+  });
+});
+
+describe("serializeBoardIdeasSnapshot", () => {
+  it("serializes the active page's cards, edges, selection, filter, and positions", () => {
+    const e = new EditorFake();
+    e.addShape(
+      ideaCardShape("shape:b", {
+        x: 200,
+        y: 100,
+        props: { title: "Second", kind: "risk", body: "B", origin: "ai" },
+        meta: { ref: "i2", done: true, score: { impact: 3, effort: 2 } }
+      })
+    );
+    e.addShape(
+      ideaCardShape("shape:a", {
+        x: 20,
+        y: 10,
+        props: { title: "First", body: "A" },
+        meta: { starred: true, createdAt: 1720000000000 }
+      })
+    );
+    e.addArrow(arrowShape("arrow:1", { meta: { relation: "about" } }), "shape:a", "shape:b");
+    e.select("shape:a");
+
+    const payload = serializeBoardIdeasSnapshot(e.asEditor(), { kind: "risk" }, 1720000001234);
+
+    expect(payload).toMatchObject({
+      version: 1,
+      pageId: "page:current",
+      updatedAt: 1720000001234,
+      selection: { refs: ["a1"], ids: ["shape:a"] },
+      filter: { kind: "risk" }
+    });
+    expect(payload.cards.map((card) => card.ref)).toEqual(["a1", "i2"]);
+    expect(payload.cards[0]).toMatchObject({
+      title: "First",
+      starred: true,
+      createdAt: 1720000000000,
+      position: { x: 20, y: 10 }
+    });
+    expect(payload.cards[1]).toMatchObject({
+      title: "Second",
+      kind: "risk",
+      origin: "ai",
+      done: true,
+      score: { impact: 3, effort: 2 }
+    });
+    expect(payload.edges).toEqual([
+      {
+        from: "a1",
+        to: "i2",
+        fromId: "shape:a",
+        toId: "shape:b",
+        relation: "about"
+      }
+    ]);
+    expect(e.get("shape:a").meta.ref).toBe("a1");
   });
 });

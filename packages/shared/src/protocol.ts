@@ -36,6 +36,7 @@ export type ClientMessage =
   | DetachMessage
   | KillMessage
   | ContextMessage
+  | BoardSnapshotMessage
   | AgentMessage;
 
 /**
@@ -115,6 +116,50 @@ export interface ContextMessage {
   type: "context";
   projectId: string;
   document: string;
+}
+
+export interface BoardIdeaCard {
+  ref: string | null;
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  origin: "ai" | "user";
+  createdAt?: number;
+  starred: boolean;
+  done: boolean;
+  superseded: boolean;
+  score?: { impact: number; effort: number; confidence?: number };
+  position: { x: number; y: number };
+}
+
+export interface BoardIdeaEdge {
+  from: string | null;
+  to: string | null;
+  fromId: string;
+  toId: string;
+  relation: IdeaRelation;
+}
+
+export interface BoardIdeasSnapshot {
+  version: 1;
+  pageId: string;
+  updatedAt: number;
+  cards: BoardIdeaCard[];
+  edges: BoardIdeaEdge[];
+  selection: { refs: string[]; ids: string[] };
+  filter?: Record<string, unknown>;
+}
+
+/**
+ * Browser-published active-board read model for MCP read tools (#196). The
+ * backend cannot inspect tldraw directly, so the mounted canvas sends the
+ * normalized current-page idea state for its own project/session route.
+ */
+export interface BoardSnapshotMessage {
+  type: "board-snapshot";
+  projectId: string;
+  snapshot: BoardIdeasSnapshot;
 }
 
 /**
@@ -442,6 +487,11 @@ export function parseClientMessage(raw: string): ClientMessage {
       break;
     case "context":
       requireString(m, "document", "context");
+      break;
+    case "board-snapshot":
+      if (typeof m.snapshot !== "object" || m.snapshot === null) {
+        throw new Error("Malformed `board-snapshot` message: `snapshot` must be an object");
+      }
       break;
     case "agent":
       requireString(m, "command", "agent");

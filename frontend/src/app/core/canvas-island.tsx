@@ -45,7 +45,8 @@ export {
   serializeForTriage,
   serializeForHandoff,
   collectBoard,
-  selectedText
+  selectedText,
+  serializeBoardIdeasSnapshot
 } from "./canvas/serialize";
 export { applyScore, applyCompletion } from "./canvas/layout";
 export { exportBoard, importBoard } from "./canvas/portable";
@@ -56,6 +57,8 @@ const SHAPE_UTILS = [IdeaCardShapeUtil];
 export interface CanvasBridge {
   /** Called once the editor for the mounted project is ready. */
   onEditorMount(editor: Editor): void;
+  /** Called after local canvas changes that should refresh the backend read model (#196). */
+  onBoardChanged?(): void;
   /** Fired when a card verb (#13/#15) is picked on a selected card. */
   onCardVerb: CardVerbHandler;
   /** Shares the live per-project filter atom with app-level commands (#96). */
@@ -99,6 +102,12 @@ export function CanvasIsland({
   useEffect(() => {
     editor?.user.updateUserPreferences({ colorScheme: themeMode });
   }, [editor, themeMode]);
+  useEffect(() => {
+    if (!editor) return;
+    return editor.store.listen(() => {
+      bridge.onBoardChanged?.();
+    });
+  }, [editor, bridge]);
 
   const components = useMemo<TLComponents>(
     () => ({

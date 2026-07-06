@@ -953,7 +953,9 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     expect(registry.isRegistered("wsCodexMcp")).toBe(true);
     expect(launch).toContain(`mcp_servers.ai-storm.url=${JSON.stringify(url)}`);
     expect(launch).toContain("mcp_servers.ai-storm.enabled=true");
-    expect(launch).toContain('mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done"]');
+    expect(launch).toContain(
+      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","get_board_ideas"]'
+    );
     expect(launch).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
 
     await backend.kill("wsCodexMcp");
@@ -1149,7 +1151,9 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     expect(JSON.parse(args[mcpIdx + 1])).toEqual({
       mcpServers: { "ai-storm": { type: "http", url: ctx.url } }
     });
-    expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score");
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe(
+      "mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score,mcp__ai-storm__mark_idea_done,mcp__ai-storm__get_board_ideas"
+    );
     expect(args.filter((a) => a === "--mcp-config")).toHaveLength(1);
     expect(args.filter((a) => a === "--allowedTools")).toHaveLength(1);
     // The prime stays last on the seam (PD-020 segment ordering unchanged).
@@ -1166,7 +1170,9 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     const args = launchArgsForProfile(CODEX_PROFILE, [], PRIME, ctx);
     expect(args).toContain('mcp_servers.ai-storm.url="http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef"');
     expect(args).toContain("mcp_servers.ai-storm.enabled=true");
-    expect(args).toContain('mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done"]');
+    expect(args).toContain(
+      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","get_board_ideas"]'
+    );
     expect(args).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
     expect(args.filter((a) => a === "-c")).toHaveLength(6);
   });

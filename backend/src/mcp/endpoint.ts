@@ -148,6 +148,17 @@ export const TOOLS = [
       required: ["ref"],
       additionalProperties: false
     }
+  },
+  {
+    name: "get_board_ideas",
+    description:
+      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
+      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
   }
 ] as const;
 
@@ -296,6 +307,12 @@ function handleToolCall(
     return toolError(id, "Session not attached — no live canvas connection; nothing was captured.");
   }
   try {
+    if (name === "get_board_ideas") {
+      if (!session.boardSnapshot) {
+        return toolError(id, "No active board snapshot is available yet. Open this project's board and try again.");
+      }
+      return toolText(id, JSON.stringify(session.boardSnapshot));
+    }
     if (name === "capture_idea") {
       const idea = parseCaptureIdea(args);
       // Shared dedupe BEFORE minting (§6): if the scanner (or an earlier tool

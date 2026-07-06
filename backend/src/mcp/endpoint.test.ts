@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { Completion, Idea, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
@@ -43,6 +43,31 @@ function wire(registry: McpSessionRegistry, projectId: string) {
     onCompletion: (c) => completions.push(c)
   });
   return { ...target, ideaSink, scoreSink, ideas, scores, completions };
+}
+
+function snapshot(title: string): BoardIdeasSnapshot {
+  return {
+    version: 1,
+    pageId: "page:current",
+    updatedAt: 1720000000000,
+    cards: [
+      {
+        ref: "a1",
+        id: "shape:one",
+        kind: "feature",
+        title,
+        body: "Body",
+        origin: "user",
+        starred: false,
+        done: false,
+        superseded: false,
+        position: { x: 10, y: 20 }
+      }
+    ],
+    edges: [],
+    selection: { refs: ["a1"], ids: ["shape:one"] },
+    filter: { kind: "feature" }
+  };
 }
 
 let rpcId = 0;
@@ -120,11 +145,17 @@ describe("MCP endpoint — protocol surface", () => {
     const { token } = wire(registry, "ws1");
     const res = await rpc(app, "ws1", token, "tools/list");
     const { tools } = (await res.json()).result;
-    expect(tools.map((t: { name: string }) => t.name)).toEqual(["capture_idea", "capture_score", "mark_idea_done"]);
+    expect(tools.map((t: { name: string }) => t.name)).toEqual([
+      "capture_idea",
+      "capture_score",
+      "mark_idea_done",
+      "get_board_ideas"
+    ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
     // `done` is optional (defaults to marking done); only the target ref is required.
     expect(tools[2].inputSchema.required).toEqual(["ref"]);
+    expect(tools[3].inputSchema.properties).toEqual({});
   });
 
   it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
@@ -296,6 +327,53 @@ describe("mark_idea_done — completion state (#167)", () => {
     const body = await callTool(app, "ws1", target.token, "mark_idea_done", { ref: "a1" });
     expect(body.result!.isError).toBe(true);
     expect(body.result!.content[0].text).toContain("not attached");
+  });
+});
+
+describe("get_board_ideas — active board read tool (#196)", () => {
+  it("returns the latest board snapshot for the authenticated project route", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    registry.updateBoardSnapshot("ws1", snapshot("Scoped board"));
+
+    const body = await callTool(app, "ws1", w.token, "get_board_ideas", {});
+    const payload = JSON.parse(textOf(body)) as BoardIdeasSnapshot;
+
+    expect(payload.cards.map((card) => card.title)).toEqual(["Scoped board"]);
+    expect(payload.selection.refs).toEqual(["a1"]);
+    expect(payload.filter).toEqual({ kind: "feature" });
+  });
+
+  it("does not expose another project's board snapshot", async () => {
+    const { registry, app } = setup();
+    const w1 = wire(registry, "ws1");
+    const w2 = wire(registry, "ws2");
+    registry.updateBoardSnapshot("ws1", snapshot("For ws1"));
+    registry.updateBoardSnapshot("ws2", snapshot("For ws2"));
+
+    const body = await callTool(app, "ws1", w1.token, "get_board_ideas", {});
+    expect(JSON.parse(textOf(body)).cards[0].title).toBe("For ws1");
+
+    const wrongRoute = await rpc(app, "ws1", w2.token, "tools/call", {
+      name: "get_board_ideas",
+      arguments: {}
+    });
+    expect(wrongRoute.status).toBe(404);
+  });
+
+  it("returns tool errors when detached or before the browser publishes a snapshot", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+
+    const missing = await callTool(app, "ws1", w.token, "get_board_ideas", {});
+    expect(missing.result!.isError).toBe(true);
+    expect(missing.result!.content[0].text).toContain("No active board snapshot");
+
+    registry.updateBoardSnapshot("ws1", snapshot("Detached board"));
+    registry.detachSession("ws1");
+    const detached = await callTool(app, "ws1", w.token, "get_board_ideas", {});
+    expect(detached.result!.isError).toBe(true);
+    expect(detached.result!.content[0].text).toContain("not attached");
   });
 });
 
