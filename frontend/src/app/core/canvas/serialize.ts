@@ -203,7 +203,7 @@ export function serializeBoardIdeasSnapshot(
  * {@link handoffCardsToText}: superseded ghosts are excluded by default and
  * keep-marked cards (#59) are flagged with ★. Empty / all-ghost board → `''`.
  */
-export function serializeForHandoff(editor: Editor): string {
+export function serializeForHandoff(editor: Editor, opts: { withRefs?: boolean } = {}): string {
   const selected = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
   const source = selected.length > 0 ? selected : cardsInOrder(editor);
   return handoffCardsToText(
@@ -212,7 +212,11 @@ export function serializeForHandoff(editor: Editor): string {
       title: c.props.title,
       body: c.props.body,
       starred: !!(c.meta as IdeaCardMeta).starred,
-      superseded: c.props.superseded
+      superseded: c.props.superseded,
+      // Ref-annotate (minting where needed) only when asked (#125): the
+      // create-issues hand-off needs the agent to name source cards back, but
+      // a PRD/plan payload shouldn't leak ref tags into the generated doc.
+      ...(opts.withRefs ? { ref: cardRef(editor, c.id) } : {})
     }))
   );
 }

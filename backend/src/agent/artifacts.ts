@@ -20,6 +20,29 @@ import type { AgentArtifact } from "@ai-storm/shared";
 
 const ISSUE_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/(\d+)/g;
 
+/**
+ * A source-card ref token on a summary row (#125): `@` + a short ref like `a1`
+ * or `i12` (letters then digits — the disjoint mint namespaces of idea-graph
+ * §4). Deliberately narrow so a literal `@user` mention never parses as a ref.
+ */
+const REF_TOKEN = /@([A-Za-z]{1,3}\d+)\b/g;
+
+/** All source-card refs named on a line, deduped in order. */
+function refsFromLine(line: string): string[] {
+  const refs: string[] = [];
+  REF_TOKEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = REF_TOKEN.exec(line)) !== null) {
+    if (!refs.includes(m[1])) refs.push(m[1]);
+  }
+  return refs;
+}
+
+/** True when a cell is nothing but ref tokens and separators — not a title. */
+function isRefsOnlyCell(cell: string): boolean {
+  return cell !== "" && cell.replace(REF_TOKEN, "").replace(/[\s,;·]+/g, "") === "";
+}
+
 /** Strip table pipes, markdown emphasis, and link syntax down to plain text. */
 function cleanCell(cell: string): string {
   return cell
@@ -45,6 +68,8 @@ function titleFromLine(line: string, url: string): string {
   for (const cell of cells) {
     if (isSeparatorCell(cell)) continue;
     if (cell.includes("github.com")) continue;
+    // A refs column (#125) names the source cards, it doesn't title the issue.
+    if (isRefsOnlyCell(cell)) continue;
     // Skip pure header-ish noise cells that are just the row index.
     if (/^\d+\.?$/.test(cell)) continue;
     return cell;
@@ -70,11 +95,18 @@ export function parseIssueArtifacts(output: string): AgentArtifact[] {
     while ((m = ISSUE_URL.exec(line)) !== null) {
       const url = m[0];
       const title = titleFromLine(line, url) || `Issue #${m[1]}`;
+      const refs = refsFromLine(line);
       const existing = byUrl.get(url);
       // First occurrence wins, but a later row with a real title upgrades a
-      // bare-URL fallback (gh prints the URL alone before the summary table).
-      if (!existing) byUrl.set(url, { kind: "github-issue", title, url });
-      else if (existing.title.startsWith("Issue #") && !title.startsWith("Issue #")) existing.title = title;
+      // bare-URL fallback (gh prints the URL alone before the summary table),
+      // and source-card refs (#125) accumulate across occurrences.
+      if (!existing) {
+        byUrl.set(url, { kind: "github-issue", title, url, ...(refs.length ? { refs } : {}) });
+      } else {
+        if (existing.title.startsWith("Issue #") && !title.startsWith("Issue #")) existing.title = title;
+        const merged = [...(existing.refs ?? []), ...refs.filter((r) => !(existing.refs ?? []).includes(r))];
+        if (merged.length) existing.refs = merged;
+      }
     }
   }
   return [...byUrl.values()];

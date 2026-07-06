@@ -87,6 +87,9 @@ function ensureSubscription(projectId: string): void {
       if (run) setRun(projectId, { ...run, artifacts: msg.artifacts });
       // Artifacts can land after exit — attach them to the recorded run too (#104).
       if (historyId) history.update(historyId, { artifacts: msg.artifacts });
+      // Close the loop back to the board (#125): stamp each created issue onto
+      // the source cards its refs name, so the cards grow link chips.
+      canvas.applyIssueLinks(projectId, msg.artifacts);
       return;
     }
     if (msg.type !== "agent-status") return;
@@ -150,7 +153,11 @@ export const agent = {
    * @returns `true` if a run was dispatched; `false` if the board is empty.
    */
   generateSpec(projectId: string, config: TerminalConfig, format: SpecFormat = "prd", opts: SpecOptions = {}): boolean {
-    const payload = frameSpec(canvas.serializeForHandoff(projectId), format, opts);
+    // Ref-annotate the payload only for the create-issues run (#125): the agent
+    // names each issue's source cards back, so the artifacts can be stamped
+    // onto the originating cards as links. Other formats stay ref-free.
+    const withRefs = format === "issues" && !!opts.createIssues;
+    const payload = frameSpec(canvas.serializeForHandoff(projectId, { withRefs }), format, opts);
     if (!payload) return false;
     const command = config.agentCommand?.trim() || "claude";
 

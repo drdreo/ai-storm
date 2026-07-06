@@ -46,6 +46,12 @@ export interface HandoffCard extends CardContent {
   starred: boolean;
   /** Lifecycle (#20/PD-012): replaced by a refined card via a `supersedes` edge. */
   superseded: boolean;
+  /**
+   * Stable short ref (idea-graph §4), set only when the hand-off needs the
+   * agent to name source cards back (#125, the create-issues back-link): the
+   * heading then carries a trailing ` [@ref]` tag the framing explains.
+   */
+  ref?: string;
 }
 
 /**
@@ -59,7 +65,16 @@ export interface HandoffCard extends CardContent {
 export function handoffCardsToText(cards: readonly HandoffCard[]): string {
   return cards
     .filter((card) => !card.superseded)
-    .map((card) => (card.starred ? cardToText(card).replace(/^### /, "### ★ ") : cardToText(card)))
+    .map((card) => {
+      let text = card.starred ? cardToText(card).replace(/^### /, "### ★ ") : cardToText(card);
+      if (card.ref) {
+        // Tag the heading line with the card's ref (#125) so the agent can name
+        // its source cards in the created-issues summary.
+        const [heading, ...rest] = text.split("\n");
+        text = [`${heading} [@${card.ref}]`, ...rest].join("\n");
+      }
+      return text;
+    })
     .join("\n\n")
     .trim();
 }

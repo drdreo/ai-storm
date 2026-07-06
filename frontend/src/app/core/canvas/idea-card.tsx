@@ -26,8 +26,11 @@ import {
   useEditor,
   useIsEditing
 } from "tldraw";
+import { useEffect } from "react";
 import { type CardContent, cardToText } from "../canvas-text";
 import { AI_PROVENANCE_BADGE, kindLabel, normalizeKind } from "../idea-descriptors";
+import { collectIssueLinks, type IssueLink } from "../issue-links";
+import { issueStatus, useIssueStatusStore } from "../../stores/issue-status.store";
 import { canvasRefIndex } from "./refs";
 
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
@@ -99,6 +102,14 @@ export interface IdeaCardMeta {
    * simply lack it and are treated as unknown-date by the search filter.
    */
   createdAt?: number;
+  /**
+   * The external tracker issue this card was handed off to (#125), stamped by
+   * `applyIssueLinks` when a create-issues run reports which cards each created
+   * issue came from. Rendered as a clickable link chip alongside any issue
+   * references *detected* in the card's text (those are derived, never stored).
+   * `meta` (like `starred`/`score`) so no schema migration.
+   */
+  issue?: IssueLink;
   [key: string]: unknown;
 }
 
@@ -132,6 +143,9 @@ const STAR_GOLD = "#f5b301";
 const DONE_GREEN = "#3fa45b";
 /** Warning amber for a low-confidence triage score's chip (#100). */
 const LOW_CONFIDENCE_AMBER = "#e0a712";
+/** GitHub's issue-state hues — the linked-issue chip's status dot (#125). */
+const ISSUE_OPEN_GREEN = "#1a7f37";
+const ISSUE_CLOSED_PURPLE = "#8250df";
 
 /**
  * One triage score chip (#100) — a small pill in the card's bottom stat strip,
@@ -149,6 +163,48 @@ const scoreChip = (accent: string): React.CSSProperties => ({
   background: `color-mix(in srgb, ${accent} 16%, transparent)`,
   border: `1px solid color-mix(in srgb, ${accent} 40%, transparent)`
 });
+
+/**
+ * One linked-issue chip (#125) — a clickable pill in the card's bottom stat
+ * strip beside the triage score chips. GitHub issues get a status dot in
+ * GitHub's own open/closed hues (fetched lazily through the status store);
+ * Linear chips render without one (no API key to ask with). `stopEventPropagation`
+ * on pointerdown keeps tldraw from starting a drag/selection, while the click
+ * itself stays default so the anchor opens the tracker in a new tab.
+ */
+function IssueLinkChip({ link, accent }: { link: IssueLink; accent: string }): React.JSX.Element {
+  const status = useIssueStatusStore((s) => s.statuses[link.url]);
+  useEffect(() => {
+    issueStatus.request(link.url);
+  }, [link.url]);
+  // The chip shows the short number (`#125` / `ENG-12`); the repo lives in the
+  // tooltip — card space is scarce and the key column already reads as "issue".
+  const label = link.provider === "github" ? `#${link.key.split("#")[1] ?? link.key}` : link.key;
+  const state = status && status.state !== "unknown" ? status.state : null;
+  const dot = state === "open" ? ISSUE_OPEN_GREEN : state === "closed" ? ISSUE_CLOSED_PURPLE : null;
+  const title = `${link.title ? `${link.title} — ` : ""}${link.key}${state ? ` (${state})` : ""}`;
+  return (
+    <a
+      href={link.url}
+      target="_blank"
+      rel="noreferrer"
+      title={title}
+      onPointerDown={stopEventPropagation}
+      style={{
+        ...scoreChip(accent),
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        textDecoration: "none"
+      }}
+    >
+      {dot ? (
+        <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: dot, flexShrink: 0 }} />
+      ) : null}
+      {label}
+    </a>
+  );
+}
 
 /**
  * Shared style for the in-edit title/body fields (#72): a borderless, transparent
@@ -262,6 +318,10 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   // the chip flips to a warning amber instead of the card's own accent, rather
   // than softening the whole card (that read as broken, not "low confidence").
   const lowConfidence = typeof score?.confidence === "number" && score.confidence <= 2;
+  // External issue links (#125): the explicit hand-off link stamped on meta
+  // plus any references detected in the card's own text — derived per render,
+  // never stored, so editing the text updates the chips immediately.
+  const issueLinks = collectIssueLinks(title, body, (shape.meta as IdeaCardMeta).issue);
   const toggleStar = (e: React.SyntheticEvent) => {
     stopEventPropagation(e);
     editor.updateShape({
@@ -383,14 +443,16 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           {body ? <div style={{ fontSize: 12, lineHeight: 1.35, opacity: 0.85 }}>{body}</div> : null}
         </>
       )}
-      {score ? (
-        // AI triage score (#60/#100): impact / effort / confidence as chips,
-        // pinned to the bottom so they read as a stat strip below the idea —
-        // scannable without hovering; each chip's title spells its axis out.
+      {score || issueLinks.length > 0 ? (
+        // The bottom stat strip: the AI triage score (#60/#100) as impact /
+        // effort / confidence chips, then any linked external issues (#125) as
+        // clickable chips — pinned to the bottom so they read as stats below
+        // the idea, scannable without hovering; each chip's title spells it out.
         <div
           style={{
             marginTop: "auto",
             display: "flex",
+            flexWrap: "wrap",
             gap: 5,
             fontSize: 10,
             fontWeight: 700,
@@ -398,20 +460,27 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
             color: accent
           }}
         >
-          <span title={`Impact ${score.impact}/5 (AI triage)`} style={scoreChip(accent)}>
-            ▲ {score.impact}
-          </span>
-          <span title={`Effort ${score.effort}/5 (AI triage)`} style={scoreChip(accent)}>
-            ⚒ {score.effort}
-          </span>
-          {score.confidence != null ? (
-            <span
-              title={`Confidence ${score.confidence}/5 (AI triage)${lowConfidence ? " — low, treat as tentative" : ""}`}
-              style={scoreChip(lowConfidence ? LOW_CONFIDENCE_AMBER : accent)}
-            >
-              {lowConfidence ? "⚠" : "◎"} {score.confidence}
-            </span>
+          {score ? (
+            <>
+              <span title={`Impact ${score.impact}/5 (AI triage)`} style={scoreChip(accent)}>
+                ▲ {score.impact}
+              </span>
+              <span title={`Effort ${score.effort}/5 (AI triage)`} style={scoreChip(accent)}>
+                ⚒ {score.effort}
+              </span>
+              {score.confidence != null ? (
+                <span
+                  title={`Confidence ${score.confidence}/5 (AI triage)${lowConfidence ? " — low, treat as tentative" : ""}`}
+                  style={scoreChip(lowConfidence ? LOW_CONFIDENCE_AMBER : accent)}
+                >
+                  {lowConfidence ? "⚠" : "◎"} {score.confidence}
+                </span>
+              ) : null}
+            </>
           ) : null}
+          {issueLinks.map((link) => (
+            <IssueLinkChip key={link.url} link={link} accent={accent} />
+          ))}
         </div>
       ) : null}
     </HTMLContainer>

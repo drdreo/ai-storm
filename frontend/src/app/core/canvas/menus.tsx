@@ -334,11 +334,14 @@ export const CanvasMainMenu = track(function CanvasMainMenu({ $filter }: { $filt
  */
 export const CanvasContextMenu = track(function CanvasContextMenu({
   onReference,
+  onCreateIssue,
   sessionAttached = false,
   ...props
 }: TLUiContextMenuProps & {
   /** Fires "Reference in terminal" (#194) with the normalized selected cards. */
   onReference?: (cards: readonly ReferencedIdea[]) => void;
+  /** Opens the create-issues hand-off (#125) scoped to the selected cards. */
+  onCreateIssue?: () => void;
   /** Whether a live session backs this project — gates the reference action. */
   sessionAttached?: boolean;
 }): React.JSX.Element {
@@ -414,6 +417,22 @@ export const CanvasContextMenu = track(function CanvasContextMenu({
             disabled={!sessionAttached}
             readonlyOk
             onSelect={referenceInTerminal}
+          />
+          {/* Create + link a GitHub issue from the selection (#125): opens the
+              hand-off panel preset to issues + create, scoped to the selected
+              card(s) — the user still confirms with Generate (side effects stay
+              one deliberate click away). Same session gate as the hand-off
+              toolbar verb; tldraw hides the item while disabled. */}
+          <TldrawUiMenuItem
+            id="create-issue"
+            label={
+              selectedCards.length > 1
+                ? `⬆ Create GitHub issues from ${selectedCards.length} cards…`
+                : "⬆ Create GitHub issue…"
+            }
+            disabled={!sessionAttached}
+            readonlyOk
+            onSelect={() => onCreateIssue?.()}
           />
           <TldrawUiMenuItem id="focus" label={focusMode ? "Exit focus" : "⤢ Focus cards"} onSelect={focusSelected} />
           <TldrawUiMenuItem id="mark" label={allStarred ? "Unmark" : "★ Mark"} onSelect={() => markSelected(editor)} />

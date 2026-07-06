@@ -44,7 +44,8 @@ export function SpecPanel({
   projectId,
   projectName,
   boardEmpty,
-  onGenerate
+  onGenerate,
+  preset
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +54,13 @@ export function SpecPanel({
   /** The board has no cards to hand off — Generate is gated with why-copy. */
   boardEmpty: boolean;
   onGenerate: (format: SpecFormat, opts: SpecOptions) => void;
+  /**
+   * Picker preset applied when the panel is opened by an intent-carrying action
+   * (#125: the card context menu's "Create GitHub issue" opens it as issues +
+   * create). A fresh object per fire; the user still confirms via Generate.
+   * Deliberately NOT persisted as the last-used format.
+   */
+  preset?: { format: SpecFormat; createIssues: boolean } | null;
 }) {
   const run = useAgentStore((s) => (projectId ? (s.runs[projectId] ?? null) : null));
   const spec = run?.kind === "spec" ? run : null;
@@ -66,6 +74,14 @@ export function SpecPanel({
     setFormat(next);
     localStorage.setItem(FORMAT_KEY, next);
   };
+
+  // Apply an opener's preset (#125) — keyed on the object identity so the same
+  // action re-fires it, without overriding the user's in-panel re-picks after.
+  useEffect(() => {
+    if (!preset) return;
+    setFormat(preset.format);
+    setCreateIssues(preset.createIssues);
+  }, [preset]);
 
   // Transient "it worked" confirmation for the two write actions (#106). Copy and
   // Download both leave the app — one to the OS clipboard, one to a file — with no

@@ -73,4 +73,49 @@ describe("parseIssueArtifacts (#120)", () => {
   it("ignores non-issue GitHub URLs", () => {
     expect(parseIssueArtifacts("See https://github.com/acme/app/pull/9 and https://github.com/acme/app")).toEqual([]);
   });
+
+  it("parses source-card refs from a refs column without mistaking it for the title (#125)", () => {
+    const out = [
+      "| Title | URL | Cards |",
+      "| --- | --- | --- |",
+      "| Add dark mode | https://github.com/acme/app/issues/12 | @a1, @a3 |",
+      "| Fix login flake | https://github.com/acme/app/issues/13 | @i2 |"
+    ].join("\n");
+    expect(parseIssueArtifacts(out)).toEqual([
+      {
+        kind: "github-issue",
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12",
+        refs: ["a1", "a3"]
+      },
+      {
+        kind: "github-issue",
+        title: "Fix login flake",
+        url: "https://github.com/acme/app/issues/13",
+        refs: ["i2"]
+      }
+    ]);
+  });
+
+  it("merges refs when the same URL appears again, and never parses @mentions as refs (#125)", () => {
+    const out = [
+      "https://github.com/acme/app/issues/12",
+      "| Add dark mode | https://github.com/acme/app/issues/12 | @a1 |",
+      "| Add dark mode | https://github.com/acme/app/issues/12 | @a2, @a1 |",
+      "cc @drdreo https://github.com/acme/app/issues/13"
+    ].join("\n");
+    expect(parseIssueArtifacts(out)).toEqual([
+      {
+        kind: "github-issue",
+        title: "Add dark mode",
+        url: "https://github.com/acme/app/issues/12",
+        refs: ["a1", "a2"]
+      },
+      {
+        kind: "github-issue",
+        title: "Issue #13",
+        url: "https://github.com/acme/app/issues/13"
+      }
+    ]);
+  });
 });
