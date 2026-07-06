@@ -8,7 +8,8 @@
 import { stopEventPropagation, TldrawUiButton, TldrawUiButtonLabel, TldrawUiToolbar, track, useEditor } from "tldraw";
 import { cardToText, serializeCards } from "../canvas-text";
 import type { PromptIntent } from "../prompt-framing";
-import { cardRef, content, type IdeaCardShape } from "./idea-card";
+import type { IdeaCardShape } from "./idea-card";
+import { serializeSelectedIdeas, type SerializedSelectedIdeas } from "./serialize";
 
 /** A card-level AI verb: a label bound to a {@link PromptIntent} (prompt-framing). */
 const CARD_VERBS: ReadonlyArray<{ intent: PromptIntent; label: string }> = [
@@ -23,6 +24,10 @@ const CARD_VERBS: ReadonlyArray<{ intent: PromptIntent; label: string }> = [
  * source card refs (one for the single-card verbs, several for `combine`).
  */
 export type CardVerbHandler = (text: string, intent: PromptIntent, sourceRefs: readonly string[]) => void;
+
+function sourceRefs(payload: SerializedSelectedIdeas): string[] {
+  return payload.cards.map((card) => card.ref).filter((ref): ref is string => !!ref);
+}
 
 /**
  * The bidirectional-canvas seam (#13, #15, #62): a small action bar over the
@@ -52,20 +57,22 @@ export const CardVerbBar = track(function CardVerbBar({
 
   // Fire a single-card verb on the lone selected card.
   const fire = (intent: PromptIntent) => {
-    const card = cards[0];
-    const text = cardToText(content(card));
+    const payload = serializeSelectedIdeas(editor);
+    const card = payload?.cards[0];
+    if (!payload || !card) return;
+    const text = cardToText(card);
     if (!text.trim()) return;
-    const ref = cardRef(editor, card.id);
-    onVerb(text, intent, ref ? [ref] : []);
+    onVerb(text, intent, sourceRefs(payload));
   };
 
   // Fire the multi-select combine verb: serialize every selected card and mint a
   // ref for each so the merged idea can supersede them all (#62).
   const fireCombine = () => {
-    const text = serializeCards(cards.map(content));
+    const payload = serializeSelectedIdeas(editor);
+    if (!payload) return;
+    const text = serializeCards(payload.cards);
     if (!text.trim()) return;
-    const refs = cards.map((c) => cardRef(editor, c.id)).filter((r): r is string => !!r);
-    onVerb(text, "combine", refs);
+    onVerb(text, "combine", sourceRefs(payload));
   };
 
   return (
