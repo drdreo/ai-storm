@@ -51,6 +51,12 @@ export interface HarnessProfile {
   systemPromptFlag?: string;
   /** Transform the prime text into the value paired with `systemPromptFlag`. */
   systemPromptValue?: (prime: string) => string;
+  /**
+   * Config key written by `systemPromptFlag` for CLIs whose priming seam is a
+   * config override. When set, caller-supplied config wins and the profile
+   * does not append a duplicate priming override.
+   */
+  systemPromptConfigKey?: string;
   /** Default CLI flags for this harness unless the caller already supplied them. */
   defaultArgs?: string[];
   /**
@@ -220,12 +226,14 @@ export const CODEX_PROFILE: HarnessProfile = {
   name: "codex",
   supportsIdeaContract: true,
   systemPromptFlag: "-c",
+  systemPromptConfigKey: "developer_instructions",
   systemPromptValue: (prime) => `developer_instructions=${JSON.stringify(prime)}`,
   defaultArgs: ["--no-alt-screen"],
   modelFlag: "--model",
-  // Keep the live brainstorming harness fast/cheap by default. Users can still
+  // Keep the live brainstorming harness fast/cheap by default. The current
+  // Codex docs list gpt-5.4-mini for lighter coding tasks; users can still
   // override with explicit `--model` / `-c model_reasoning_effort=...` args.
-  defaultModel: "gpt-5.3-codex-spark",
+  defaultModel: "gpt-5.4-mini",
   defaultConfig: { model_reasoning_effort: JSON.stringify("medium") }
 };
 
@@ -293,16 +301,26 @@ export function launchArgsForProfile(
 ): string[] {
   const defaultArgs = (profile.defaultArgs ?? []).filter((arg) => !baseArgs.includes(arg));
   const modelArgs =
-    profile.modelFlag && profile.defaultModel && !baseArgs.includes(profile.modelFlag)
+    profile.modelFlag && profile.defaultModel && !hasFlag(baseArgs, profile.modelFlag)
       ? [profile.modelFlag, profile.defaultModel]
       : [];
   const configArgs = Object.entries(profile.defaultConfig ?? {}).flatMap(([key, value]) =>
     hasConfigOverride(baseArgs, key) ? [] : ["-c", `${key}=${value}`]
   );
-  const mcpArgs = profile.mcpArgs && mcp && !baseArgs.includes("--mcp-config") ? profile.mcpArgs(mcp) : [];
+  const mcpArgs = profile.mcpArgs && mcp && !hasFlag(baseArgs, "--mcp-config") ? profile.mcpArgs(mcp) : [];
   const primeArgs =
-    profile.systemPromptFlag && prime ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime] : [];
+    profile.systemPromptFlag && prime && !hasSystemPromptOverride(profile, baseArgs)
+      ? [profile.systemPromptFlag, profile.systemPromptValue?.(prime) ?? prime]
+      : [];
   return [...baseArgs, ...defaultArgs, ...modelArgs, ...configArgs, ...mcpArgs, ...primeArgs];
+}
+
+function hasFlag(args: readonly string[], flag: string): boolean {
+  return args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+}
+
+function hasSystemPromptOverride(profile: HarnessProfile, args: readonly string[]): boolean {
+  return !!profile.systemPromptConfigKey && hasConfigOverride(args, profile.systemPromptConfigKey);
 }
 
 function hasConfigOverride(args: readonly string[], key: string): boolean {
