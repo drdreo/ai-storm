@@ -34,12 +34,11 @@ export function StatusDot({ tone }: { tone: SessionTone }) {
   return (
     <span className="relative inline-flex size-2 shrink-0">
       {justSettled && (
-        <span
-          aria-hidden="true"
-          className={cn("status-dot-settle absolute inset-0 rounded-full", TONE_DOT.ok)}
-        />
+        <span aria-hidden="true" className={cn("status-dot-settle absolute inset-0 rounded-full", TONE_DOT.ok)} />
       )}
-      <span className={cn("relative size-2 rounded-full", TONE_DOT[tone], tone === "pending" && "status-dot-breathe")} />
+      <span
+        className={cn("relative size-2 rounded-full", TONE_DOT[tone], tone === "pending" && "status-dot-breathe")}
+      />
     </span>
   );
 }
