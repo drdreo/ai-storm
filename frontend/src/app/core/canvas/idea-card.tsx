@@ -1,5 +1,5 @@
 /**
- * The custom `idea-card` shape — the idea-graph node (idea-graph.md §3) and the
+ * The custom `idea-card` shape â€” the idea-graph node (idea-graph.md Â§3) and the
  * foundation every other canvas module builds on. Owns the shape type + its
  * `ShapeUtil`, the rendered card body, and the low-level identity/content helpers
  * (`ideaCards`, refs, reading order). Kept "as close to native tldraw as possible":
@@ -36,22 +36,22 @@ import { canvasRefIndex } from "./refs";
 /** Provenance of a card (#31, PD-009): AI-created vs user-drawn. */
 export type Origin = "ai" | "user";
 
-/** A spatial idea card: the tldraw analogue of an `affine:note` (idea-graph §2.1). */
+/** A spatial idea card: the tldraw analogue of an `affine:note` (idea-graph Â§2.1). */
 export type IdeaCardShape = TLBaseShape<
   "idea-card",
   {
     w: number;
     h: number;
-    /** What it IS (idea-graph §2.2) — drives the badge via the registry. */
+    /** What it IS (idea-graph Â§2.2) â€” drives the badge via the registry. */
     kind: string;
     title: string;
     body: string;
-    /** Who made it (#31, PD-009) — AI cards get the 🤖 badge. */
+    /** Who made it (#31, PD-009) â€” AI cards get the ðŸ¤– badge. */
     origin: Origin;
     /** Lifecycle (#20, PD-012): a supersede target becomes a grey/dashed ghost. */
     superseded: boolean;
     /**
-     * The card's tint — a **shared** tldraw color StyleProp (was a hardcoded
+     * The card's tint â€” a **shared** tldraw color StyleProp (was a hardcoded
      * Affine hex). Being `DefaultColorStyle` makes it a first-class member of the
      * style panel: it remembers last-used, persists, and resolves to the active
      * light/dark theme automatically. `kind` sets its default (see `applyIdeas`);
@@ -63,40 +63,40 @@ export type IdeaCardShape = TLBaseShape<
 
 /**
  * The metadata we hang on a card's `meta` (outside the styled props): its stable
- * SHORT REF (`a1`, `a2`, … — idea-graph §4). A tldraw shape id is a generated
+ * SHORT REF (`a1`, `a2`, â€¦ â€” idea-graph Â§4). A tldraw shape id is a generated
  * token an LLM can't reproduce; the short ref is the identity an agent names in
- * its reply (`«IDEA@a1»`) and an edge points at. Persisted with the shape, so it
+ * its reply (`Â«IDEA@a1Â»`) and an edge points at. Persisted with the shape, so it
  * survives reload. Minted in `applyIdeas` for AI cards and lazily by
  * {@link cardRef} the first time a user card is referenced.
  */
 export interface IdeaCardMeta {
   ref?: string;
-  /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
+  /** User mark â€” "good, keep for later processing" (#29). Toggled via the â˜…. */
   starred?: boolean;
   /**
    * Completion state (#167): the idea has been acted on / finished. Set by the
    * MCP `mark_idea_done` tool (an agent reflecting workflow progress) and by the
-   * manual context-menu toggle. A done card reads as visibly completed (✓ mark,
+   * manual context-menu toggle. A done card reads as visibly completed (âœ“ mark,
    * struck title, dimmed) but stays on the board. `meta` (like `starred`/`score`)
    * so no schema migration; absent means open.
    */
   done?: boolean;
   /**
    * AI triage score (#60): 1..5 impact / effort (and optional confidence),
-   * assigned by the agent via the `«SCORE@ref»` contract. Drives the 2×2
+   * assigned by the agent via the `Â«SCORE@refÂ»` contract. Drives the 2Ã—2
    * prioritization layout (and, later, visual weight). Absent until the board is
-   * triaged — `meta` so no schema migration, exactly like `starred`.
+   * triaged â€” `meta` so no schema migration, exactly like `starred`.
    */
   score?: { impact: number; effort: number; confidence?: number };
   /**
    * Set the first time the user edits an AI card's text (#72). The card keeps its
-   * `origin: 'ai'` provenance (and the 🤖 badge) but gains a `· edited` mark, so a
+   * `origin: 'ai'` provenance (and the ðŸ¤– badge) but gains a `Â· edited` mark, so a
    * human take-over of an AI idea stays honest about both halves of its history.
    * `meta` (like `starred`/`score`) so no schema migration.
    */
   editedByUser?: boolean;
   /**
-   * Epoch ms the card was created (#124) — stamped by the AI ingest path and the
+   * Epoch ms the card was created (#124) â€” stamped by the AI ingest path and the
    * manual "Idea" tool so full-text search can offer a date facet. `meta` (like
    * `starred`/`score`) so no schema migration; cards made before this landed
    * simply lack it and are treated as unknown-date by the search filter.
@@ -116,7 +116,7 @@ export interface IdeaCardMeta {
 /**
  * Register the custom shape with tldraw's type system. tldraw 5 derives the
  * `TLShape` union from the augmentable `TLGlobalShapePropsMap` interface, so this
- * one declaration makes `idea-card` a first-class shape type everywhere — the
+ * one declaration makes `idea-card` a first-class shape type everywhere â€” the
  * typed equivalent of registering a BlockSuite block flavour in the schema.
  */
 declare module "tldraw" {
@@ -127,6 +127,65 @@ declare module "tldraw" {
 
 export const CARD_W = 250;
 export const CARD_H = 132;
+export const CARD_MAX_W = 420;
+export const CARD_MAX_H = 360;
+
+const CARD_MIN_READABLE_W = 190;
+const CARD_HORIZONTAL_PADDING = 24;
+const CARD_VERTICAL_PADDING = 20;
+const CARD_META_ROW_H = 19;
+const CARD_GAP = 5;
+const CARD_TITLE_LINE_H = 18;
+const CARD_BODY_LINE_H = 17;
+const CARD_TITLE_CHAR_W = 7.5;
+const CARD_BODY_CHAR_W = 6.2;
+const CARD_MAX_BODY_LINES = 14;
+
+export interface IdeaCardSizeInput {
+  kind?: string;
+  title?: string;
+  body?: string;
+  origin?: Origin;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+function lineCount(text: string, usableWidth: number, charWidth: number): number {
+  const charsPerLine = Math.max(1, Math.floor(usableWidth / charWidth));
+  return text
+    .split(/\r?\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.trimEnd().length / charsPerLine)), 0);
+}
+
+/**
+ * Estimate the card size once, before creation (#215). This deliberately does
+ * not reflow on edit; after a card exists, the user's manual resize remains the
+ * source of truth.
+ */
+export function ideaCardSizeForContent(input: IdeaCardSizeInput): { w: number; h: number } {
+  const title = input.title?.trim() || "Untitled idea";
+  const body = input.body?.trim() ?? "";
+  const normalized = normalizeKind(input.kind);
+  const hasMetaRow = input.origin === "ai" || !!normalized;
+
+  const titleWidth = Math.min(CARD_MAX_W, Math.ceil(title.length * CARD_TITLE_CHAR_W + CARD_HORIZONTAL_PADDING + 34));
+  const longestBodyLine = body.split(/\r?\n/).reduce((max, line) => Math.max(max, line.trimEnd().length), 0);
+  const bodyWidth = Math.ceil(longestBodyLine * CARD_BODY_CHAR_W + CARD_HORIZONTAL_PADDING);
+  const w = clamp(Math.max(CARD_W, CARD_MIN_READABLE_W, titleWidth, body ? bodyWidth : 0), CARD_W, CARD_MAX_W);
+
+  const usableWidth = w - CARD_HORIZONTAL_PADDING;
+  const titleLines = lineCount(title, usableWidth - 22, CARD_TITLE_CHAR_W);
+  const bodyLines = body ? Math.min(CARD_MAX_BODY_LINES, lineCount(body, usableWidth, CARD_BODY_CHAR_W)) : 0;
+  const contentH =
+    CARD_VERTICAL_PADDING +
+    (hasMetaRow ? CARD_META_ROW_H + CARD_GAP : 0) +
+    titleLines * CARD_TITLE_LINE_H +
+    (bodyLines > 0 ? CARD_GAP + bodyLines * CARD_BODY_LINE_H : 0);
+
+  return { w, h: clamp(Math.ceil(contentH), CARD_H, CARD_MAX_H) };
+}
 
 /**
  * Card ink (#77 audit M4). Deliberately card-LOCAL near-black / near-white, NOT
@@ -139,18 +198,18 @@ const CARD_INK_LIGHT = "#1c1c1c";
 const CARD_INK_DARK = "#e8e8e8";
 /** The gold of the "kept for later" star mark (#29). */
 const STAR_GOLD = "#f5b301";
-/** The green of the "done / complete" mark (#167) — a finished, not discarded, card. */
+/** The green of the "done / complete" mark (#167) â€” a finished, not discarded, card. */
 const DONE_GREEN = "#3fa45b";
 /** Warning amber for a low-confidence triage score's chip (#100). */
 const LOW_CONFIDENCE_AMBER = "#e0a712";
-/** GitHub's issue-state hues — the linked-issue chip's status dot (#125). */
+/** GitHub's issue-state hues â€” the linked-issue chip's status dot (#125). */
 const ISSUE_OPEN_GREEN = "#1a7f37";
 const ISSUE_CLOSED_PURPLE = "#8250df";
 
 /**
- * One triage score chip (#100) — a small pill in the card's bottom stat strip,
+ * One triage score chip (#100) â€” a small pill in the card's bottom stat strip,
  * tinted from the card's accent so it stays legible on every card color in both
- * themes. `color-mix` keeps the fill/outline derived from a single accent —
+ * themes. `color-mix` keeps the fill/outline derived from a single accent â€”
  * normally the card's own, but the confidence chip passes
  * {@link LOW_CONFIDENCE_AMBER} instead when the score is shaky (#100), so a low
  * rating reads as a warning rather than just another same-colored stat.
@@ -165,7 +224,7 @@ const scoreChip = (accent: string): React.CSSProperties => ({
 });
 
 /**
- * One linked-issue chip (#125) — a clickable pill in the card's bottom stat
+ * One linked-issue chip (#125) â€” a clickable pill in the card's bottom stat
  * strip beside the triage score chips. GitHub issues get a status dot in
  * GitHub's own open/closed hues (fetched lazily through the status store);
  * Linear chips render without one (no API key to ask with). `stopEventPropagation`
@@ -178,11 +237,11 @@ function IssueLinkChip({ link, accent }: { link: IssueLink; accent: string }): R
     issueStatus.request(link.url);
   }, [link.url]);
   // The chip shows the short number (`#125` / `ENG-12`); the repo lives in the
-  // tooltip — card space is scarce and the key column already reads as "issue".
+  // tooltip â€” card space is scarce and the key column already reads as "issue".
   const label = link.provider === "github" ? `#${link.key.split("#")[1] ?? link.key}` : link.key;
   const state = status && status.state !== "unknown" ? status.state : null;
   const dot = state === "open" ? ISSUE_OPEN_GREEN : state === "closed" ? ISSUE_CLOSED_PURPLE : null;
-  const title = `${link.title ? `${link.title} — ` : ""}${link.key}${state ? ` (${state})` : ""}`;
+  const title = `${link.title ? `${link.title} â€” ` : ""}${link.key}${state ? ` (${state})` : ""}`;
   return (
     <a
       href={link.url}
@@ -233,7 +292,7 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
     body: T.string,
     origin: T.literalEnum("ai", "user"),
     superseded: T.boolean,
-    // A real shared style — this is what wires the card into the style panel and
+    // A real shared style â€” this is what wires the card into the style panel and
     // the theme's light/dark color resolution (tldraw styles system).
     color: DefaultColorStyle
   };
@@ -258,7 +317,7 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
   override canResize = () => true;
   override canEdit = () => true;
 
-  // The card's text representation — what tldraw joins into the `text/plain`
+  // The card's text representation â€” what tldraw joins into the `text/plain`
   // clipboard fallback, search, and drag-out. Without it a copied card has no
   // text and consumers fall back to the shape blob (#74).
   override getText(shape: IdeaCardShape): string {
@@ -282,7 +341,7 @@ export class IdeaCardShapeUtil extends ShapeUtil<IdeaCardShape> {
 }
 
 /**
- * The card's rendered body — a function component (so React hooks are legal)
+ * The card's rendered body â€” a function component (so React hooks are legal)
  * resolving the shape's `color` style against the CURRENT theme. `getColorValue`
  * + `useColorMode` is the styles-system replacement for the old `KIND_TINT`
  * Affine-hex map: the same card reads as a soft `semi` fill in light mode and the
@@ -301,25 +360,25 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   const text = superseded ? accent : colorMode === "dark" ? CARD_INK_DARK : CARD_INK_LIGHT;
 
   const normalized = normalizeKind(kind);
-  // Mirrors `decorateProvenance(decorateTitle(...))`: a 🤖 for AI cards, then the
+  // Mirrors `decorateProvenance(decorateTitle(...))`: a ðŸ¤– for AI cards, then the
   // registry's kind label (or `#tag` for an unknown kind).
   const badge = `${origin === "ai" ? `${AI_PROVENANCE_BADGE} ` : ""}${normalized ? kindLabel(normalized) : ""}`.trim();
 
   // User mark (#29): "keep this one for later". Stored in meta (no schema
-  // migration), persists with the card, toggled by the ★ in the corner.
+  // migration), persists with the card, toggled by the â˜… in the corner.
   const starred = !!(shape.meta as IdeaCardMeta).starred;
   const score = (shape.meta as IdeaCardMeta).score;
   const editedByUser = !!(shape.meta as IdeaCardMeta).editedByUser;
-  // Completion (#167): a done idea stays on the board but reads as finished — a
-  // green ✓ in the meta row, a struck title, and a dimmed card. Distinct from a
+  // Completion (#167): a done idea stays on the board but reads as finished â€” a
+  // green âœ“ in the meta row, a struck title, and a dimmed card. Distinct from a
   // superseded ghost (grey/dashed, #20): done is "we did it", not "replaced".
   const done = !superseded && !!(shape.meta as IdeaCardMeta).done;
-  // A confidence of 1-2 (#100) is the agent flagging its own rating as shaky —
+  // A confidence of 1-2 (#100) is the agent flagging its own rating as shaky â€”
   // the chip flips to a warning amber instead of the card's own accent, rather
   // than softening the whole card (that read as broken, not "low confidence").
   const lowConfidence = typeof score?.confidence === "number" && score.confidence <= 2;
   // External issue links (#125): the explicit hand-off link stamped on meta
-  // plus any references detected in the card's own text — derived per render,
+  // plus any references detected in the card's own text â€” derived per render,
   // never stored, so editing the text updates the chips immediately.
   const issueLinks = collectIssueLinks(title, body, (shape.meta as IdeaCardMeta).issue);
   const toggleStar = (e: React.SyntheticEvent) => {
@@ -333,8 +392,8 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
 
   // Live text edit (#72). tldraw enters this shape's edit mode on double-click /
   // Enter (canEdit === true); we then swap the read-only title/body for inputs.
-  // The first user keystroke on an AI card stamps `editedByUser` — provenance
-  // stays `ai` (the 🤖 endures) but a `· edited` mark records the human take-over.
+  // The first user keystroke on an AI card stamps `editedByUser` â€” provenance
+  // stays `ai` (the ðŸ¤– endures) but a `Â· edited` mark records the human take-over.
   const edit = (patch: Partial<Pick<IdeaCardShape["props"], "title" | "body">>) => {
     const stampEdited = origin === "ai" && !editedByUser;
     editor.updateShape({
@@ -368,7 +427,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
     >
       <button
         type="button"
-        title={starred ? "Marked — keep for later (click to unmark)" : "Mark this idea for later"}
+        title={starred ? "Marked â€” keep for later (click to unmark)" : "Mark this idea for later"}
         aria-pressed={starred}
         onPointerDown={stopEventPropagation}
         onClick={toggleStar}
@@ -386,15 +445,15 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           opacity: starred ? 1 : 0.35
         }}
       >
-        {starred ? "★" : "☆"}
+        {starred ? "â˜…" : "â˜†"}
       </button>
       {badge || done ? (
         <div style={{ fontSize: 11, fontWeight: 600, color: accent, letterSpacing: "0.02em" }}>
-          {done ? <span style={{ color: DONE_GREEN }}>✓ done</span> : null}
-          {done && badge ? " · " : ""}
+          {done ? <span style={{ color: DONE_GREEN }}>âœ“ done</span> : null}
+          {done && badge ? " Â· " : ""}
           {badge}
-          {superseded ? " · superseded" : ""}
-          {editedByUser ? " · edited" : ""}
+          {superseded ? " Â· superseded" : ""}
+          {editedByUser ? " Â· edited" : ""}
         </div>
       ) : null}
       {isEditing ? (
@@ -415,7 +474,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           />
           <textarea
             value={body}
-            placeholder="Add detail…"
+            placeholder="Add detailâ€¦"
             onPointerDown={stopEventPropagation}
             onChange={(e) => edit({ body: e.target.value })}
             style={{
@@ -446,7 +505,7 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
       {score || issueLinks.length > 0 ? (
         // The bottom stat strip: the AI triage score (#60/#100) as impact /
         // effort / confidence chips, then any linked external issues (#125) as
-        // clickable chips — pinned to the bottom so they read as stats below
+        // clickable chips â€” pinned to the bottom so they read as stats below
         // the idea, scannable without hovering; each chip's title spells it out.
         <div
           style={{
@@ -463,17 +522,17 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           {score ? (
             <>
               <span title={`Impact ${score.impact}/5 (AI triage)`} style={scoreChip(accent)}>
-                ▲ {score.impact}
+                â–² {score.impact}
               </span>
               <span title={`Effort ${score.effort}/5 (AI triage)`} style={scoreChip(accent)}>
-                ⚒ {score.effort}
+                âš’ {score.effort}
               </span>
               {score.confidence != null ? (
                 <span
-                  title={`Confidence ${score.confidence}/5 (AI triage)${lowConfidence ? " — low, treat as tentative" : ""}`}
+                  title={`Confidence ${score.confidence}/5 (AI triage)${lowConfidence ? " â€” low, treat as tentative" : ""}`}
                   style={scoreChip(lowConfidence ? LOW_CONFIDENCE_AMBER : accent)}
                 >
-                  {lowConfidence ? "⚠" : "◎"} {score.confidence}
+                  {lowConfidence ? "âš " : "â—Ž"} {score.confidence}
                 </span>
               ) : null}
             </>
@@ -494,7 +553,7 @@ export function ideaCards(editor: Editor): IdeaCardShape[] {
 
 /**
  * Every idea-card shape across ALL of the editor's pages (#124). Search must see
- * the whole project, not just the open page — this reads the store directly,
+ * the whole project, not just the open page â€” this reads the store directly,
  * mirroring how the persisted-store gather path sees every page's records.
  */
 export function allIdeaCards(editor: Editor): IdeaCardShape[] {
@@ -506,8 +565,8 @@ export function allIdeaCards(editor: Editor): IdeaCardShape[] {
 /**
  * Highest `a<n>` ref index currently minted on the canvas (0 if none). Counts
  * ONLY canvas-minted `a<n>` refs: a backend-minted `i<n>` ref (the MCP tool
- * path, mcp-idea-capture §3.3) lives in a disjoint namespace and deliberately
- * contributes nothing — see {@link canvasRefIndex}.
+ * path, mcp-idea-capture Â§3.3) lives in a disjoint namespace and deliberately
+ * contributes nothing â€” see {@link canvasRefIndex}.
  */
 export function maxRefIndex(editor: Editor): number {
   let max = 0;
@@ -528,7 +587,7 @@ export function cardsInOrder(editor: Editor): IdeaCardShape[] {
 }
 
 /**
- * The stable short ref of a card (idea-graph §4), minting one (`a1`, `a2`, …) on
+ * The stable short ref of a card (idea-graph Â§4), minting one (`a1`, `a2`, â€¦) on
  * first reference. `applyIdeas` mints refs for AI cards as they are created;
  * this is the lazy path for a user-drawn card the first time an edge names it.
  */
@@ -542,7 +601,7 @@ export function cardRef(editor: Editor, shapeId: TLShapeId): string | undefined 
   return ref;
 }
 
-/** Resolve a short ref back to its shape id (idea-graph §4), or undefined. */
+/** Resolve a short ref back to its shape id (idea-graph Â§4), or undefined. */
 export function resolveRef(editor: Editor, ref: string): TLShapeId | undefined {
   for (const card of ideaCards(editor)) {
     if ((card.meta as IdeaCardMeta).ref === ref) return card.id;
