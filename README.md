@@ -20,18 +20,28 @@ And there is **no** lock in. You extract the ideas you want as markdown, JSON, G
 - **A real terminal, not a chat box.** Sessions run in a genuine
   pseudo-terminal (ConPTY / forkpty), so your CLI's full TUI renders and
   behaves exactly as it does in your normal terminal.
-- **Multiple projects, instantly.** Isolated boards + pages with sessions per project. Everything persists locally in your browser.
 
-**Features:**
+## Features
 
-- **Idea types**: feature, idea, risk, etc.
-- **Export ideas**: Generate a dedicated: PRD, plan, tasks, GitHub issues, plain markdown or JSON.
-- **Link issues**: Link generated ideas to GitHub issues.
-- **Filters**: Apply filters to the board to keep sanity.
-- **Smart arrangements**: priority grid, mind map
-- **Focus mode**: `CTRL + SHIFT + F` to focus on the board.
-- **Onboarding**: New users get a quick tutorial.
-- **Theme**: Dark, light, customize it.
+- **Idea types**: auto-generates feature, idea, risk, question, decision — cards carry a kind.
+- **Your notes too**: Add your own ideas manually; edit any.
+- **Card References**: Expand, Challenge, Find risks; send any card back for another round.
+- **Facilitation modes**: Brainstorm in free-form, SCAMPER, Six Hats, Crazy-8s, Yes-and. Try a different technique to see what works best.
+- **Smart arrangements**: priority grid, semantic mind map, with connectors between related ideas.
+- **Filters & search**: board filters and idea search across all projects to keep it clean.
+- **Mark & track**: Keep ideas for later (lightweight voting) and mark them done.
+- **Board tools**: Command palette, statistics overview, and focus mode
+  (`CTRL + SHIFT + F`) for more focus.
+- **Hand-off formats**: Turn the board into a PRD, plan, task list, GitHub
+  issues, plain markdown, or JSON.
+- **Summarize & triage**: Let the AI synthesize the board or triage what's
+  worth building and score them.
+- **Issue linking**: Link idea cards to GitHub or Linear issues.
+- **Projects & folders**: Isolated boards per project, organized into folders
+  with per-project pages; export/import projects as a file.
+- **Theming**: Dark/light/system plus palette, font, radius, density, and
+  contrast knobs.
+
 
 ## Why?
 
