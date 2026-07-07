@@ -120,7 +120,7 @@ async function cmdStart(opts: CliOptions): Promise<void> {
 async function cmdStop(): Promise<void> {
   const stopped = await stopDaemon();
   if (stopped) {
-    info(`${mark.ok} Daemon stopped.`);
+    info(`${mark.ok} ai-storm daemon stopped.`);
     if (process.platform !== "win32") {
       info(color.dim("  Durable brainstorm sessions stay alive in tmux and reattach on next start."));
     }

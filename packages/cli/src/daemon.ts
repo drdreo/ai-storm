@@ -217,6 +217,24 @@ export interface StartOptions {
 }
 
 /**
+ * Spawn options for the background daemon. `detached: true` on EVERY platform:
+ * on Windows this puts the child in its own process group + console so it
+ * survives the launcher exiting (without it the backend dies with the CLI,
+ * and `status` right after `start` reports "not running").
+ */
+export function backgroundSpawnOptions(
+  cwd: string,
+  logFd: number
+): { cwd: string; detached: true; stdio: ["ignore", number, number]; windowsHide: true } {
+  return {
+    cwd,
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    windowsHide: true
+  };
+}
+
+/**
  * Spawn the backend and wait until `/health` answers. Returns the state
  * record of the now-live daemon. In foreground mode the child inherits this
  * terminal and the promise only resolves once it is healthy (the process
@@ -243,12 +261,7 @@ export async function startDaemon(opts: StartOptions): Promise<DaemonState> {
     child = spawn(process.execPath, args, { cwd: root, stdio: "inherit" });
   } else {
     const out = openSync(logFile, "a");
-    child = spawn(process.execPath, args, {
-      cwd: root,
-      detached: process.platform !== "win32",
-      stdio: ["ignore", out, out],
-      windowsHide: true
-    });
+    child = spawn(process.execPath, args, backgroundSpawnOptions(root, out));
     closeSync(out);
   }
 
@@ -336,18 +349,26 @@ export function readLogTail(logFile: string, lines: number): string {
   }
 }
 
-/** Open the default browser at `url` — best effort, never throws. */
+/**
+ * Open the default browser at `url` — best effort, never throws. A missing
+ * opener (no xdg-open, etc.) surfaces as an async `error` event on the child,
+ * not a synchronous throw, so the handler below is the real safety net.
+ */
 export function openBrowser(url: string): void {
+  const fallback = () => info(color.dim(`Could not open a browser automatically — visit ${url}`));
   try {
+    let child;
     if (process.platform === "darwin") {
-      spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+      child = spawn("open", [url], { stdio: "ignore", detached: true });
     } else if (process.platform === "win32") {
       // `start` is a cmd builtin; the empty string is the window title slot.
-      spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true, windowsHide: true }).unref();
+      child = spawn("cmd", ["/c", "start", "", url], { stdio: "ignore", detached: true, windowsHide: true });
     } else {
-      spawn("xdg-open", [url], { stdio: "ignore", detached: true }).unref();
+      child = spawn("xdg-open", [url], { stdio: "ignore", detached: true });
     }
+    child.once("error", fallback);
+    child.unref();
   } catch {
-    info(color.dim(`Could not open a browser automatically — visit ${url}`));
+    fallback();
   }
 }

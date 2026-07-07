@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseCliArgs } from "./args.ts";
-import { looksLikeAiStorm } from "./daemon.ts";
+import { backgroundSpawnOptions, looksLikeAiStorm } from "./daemon.ts";
 import { nodeVersionSupported } from "./doctor.ts";
 import { backendLogFile, daemonStateFile, stateDir, type PlatformEnv } from "./paths.ts";
 
@@ -87,12 +87,41 @@ describe("state paths", () => {
       env: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
       home: "C:\\Users\\tester"
     };
-    expect(stateDir(win)).toContain("ai-storm");
+    expect(stateDir(win)).toBe("C:\\Users\\tester\\AppData\\Local\\ai-storm");
+  });
+
+  it("falls back to home-derived AppData when LOCALAPPDATA is unset", () => {
+    const win: PlatformEnv = { platform: "win32", env: {}, home: "C:\\Users\\tester" };
+    expect(stateDir(win)).toBe("C:\\Users\\tester\\AppData\\Local\\ai-storm");
   });
 
   it("nests logs and the daemon record under the state dir", () => {
     const linux: PlatformEnv = { platform: "linux", env: {}, home };
     expect(backendLogFile(linux)).toBe("/home/tester/.local/state/ai-storm/logs/backend.log");
     expect(daemonStateFile(linux)).toBe("/home/tester/.local/state/ai-storm/daemon.json");
+  });
+
+  it("uses the target platform's separator regardless of the host OS", () => {
+    const win: PlatformEnv = {
+      platform: "win32",
+      env: { LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local" },
+      home: "C:\\Users\\tester"
+    };
+    expect(backendLogFile(win)).toBe("C:\\Users\\tester\\AppData\\Local\\ai-storm\\logs\\backend.log");
+    expect(daemonStateFile(win)).toBe("C:\\Users\\tester\\AppData\\Local\\ai-storm\\daemon.json");
+    const linux: PlatformEnv = { platform: "linux", env: {}, home };
+    expect(stateDir(linux)).not.toContain("\\");
+  });
+});
+
+describe("backgroundSpawnOptions", () => {
+  // Regression for #216 review: the Windows daemon died with the launcher
+  // because the background spawn was not detached there.
+  it("detaches the daemon on every platform so it survives launcher exit", () => {
+    const opts = backgroundSpawnOptions("/repo", 7);
+    expect(opts.detached).toBe(true);
+    expect(opts.stdio).toEqual(["ignore", 7, 7]);
+    expect(opts.windowsHide).toBe(true);
+    expect(opts.cwd).toBe("/repo");
   });
 });

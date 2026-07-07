@@ -13,7 +13,7 @@
  */
 
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Minimal view of the process environment the path logic depends on. */
@@ -27,28 +27,36 @@ export function currentPlatformEnv(): PlatformEnv {
   return { platform: process.platform, env: process.env, home: homedir() };
 }
 
+/**
+ * Join with the TARGET platform's separator (not the host's), so these
+ * helpers stay correct when a PlatformEnv simulates another OS in tests.
+ */
+function joinFor(p: PlatformEnv, ...parts: string[]): string {
+  return (p.platform === "win32" ? win32 : posix).join(...parts);
+}
+
 /** Root directory for CLI state (pidfile, logs). Created lazily by callers. */
 export function stateDir(p: PlatformEnv = currentPlatformEnv()): string {
   if (p.platform === "win32") {
-    return join(p.env.LOCALAPPDATA ?? join(p.home, "AppData", "Local"), "ai-storm");
+    return joinFor(p, p.env.LOCALAPPDATA ?? joinFor(p, p.home, "AppData", "Local"), "ai-storm");
   }
   if (p.platform === "darwin") {
-    return join(p.home, "Library", "Application Support", "ai-storm");
+    return joinFor(p, p.home, "Library", "Application Support", "ai-storm");
   }
-  return join(p.env.XDG_STATE_HOME ?? join(p.home, ".local", "state"), "ai-storm");
+  return joinFor(p, p.env.XDG_STATE_HOME ?? joinFor(p, p.home, ".local", "state"), "ai-storm");
 }
 
 export function logsDir(p: PlatformEnv = currentPlatformEnv()): string {
-  return join(stateDir(p), "logs");
+  return joinFor(p, stateDir(p), "logs");
 }
 
 export function backendLogFile(p: PlatformEnv = currentPlatformEnv()): string {
-  return join(logsDir(p), "backend.log");
+  return joinFor(p, logsDir(p), "backend.log");
 }
 
 /** Pidfile-equivalent: JSON record describing the supervised daemon. */
 export function daemonStateFile(p: PlatformEnv = currentPlatformEnv()): string {
-  return join(stateDir(p), "daemon.json");
+  return joinFor(p, stateDir(p), "daemon.json");
 }
 
 /**
