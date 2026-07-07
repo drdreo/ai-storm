@@ -8,7 +8,7 @@ The goal is to have AI-driven brainstorming available on top of your existing to
 ai-storm uses the AI harness you already use; `claude`, `codex`, `pi`,
 `opencode`, you name it, in a real terminal, and streams the conversation onto a
 [tldraw](https://tldraw.dev) whiteboard. You chat on the right; ideas land as
-cards on the canvas, ready to arrange, connect, score, and riff on. 
+cards on the canvas, ready to arrange, connect, score, and riff on.
 
 And there is **no** lock in. You extract the ideas you want as markdown, JSON, GitHub issues, or whatever you let your AI do with them.
 
@@ -23,6 +23,7 @@ And there is **no** lock in. You extract the ideas you want as markdown, JSON, G
 - **Multiple projects, instantly.** Isolated boards + pages with sessions per project. Everything persists locally in your browser.
 
 **Features:**
+
 - **Idea types**: feature, idea, risk, etc.
 - **Export ideas**: Generate a dedicated: PRD, plan, tasks, GitHub issues, plain markdown or JSON.
 - **Link issues**: Link generated ideas to GitHub issues.
@@ -94,7 +95,7 @@ canvas as the idea surface.
 A project session doesn't spawn a raw shell — it launches your configured AI
 harness (default `claude`) inside a real pseudo-terminal via
 [node-pty](https://github.com/microsoft/node-pty). Contract-aware harnesses
-(`claude`, `pi`, `codex`, `opencode`) are primed at launch. 
+(`claude`, `pi`, `codex`, `opencode`) are primed at launch.
 They will try to use the ai-storm MCP / tools / extension, otherwise fallback to a marker based contract via emitted `«IDEA»` / `«SCORE»`.
 
 ### Persistence
