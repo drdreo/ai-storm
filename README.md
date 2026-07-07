@@ -10,6 +10,8 @@ ai-storm uses the AI harness you already use; `claude`, `codex`, `pi`,
 [tldraw](https://tldraw.dev) whiteboard. You chat on the right; ideas land as
 cards on the canvas, ready to arrange, connect, score, and riff on.
 
+But with all your tools available - gh cli, atlassian MCP, your workflow - enhancing your brainstorming sessions even further.
+
 And there is **no** lock in. You extract the ideas you want as markdown, JSON, GitHub issues, or whatever you let your AI do with them.
 
 ![ai-storm live demo](docs/media/hero.gif)
@@ -32,7 +34,7 @@ And there is **no** lock in. You extract the ideas you want as markdown, JSON, G
 - **Mark & track**: Keep ideas for later (lightweight voting) and mark them done.
 - **Board tools**: Command palette, statistics overview, and focus mode
   (`CTRL + SHIFT + F`) for more focus.
-- **Hand-off formats**: Turn the board into a PRD, plan, task list, GitHub
+- **Export formats**: Turn the board into a PRD, plan, task list, GitHub
   issues, plain markdown, or JSON.
 - **Summarize & triage**: Let the AI synthesize the board or triage what's
   worth building and score them.
@@ -81,7 +83,7 @@ Good to know: if port 8787 is busy, the launcher picks the next free one. Logs
 live in `~/.local/state/ai-storm` (Linux), `~/Library/Application
 Support/ai-storm` (macOS) or `%LOCALAPPDATA%\ai-storm` (Windows). Already have
 a clone? `node packages/cli/bin/ai-storm.ts` runs the same launcher without
-installing anything. Distribution rationale: PD-023.
+installing anything.
 
 ## How it works
 
@@ -128,7 +130,7 @@ cd frontend
 pnpm dev      # http://localhost:4200
 ```
 
-For a single-process production deploy, build the client and let the backend
+For a single-process run, build the client and let the backend
 serve it:
 
 ```sh
@@ -142,7 +144,7 @@ Requirements: **Node.js** ≥ 24.15 (backend uses native TS type-stripping),
 ### Tests
 
 ```sh
-# Unit — framework-agnostic core + Zustand stores (no browser needed)
+# Unit
 cd frontend && pnpm test
 
 # Integration — against a running backend (pnpm start first)
@@ -160,7 +162,7 @@ cd frontend && pnpm e2e:all
 
 ### Logging & tracing
 
-Frontend and backend emit structured flow logs and OpenTelemetry spans:
+Frontend and backend emit structured logs and OpenTelemetry spans:
 
 ```sh
 # Human-readable structured logs (level via AI_STORM_LOG=debug|info|warn|error)
