@@ -171,18 +171,30 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             />
           </SettingsRow>
 
-          <SettingsRow title="Tutorial" description="Replay the guided tour of the app's surfaces (#179).">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                // Close first — the tour spotlights chrome the dialog covers.
-                onOpenChange(false);
-                ui.startIntroTour();
-              }}
-            >
-              <RotateCcw aria-hidden /> Replay intro tour
-            </Button>
+          <SettingsRow title="Tutorial" description="Replay the guided tours of the app's surfaces (#179).">
+            {/* Close first — the tours spotlight chrome the dialog covers. */}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false);
+                  ui.startIntroTour();
+                }}
+              >
+                <RotateCcw aria-hidden /> Intro tour
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false);
+                  ui.startPowerTour();
+                }}
+              >
+                <RotateCcw aria-hidden /> Power tour
+              </Button>
+            </div>
           </SettingsRow>
 
           <SettingsRow title="Debug mode" description="Inspector overlay with card and board metadata (#219).">

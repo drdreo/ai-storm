@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { resetIntroTour } from "../core/tours";
+import { resetIntroTour, resetPowerTour } from "../core/tours";
 
 /**
  * App-chrome UI state that several unrelated components drive but no single one
@@ -22,7 +22,7 @@ import { resetIntroTour } from "../core/tours";
  * this is only the "a tour is running right now" session state.
  */
 
-export type ActiveTour = "intro";
+export type ActiveTour = "intro" | "power";
 
 interface UiState {
   settingsOpen: boolean;
@@ -63,6 +63,11 @@ export const ui = {
   startIntroTour: () => {
     resetIntroTour();
     useUiStore.setState((s) => ({ activeTour: "intro" as const, tourRunId: s.tourRunId + 1 }));
+  },
+  /** Start (or restart) the power tour — from the milestone prompt or Settings. */
+  startPowerTour: () => {
+    resetPowerTour();
+    useUiStore.setState((s) => ({ activeTour: "power" as const, tourRunId: s.tourRunId + 1 }));
   },
   endTour: () => useUiStore.setState({ activeTour: null })
 };

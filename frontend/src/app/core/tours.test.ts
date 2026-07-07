@@ -5,10 +5,22 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { INTRO_TOUR_STEPS, shouldOfferIntro, type TourGates } from "./tours";
+import {
+  INTRO_TOUR_STEPS,
+  POWER_TOUR_MIN_CARDS,
+  POWER_TOUR_STEPS,
+  shouldOfferIntro,
+  shouldOfferPower,
+  type PowerTourMilestone,
+  type TourGates
+} from "./tours";
 
 function gates(overrides: Partial<TourGates> = {}): TourGates {
-  return { killSwitch: null, intro: null, ...overrides };
+  return { killSwitch: null, intro: null, power: null, ...overrides };
+}
+
+function milestone(overrides: Partial<PowerTourMilestone> = {}): PowerTourMilestone {
+  return { attached: true, cardCount: POWER_TOUR_MIN_CARDS, ...overrides };
 }
 
 describe("shouldOfferIntro (#179)", () => {
@@ -37,9 +49,42 @@ describe("shouldOfferIntro (#179)", () => {
   });
 });
 
-describe("intro tour catalog (#179)", () => {
-  it("targets stable data-tour anchors (or is an unanchored centered step)", () => {
-    for (const step of INTRO_TOUR_STEPS) {
+describe("shouldOfferPower (#179)", () => {
+  it("offers once the milestone is reached — attached session and enough cards", () => {
+    expect(shouldOfferPower(gates(), milestone())).toBe(true);
+  });
+
+  it("never offers before a session is attached, regardless of board size", () => {
+    expect(shouldOfferPower(gates(), milestone({ attached: false, cardCount: 50 }))).toBe(false);
+  });
+
+  it("never offers below the card threshold", () => {
+    expect(shouldOfferPower(gates(), milestone({ cardCount: POWER_TOUR_MIN_CARDS - 1 }))).toBe(false);
+  });
+
+  it("is strictly one-shot — done, dismissed, or any persisted value blocks it", () => {
+    for (const power of ["done", "dismissed", "garbage"]) {
+      expect(shouldOfferPower(gates({ power }), milestone())).toBe(false);
+    }
+  });
+
+  it("is suppressed entirely by the as:tours=off kill switch", () => {
+    expect(shouldOfferPower(gates({ killSwitch: "off" }), milestone())).toBe(false);
+  });
+
+  it("is independent of the intro tour's outcome", () => {
+    expect(shouldOfferPower(gates({ intro: "done" }), milestone())).toBe(true);
+  });
+});
+
+describe("tour catalogs (#179)", () => {
+  const catalogs = [
+    ["intro", INTRO_TOUR_STEPS],
+    ["power", POWER_TOUR_STEPS]
+  ] as const;
+
+  it.each(catalogs)("%s: targets stable data-tour anchors (or is an unanchored centered step)", (_name, steps) => {
+    for (const step of steps) {
       if (step.placement === "center") {
         expect(step.target).toBe("body");
       } else {
@@ -48,15 +93,20 @@ describe("intro tour catalog (#179)", () => {
     }
   });
 
-  it("does not dim the canvas step — it must coexist with CanvasEmptyState", () => {
+  it.each(catalogs)("%s: has a title and content on every step", (_name, steps) => {
+    for (const step of steps) {
+      expect(step.title.length).toBeGreaterThan(0);
+      expect(step.content.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("intro: does not dim the canvas step — it must coexist with CanvasEmptyState", () => {
     const canvas = INTRO_TOUR_STEPS.find((s) => s.target.includes("canvas"));
     expect(canvas?.hideOverlay).toBe(true);
   });
 
-  it("has a title and content on every step", () => {
-    for (const step of INTRO_TOUR_STEPS) {
-      expect(step.title.length).toBeGreaterThan(0);
-      expect(step.content.length).toBeGreaterThan(0);
-    }
+  it("power: state-dependent surfaces (verb bar, focus mode) are centered, not gated", () => {
+    expect(POWER_TOUR_STEPS[0].placement).toBe("center");
+    expect(POWER_TOUR_STEPS[POWER_TOUR_STEPS.length - 1].placement).toBe("center");
   });
 });

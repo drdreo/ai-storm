@@ -69,7 +69,39 @@ test.describe("intro tour", () => {
     await expect(tour(page).getByText(FIRST_STEP_TITLE)).toBeHidden();
 
     const dialog = await shell.openSettings();
-    await dialog.getByRole("button", { name: "Replay intro tour" }).click();
+    await dialog.getByRole("button", { name: "Intro tour" }).click();
     await expect(tour(page).getByText(FIRST_STEP_TITLE)).toBeVisible();
+  });
+});
+
+test.describe("power tour", () => {
+  test("never auto-runs before the milestone, but replays from Settings", async ({
+    shell,
+    page,
+    consoleErrors
+  }) => {
+    await shell.goto();
+    // Get the auto-started intro tour out of the way first.
+    await tour(page).getByRole("button", { name: "Close" }).click();
+
+    // No session, no cards — neither the tour nor its offer may appear.
+    await expect(tour(page).getByText("The card verb bar")).toBeHidden();
+    await expect(page.getByText("Take the power tour?")).toBeHidden();
+
+    // Settings replay bypasses the milestone gate entirely.
+    const dialog = await shell.openSettings();
+    await dialog.getByRole("button", { name: "Power tour" }).click();
+    await expect(tour(page).getByText("The card verb bar")).toBeVisible();
+
+    // Step through all seven steps; toolbar-anchored ones included.
+    for (const title of ["Triage", "Arrange layouts", "Filters", "Summarize & Stats", "Export to format", "Focus mode"]) {
+      await tour(page).getByRole("button", { name: /^Next/ }).click();
+      await expect(tour(page).getByText(title, { exact: true })).toBeVisible();
+    }
+    await tour(page).getByRole("button", { name: "Done" }).click();
+    await expect(tour(page).getByText("Focus mode")).toBeHidden();
+    expect(await page.evaluate(() => localStorage.getItem("as:tour-power"))).toBe("done");
+
+    expect(consoleErrors).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@
  *
  * Persistence uses the app's `as:` localStorage prefix:
  *   - `as:tour-intro`  — `"done"` (finished) | `"dismissed"` (skipped/closed)
+ *   - `as:tour-power`  — same values; `"dismissed"` also records declining the
+ *                        milestone prompt, so the offer is strictly one-shot
  *   - `as:tours`       — `"off"` kills all auto-start/prompt behavior; the e2e
  *                        suite sets this so tours never interfere with specs.
  *                        Replays from Settings still work — the switch only
@@ -14,6 +16,10 @@
 
 export const TOURS_KILL_SWITCH_KEY = "as:tours";
 export const INTRO_TOUR_KEY = "as:tour-intro";
+export const POWER_TOUR_KEY = "as:tour-power";
+
+/** Board size at which the power tour becomes worth offering (#179). */
+export const POWER_TOUR_MIN_CARDS = 5;
 
 export type TourFlag = "done" | "dismissed";
 
@@ -23,14 +29,17 @@ export interface TourGates {
   killSwitch: string | null;
   /** Raw `as:tour-intro` value; any non-null value means "already seen". */
   intro: string | null;
+  /** Raw `as:tour-power` value; any non-null value means "already offered". */
+  power: string | null;
 }
 
 /** Read the gates from localStorage (guarded — core is also imported by node tests). */
 export function readTourGates(): TourGates {
-  if (typeof localStorage === "undefined") return { killSwitch: "off", intro: null };
+  if (typeof localStorage === "undefined") return { killSwitch: "off", intro: null, power: null };
   return {
     killSwitch: localStorage.getItem(TOURS_KILL_SWITCH_KEY),
-    intro: localStorage.getItem(INTRO_TOUR_KEY)
+    intro: localStorage.getItem(INTRO_TOUR_KEY),
+    power: localStorage.getItem(POWER_TOUR_KEY)
   };
 }
 
@@ -43,6 +52,30 @@ export function shouldOfferIntro(gates: TourGates): boolean {
   return gates.killSwitch !== "off" && gates.intro === null;
 }
 
+/** The live session facts the power-tour milestone is judged on. */
+export interface PowerTourMilestone {
+  /** A PTY session is attached to the active project. */
+  attached: boolean;
+  /** Idea cards currently on the active board. */
+  cardCount: number;
+}
+
+/**
+ * Whether to show the one-shot "Take the power tour?" prompt: tours not
+ * globally off, the power tour never offered before (taking, skipping, or
+ * declining the prompt all persist), and the user has actually produced a
+ * board worth the features — a live session plus ≥{@link POWER_TOUR_MIN_CARDS}
+ * cards. It never auto-runs; the prompt only offers.
+ */
+export function shouldOfferPower(gates: TourGates, milestone: PowerTourMilestone): boolean {
+  return (
+    gates.killSwitch !== "off" &&
+    gates.power === null &&
+    milestone.attached &&
+    milestone.cardCount >= POWER_TOUR_MIN_CARDS
+  );
+}
+
 /** Record the intro tour's outcome so it never auto-starts again. */
 export function markIntroTour(flag: TourFlag): void {
   if (typeof localStorage !== "undefined") localStorage.setItem(INTRO_TOUR_KEY, flag);
@@ -51,6 +84,16 @@ export function markIntroTour(flag: TourFlag): void {
 /** Forget the intro tour outcome (Settings "Replay" resets before starting). */
 export function resetIntroTour(): void {
   if (typeof localStorage !== "undefined") localStorage.removeItem(INTRO_TOUR_KEY);
+}
+
+/** Record the power tour's outcome (or a declined milestone prompt). */
+export function markPowerTour(flag: TourFlag): void {
+  if (typeof localStorage !== "undefined") localStorage.setItem(POWER_TOUR_KEY, flag);
+}
+
+/** Forget the power tour outcome (Settings "Replay" resets before starting). */
+export function resetPowerTour(): void {
+  if (typeof localStorage !== "undefined") localStorage.removeItem(POWER_TOUR_KEY);
 }
 
 /**
@@ -112,5 +155,61 @@ export const INTRO_TOUR_STEPS: readonly TourStepData[] = [
     title: "Settings",
     content: "Appearance knobs live here — and you can replay these tours any time.",
     placement: "right"
+  }
+];
+
+/**
+ * Power tour (~7 steps): the feature verbs a working board earns. Offered by
+ * the milestone prompt ({@link shouldOfferPower}), never auto-run. Steps that
+ * teach state- or keyboard-only surfaces (the verb bar needs a selected card,
+ * focus mode is a shortcut) are centered rather than gated on user state.
+ */
+export const POWER_TOUR_STEPS: readonly TourStepData[] = [
+  {
+    target: "body",
+    title: "The card verb bar",
+    content:
+      "Select any card and a verb bar appears: Discuss, Expand, Challenge, Combine — each hands the card to the agent with that intent.",
+    placement: "center"
+  },
+  {
+    target: '[data-tour="triage"]',
+    title: "Triage",
+    content: "The agent scores every idea on the board — impact, effort, and confidence — right on the cards.",
+    placement: "bottom"
+  },
+  {
+    target: '[data-tour="commands"]',
+    title: "Arrange layouts",
+    content:
+      "From the command palette: arrange the board as a mind map, or as a priority grid — which pairs with triage scores.",
+    placement: "bottom"
+  },
+  {
+    target: '[data-tour="commands"]',
+    title: "Filters",
+    content:
+      "Also in the palette: filter cards by origin, marked, triaged, or superseded — and clear it all with one action.",
+    placement: "bottom"
+  },
+  {
+    target: '[data-tour="summarize"]',
+    title: "Summarize & Stats",
+    content:
+      "Converge the board into themes with Summarize; Stats shows counts, kinds, and the generation timeline.",
+    placement: "bottom"
+  },
+  {
+    target: '[data-tour="export"]',
+    title: "Export to format",
+    content:
+      "Hand the board off as a PRD, GitHub issues, or agent tasks. Past runs — summaries, triages, exports — live in History.",
+    placement: "bottom"
+  },
+  {
+    target: "body",
+    title: "Focus mode",
+    content: "Ctrl/⌘ Shift F hides all chrome for a distraction-free view of the selected cluster. Escape exits.",
+    placement: "center"
   }
 ];
