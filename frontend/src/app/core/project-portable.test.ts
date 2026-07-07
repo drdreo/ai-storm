@@ -4,7 +4,14 @@
  */
 import { describe, it, expect } from "vitest";
 import type { ProjectMeta } from "@ai-storm/shared";
-import { buildExportBundle, exportFileSlug, parseExportBundle } from "./project-portable";
+import {
+  buildExportBundle,
+  buildFullExportBundle,
+  exportFileSlug,
+  exportProjectEntry,
+  parseExportBundle,
+  parseImportFile
+} from "./project-portable";
 import { defaultTerminalConfig } from "./models";
 
 const meta: ProjectMeta = {
@@ -65,6 +72,63 @@ describe("parseExportBundle validation", () => {
   it("rejects a bundle with a malformed board", () => {
     const bad = { version: 1, project: { title: "x", terminal: {} }, board: { cards: "nope" } };
     expect(() => parseExportBundle(JSON.stringify(bad))).toThrow(/not a recognizable/i);
+  });
+});
+
+describe("whole-state export (buildFullExportBundle / parseImportFile)", () => {
+  const board = { cards: [], edges: [] };
+
+  it("round-trips a multi-project bundle, preserving folder titles", () => {
+    const bundle = buildFullExportBundle([
+      exportProjectEntry(meta, board, "Research"),
+      exportProjectEntry({ ...meta, id: "ws_2", title: "Other" }, board)
+    ]);
+    const entries = parseImportFile(JSON.stringify(bundle));
+    expect(entries.map((e) => e.title)).toEqual(["My Project", "Other"]);
+    expect(entries[0].folder).toBe("Research");
+    expect(entries[1].folder).toBeUndefined();
+  });
+
+  it("strips the local cwd from each entry's terminal config", () => {
+    const entry = exportProjectEntry({ ...meta, terminal: { ...meta.terminal, cwd: "C:\\local" } }, board);
+    expect(entry.terminal.cwd).toBeUndefined();
+  });
+
+  it("normalizes a single-project bundle to a one-entry list", () => {
+    const single = buildExportBundle(meta, board);
+    const entries = parseImportFile(JSON.stringify(single));
+    expect(entries).toHaveLength(1);
+    expect(entries[0].title).toBe("My Project");
+    expect(entries[0].color).toBe("#f43f5e");
+    expect(entries[0].board).toEqual(board);
+  });
+
+  it("rejects an unsupported version on a whole-state bundle", () => {
+    const bad = { ...buildFullExportBundle([exportProjectEntry(meta, board)]), version: 2 };
+    expect(() => parseImportFile(JSON.stringify(bad))).toThrow(/unsupported project file version/i);
+  });
+
+  it("rejects a whole-state bundle with no projects", () => {
+    expect(() => parseImportFile(JSON.stringify(buildFullExportBundle([])))).toThrow(/contains no projects/i);
+  });
+
+  it("rejects a whole-state bundle with a malformed entry", () => {
+    const bad = { version: 1, exportedAt: 0, projects: [{ title: "x", terminal: {}, board: { cards: "nope" } }] };
+    expect(() => parseImportFile(JSON.stringify(bad))).toThrow(/not a recognizable/i);
+  });
+
+  it("round-trips the optional full-fidelity tldraw snapshot and rejects a malformed one", () => {
+    const tldraw = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: { schemaVersion: 2 } } as never;
+    const bundle = buildFullExportBundle([exportProjectEntry(meta, board, undefined, tldraw)]);
+    expect(parseImportFile(JSON.stringify(bundle))[0].tldraw).toEqual(tldraw);
+
+    const bad = { ...bundle, projects: [{ ...bundle.projects[0], tldraw: { shapes: "nope" } }] };
+    expect(() => parseImportFile(JSON.stringify(bad))).toThrow(/not a recognizable/i);
+  });
+
+  it("rejects non-JSON and non-object values", () => {
+    expect(() => parseImportFile("not json")).toThrow(/not valid JSON/i);
+    expect(() => parseImportFile("42")).toThrow(/not a recognizable/i);
   });
 });
 

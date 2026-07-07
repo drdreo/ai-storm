@@ -52,7 +52,7 @@ export {
   serializeBoardIdeasSnapshot
 } from "./canvas/serialize";
 export { applyScore, applyCompletion, applyIssueLinks } from "./canvas/layout";
-export { exportBoard, importBoard } from "./canvas/portable";
+export { exportBoard, exportTldrawContent, importBoard, importTldrawContent } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];
 

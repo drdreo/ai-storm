@@ -6,7 +6,7 @@
  * logic, but (unlike `applyIdeas`) preserves origin/superseded/starred instead of
  * always stamping AI provenance.
  */
-import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
+import { createShapeId, type Editor, type TLContent, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
 import { normalizeKind, kindColor } from "../idea-descriptors";
 import type { PortableBoard } from "../project-portable";
 import {
@@ -50,6 +50,25 @@ export function exportBoard(editor: Editor): PortableBoard {
       }))
       .filter((e): e is PortableBoard["edges"][number] => !!e.from && !!e.to)
   };
+}
+
+/**
+ * Full-fidelity tldraw snapshot of the page — every shape (not just idea
+ * cards), positions, arrows, and embedded assets. Exported alongside the
+ * portable board so an import can restore the canvas exactly; the ref-keyed
+ * board remains the stable, validated fallback. `TLContent` carries its own
+ * serialized schema, so tldraw migrates old snapshots on import.
+ */
+export async function exportTldrawContent(editor: Editor): Promise<TLContent | undefined> {
+  const ids = Array.from(editor.getCurrentPageShapeIds());
+  if (ids.length === 0) return undefined;
+  const content = editor.getContentFromCurrentPage(ids);
+  return editor.resolveAssetsInContent(content);
+}
+
+/** Restore a full-fidelity snapshot onto the (normally empty) live canvas. */
+export function importTldrawContent(editor: Editor, content: TLContent): void {
+  editor.putContentOntoCurrentPage(content, { preservePosition: true, select: false });
 }
 
 /** Draw a native arrow connecting two ref-resolved cards, tagged with its relation. */
