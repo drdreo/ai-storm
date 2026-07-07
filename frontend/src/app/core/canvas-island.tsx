@@ -22,7 +22,9 @@ import { Tldraw, type Editor, type TLComponents } from "tldraw";
 import "tldraw/tldraw.css";
 import { useMemo, useState, useEffect } from "react";
 import { useThemeStore } from "../stores/theme.store";
+import { useUiStore } from "../stores/ui.store";
 import { IdeaCardShapeUtil } from "./canvas/idea-card";
+import { DebugInspector } from "./canvas/DebugInspector";
 import { CardVerbBar, type CardVerbHandler } from "./canvas/CardVerbBar";
 import { CanvasEmptyState, type EmptyStateActions } from "./canvas/CanvasEmptyState";
 import {
@@ -103,6 +105,9 @@ export function CanvasIsland({
   // accepts the same 'light' | 'dark' | 'system' values as our store, so we feed
   // `mode` straight through once the editor for this project has mounted.
   const themeMode = useThemeStore((s) => s.mode);
+  // Debug inspector (#219): mounted only while the settings toggle is on, so
+  // the overlay costs nothing in normal use.
+  const debugMode = useUiStore((s) => s.debugMode);
   const [editor, setEditor] = useState<Editor | null>(null);
   useEffect(() => {
     editor?.user.updateUserPreferences({ colorScheme: themeMode });
@@ -142,10 +147,11 @@ export function CanvasIsland({
           <CardVerbBar onVerb={bridge.onCardVerb} onReference={bridge.onReferenceIdeas} disabled={!sessionAttached} />
           <FilterChips $filter={$filter} />
           <FilterApplier $filter={$filter} />
+          {debugMode && <DebugInspector projectId={projectId} />}
         </>
       )
     }),
-    [$filter, bridge, emptyStateActions, sessionAttached]
+    [$filter, bridge, emptyStateActions, sessionAttached, debugMode, projectId]
   );
   return (
     <div style={{ position: "absolute", inset: 0 }}>
