@@ -22,15 +22,16 @@ import {
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings, Upload } from "lucide-react";
+import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { Folder, ProjectMeta } from "@ai-storm/shared";
 import { downloadFile } from "../../core/download-file";
-import { exportFileSlug, parseExportBundle } from "../../core/project-portable";
+import { exportFileSlug, parseImportFile, type ExportedProject } from "../../core/project-portable";
 import { ingestion } from "../../stores/ingestion.store";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { useProjectStore, project } from "../../stores/project.store";
 import { SettingsDialog } from "../SettingsDialog";
+import { ImportProjectsDialog } from "./ImportProjectsDialog";
 import { SidebarDialogs } from "./SidebarDialogs";
 import { SortableFolderGroup, UngroupedDropZone } from "./SidebarFolderGroup";
 import { StatusDot, SortableProjectRow } from "./SidebarProjectRow";
@@ -59,6 +60,7 @@ export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<ProjectMeta | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [importEntries, setImportEntries] = useState<ExportedProject[] | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const dnd = useSidebarDnd(projects, folders);
 
@@ -159,15 +161,36 @@ export function Sidebar() {
     downloadFile(`${exportFileSlug(ws.title)}-project.json`, JSON.stringify(bundle, null, 2), "application/json");
   };
 
+  // Whole-state export (all projects, one file), triggered from the settings
+  // dialog's Projects row. Boards are read from the live editor, so this flips
+  // through the projects and restores the active one.
+  const exportAll = async () => {
+    const bundle = await project.exportAll();
+    const date = new Date(bundle.exportedAt).toISOString().slice(0, 10);
+    downloadFile(`ai-storm-export-${date}.json`, JSON.stringify(bundle, null, 2), "application/json");
+  };
+
   const importProject = () => importInputRef.current?.click();
 
+  // A single-project file imports immediately (as before); a whole-state file
+  // opens a selection dialog so the user picks which projects to bring in.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     try {
-      const bundle = parseExportBundle(await file.text());
-      await project.importBundle(bundle);
+      const entries = parseImportFile(await file.text());
+      if (entries.length === 1) await project.importProjects(entries);
+      else setImportEntries(entries);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    }
+  };
+
+  const confirmImport = async (selected: ExportedProject[]) => {
+    setImportEntries(null);
+    try {
+      await project.importProjects(selected);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     }
@@ -203,8 +226,8 @@ export function Sidebar() {
               <div>
                 <img src="/assets/logo.png" alt="" className="size-8 rounded-lg" />
                 <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate font-semibold">ai-storm</span>
-                  <span className="truncate text-xs text-muted-foreground">brainstorm project</span>
+                  <span className="truncate font-semibold">AI Storm</span>
+                  <span className="truncate text-xs text-muted-foreground">by DrDreo</span>
                 </div>
               </div>
             </SidebarMenuButton>
@@ -221,14 +244,6 @@ export function Sidebar() {
                 <ChevronDown className="ml-1 size-3.5 transition-transform group-data-[state=closed]/collapsible:-rotate-90" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
-            <SidebarGroupAction
-              title="Import project"
-              aria-label="Import project"
-              onClick={importProject}
-              className="right-7"
-            >
-              <Upload /> <span className="sr-only">Import project</span>
-            </SidebarGroupAction>
             <input
               ref={importInputRef}
               type="file"
@@ -324,7 +339,21 @@ export function Sidebar() {
         </SidebarMenu>
       </SidebarFooter>
 
-      <SettingsDialog open={settingsOpen} onOpenChange={ui.setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={ui.setSettingsOpen}
+        onExportAll={() => void exportAll()}
+        onImportProjects={importProject}
+      />
+
+      {importEntries && (
+        <ImportProjectsDialog
+          entries={importEntries}
+          existingTitles={new Set(projects.map((w) => w.title))}
+          onCancel={() => setImportEntries(null)}
+          onConfirm={(selected) => void confirmImport(selected)}
+        />
+      )}
 
       <SidebarDialogs
         deleteTarget={deleteTarget}

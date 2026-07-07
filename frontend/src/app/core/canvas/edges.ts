@@ -3,7 +3,7 @@
  * ({@link ../canvas/serialize}'s `collectBoard`) and the layouts
  * ({@link ../canvas/layout}'s `arrangeMindMap`), so it lives on its own.
  */
-import type { Editor, TLShapeId } from "tldraw";
+import type { Editor, TLShape, TLShapeId } from "tldraw";
 import type { LayoutEdge, LayoutRelation } from "../idea-layout";
 
 /**
@@ -12,10 +12,17 @@ import type { LayoutEdge, LayoutRelation } from "../idea-layout";
  * card and `end` to the target, so the binding terminals recover the edge's
  * direction; the relation rides in the arrow's `meta`. Arrows with a missing or
  * non-card endpoint (mid-drag, or a user's plain arrow) are skipped.
+ *
+ * Scans the current page by default; pass `shapes` to scan a different set
+ * (e.g. every page's shapes for a whole-project export).
  */
-export function ideaEdges(editor: Editor, cardIds: ReadonlySet<TLShapeId>): LayoutEdge[] {
+export function ideaEdges(
+  editor: Editor,
+  cardIds: ReadonlySet<TLShapeId>,
+  shapes: TLShape[] = editor.getCurrentPageShapes()
+): LayoutEdge[] {
   const edges: LayoutEdge[] = [];
-  for (const shape of editor.getCurrentPageShapes()) {
+  for (const shape of shapes) {
     if (shape.type !== "arrow") continue;
     let from: TLShapeId | undefined;
     let to: TLShapeId | undefined;

@@ -1,4 +1,4 @@
-import { Sun, Moon, Monitor, RotateCcw } from "lucide-react";
+import { Sun, Moon, Monitor, RotateCcw, Download, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -80,10 +80,22 @@ function SettingsRow({
 /**
  * App settings (#77). One dialog gathering the global, cross-project appearance
  * knobs — five independent axes (mode, color, font, radius, density, contrast)
- * the user mixes freely. Per-project terminal settings stay in the ControlHub.
- * Controlled by the sidebar footer trigger.
+ * the user mixes freely — plus whole-state project export/import. Per-project
+ * terminal settings stay in the ControlHub. Controlled by the sidebar footer
+ * trigger; the export/import flow itself (file input, selection and error
+ * dialogs) lives in the Sidebar, which owns this dialog.
  */
-export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  onExportAll,
+  onImportProjects
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onExportAll: () => void;
+  onImportProjects: () => void;
+}) {
   const s = useThemeStore();
   const debugMode = useUiStore((st) => st.debugMode);
 
@@ -92,7 +104,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance and developer preferences for this device.</DialogDescription>
+          <DialogDescription>Appearance, project data, and developer preferences for this device.</DialogDescription>
         </DialogHeader>
 
         <div className="divide-y">
@@ -169,6 +181,33 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 { value: "high", label: "High" }
               ]}
             />
+          </SettingsRow>
+
+          <SettingsRow title="Projects" description="Move all projects between devices as a JSON file.">
+            {/* Close first — export visibly walks through the project boards,
+                and import opens its own selection dialog. */}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false);
+                  onExportAll();
+                }}
+              >
+                <Download aria-hidden /> Export all
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false);
+                  onImportProjects();
+                }}
+              >
+                <Upload aria-hidden /> Import…
+              </Button>
+            </div>
           </SettingsRow>
 
           <SettingsRow title="Tutorial" description="Replay the guided tours of the app's surfaces (#179).">

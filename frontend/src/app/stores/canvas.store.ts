@@ -10,7 +10,9 @@ import {
   type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
+  exportTldrawPages as islandExportTldrawPages,
   importBoard as islandImportBoard,
+  importTldrawPages as islandImportTldrawPages,
   selectedText,
   serializeBoardIdeasSnapshot,
   serializeEditor,
@@ -29,7 +31,7 @@ import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-inde
 import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
-import type { PortableBoard } from "../core/project-portable";
+import type { PortableBoard, TldrawPage } from "../core/project-portable";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -366,6 +368,55 @@ export const canvas = {
   importBoard(projectId: string, board: PortableBoard): boolean {
     if (!editor || projectId !== activeId) return false;
     islandImportBoard(editor, board);
+    bumpIdeasTick();
+    scheduleBoardSnapshot();
+    return true;
+  },
+
+  /**
+   * Wait until tldraw's local IndexedDB persistence for the mounted editor has
+   * flushed. tldraw throttles persists (350ms) and *drops* its pending diff
+   * queue when the editor unmounts, so any flow that writes a board and then
+   * immediately switches projects (the sequential import walk) must flush
+   * first or the writes are silently lost. tldraw doesn't expose a public
+   * flush; this drives the `window.tlsync` handle its local sync client
+   * registers for debugging (tldraw pinned at ^5.1.0).
+   */
+  async flushPersistence(): Promise<void> {
+    interface TlSyncClient {
+      isPersisting: boolean;
+      shouldDoFullDBWrite: boolean;
+      diffQueue: unknown[];
+      scheduledPersistTimeout: unknown;
+      persistIfNeeded(): void;
+    }
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      const tlsync = (window as { tlsync?: TlSyncClient }).tlsync;
+      if (!tlsync) return;
+      if (
+        !tlsync.isPersisting &&
+        !tlsync.shouldDoFullDBWrite &&
+        tlsync.diffQueue.length === 0 &&
+        !tlsync.scheduledPersistTimeout
+      ) {
+        return;
+      }
+      tlsync.persistIfNeeded();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  },
+
+  /** Full-fidelity tldraw snapshot of every mounted page (names, shapes, assets), or `undefined` if unmounted. */
+  async exportTldraw(projectId: string): Promise<TldrawPage[] | undefined> {
+    if (!editor || projectId !== activeId) return undefined;
+    return islandExportTldrawPages(editor);
+  },
+
+  /** Restore a full-fidelity tldraw snapshot onto the mounted (normally empty) canvas. */
+  importTldraw(projectId: string, pages: TldrawPage[]): boolean {
+    if (!editor || projectId !== activeId) return false;
+    islandImportTldrawPages(editor, pages);
     bumpIdeasTick();
     scheduleBoardSnapshot();
     return true;

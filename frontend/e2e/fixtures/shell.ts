@@ -48,7 +48,7 @@ export class Shell {
   /** Navigate to the app and wait for the shell to boot past crash-recovery. */
   async goto(): Promise<void> {
     await this.page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(this.page.getByText("ai-storm", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(this.page.getByText("AI Storm", { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(this.projectRows.first()).toBeVisible({ timeout: 10_000 });
     await expect(this.canvas).toBeVisible({ timeout: 15_000 });
   }

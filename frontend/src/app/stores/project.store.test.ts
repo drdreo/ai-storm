@@ -32,17 +32,22 @@ class LocalStorageStub {
 async function bootStore() {
   vi.resetModules();
   // A canvas controller double exposing only the seam the registry drives.
-  vi.doMock("./canvas.store", () => ({
-    canvas: {
-      init: vi.fn(async () => {}),
-      ensureReady: vi.fn(async () => {}),
-      switchTo: vi.fn(),
-      removeProject: vi.fn()
-    }
-  }));
+  const canvasMock = {
+    init: vi.fn(async () => {}),
+    ensureReady: vi.fn(async () => {}),
+    switchTo: vi.fn(),
+    removeProject: vi.fn(),
+    waitForMount: vi.fn(async () => {}),
+    exportBoard: vi.fn(() => ({ cards: [], edges: [] })),
+    importBoard: vi.fn(() => true),
+    exportTldraw: vi.fn(async () => undefined),
+    importTldraw: vi.fn(() => true),
+    flushPersistence: vi.fn(async () => {})
+  };
+  vi.doMock("./canvas.store", () => ({ canvas: canvasMock }));
   const mod = await import("./project.store");
   await mod.project.boot();
-  return mod;
+  return { ...mod, canvasMock };
 }
 
 describe("project store — registry lifecycle", () => {
@@ -218,6 +223,66 @@ describe("project store — folders (#128)", () => {
     expect(folders.map((f) => f.id)).toEqual(f1.map((f) => f.id));
     expect(projects.every((w) => w.order)).toBe(true);
     expect(folders.every((f) => f.order)).toBe(true);
+  });
+
+  it("importProjects() creates new projects and matches/recreates folders by title", async () => {
+    const { project, useProjectStore, canvasMock } = await bootStore();
+    const existingFolder = project.createFolder("Research");
+    const board = { cards: [], edges: [] };
+
+    await project.importProjects([
+      { title: "Imported A", terminal: {}, folder: "Research", board },
+      { title: "Imported B", terminal: {}, folder: "Brand New", board },
+      { title: "Imported C", terminal: {}, board }
+    ]);
+
+    const state = useProjectStore.getState();
+    const byTitle = (t: string) => state.projects.find((w) => w.title === t)!;
+    expect(byTitle("Imported A").folderId).toBe(existingFolder);
+    const newFolder = state.folders.find((f) => f.title === "Brand New");
+    expect(newFolder).toBeDefined();
+    expect(byTitle("Imported B").folderId).toBe(newFolder!.id);
+    expect(byTitle("Imported C").folderId).toBeUndefined();
+    // Each imported board is written onto its freshly-mounted canvas.
+    expect(canvasMock.importBoard).toHaveBeenCalledTimes(3);
+    // The last imported project ends up active.
+    expect(state.activeId).toBe(byTitle("Imported C").id);
+  });
+
+  it("importProjects() prefers the full-fidelity tldraw snapshot and falls back to the board", async () => {
+    const { project, canvasMock } = await bootStore();
+    const board = { cards: [], edges: [] };
+    const content = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: {} } as never;
+    const tldraw = [{ name: "Page 1", content }];
+
+    await project.importProjects([
+      { title: "With snapshot", terminal: {}, board, tldraw },
+      { title: "Board only", terminal: {}, board }
+    ]);
+    expect(canvasMock.importTldraw).toHaveBeenCalledTimes(1);
+    expect(canvasMock.importBoard).toHaveBeenCalledTimes(1);
+
+    // A snapshot that fails to restore falls back to the board.
+    canvasMock.importTldraw.mockImplementationOnce(() => {
+      throw new Error("migration failed");
+    });
+    await project.importProjects([{ title: "Broken snapshot", terminal: {}, board, tldraw }]);
+    expect(canvasMock.importBoard).toHaveBeenCalledTimes(2);
+  });
+
+  it("exportAll() snapshots every project with its folder title and restores the active one", async () => {
+    const { project, useProjectStore } = await bootStore();
+    const starterId = useProjectStore.getState().activeId!;
+    const b = project.create("Boxed");
+    const folderId = project.createFolder("Group");
+    project.moveToFolder(b, folderId);
+
+    const bundle = await project.exportAll();
+
+    expect(bundle.projects.map((e) => e.title)).toEqual(["Untitled Project", "Boxed"]);
+    expect(bundle.projects[0].folder).toBeUndefined();
+    expect(bundle.projects[1].folder).toBe("Group");
+    expect(useProjectStore.getState().activeId).toBe(starterId);
   });
 
   it("removeFolder() deletes the folder but keeps its projects (moved to top level)", async () => {
