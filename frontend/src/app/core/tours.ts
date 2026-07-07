@@ -97,8 +97,9 @@ export function resetPowerTour(): void {
 }
 
 /**
- * One tour step as pure data. `target` is a CSS selector against the stable
- * `data-tour` anchors (Tailwind class names are not selectable); `placement`
+ * One tour step as pure data. `target` is a CSS selector against a stable
+ * anchor — our own `data-tour` attributes, or a `data-testid` tldraw ships on
+ * its native chrome (Tailwind class names are not selectable); `placement`
  * mirrors Joyride's — `"center"` renders an unanchored, centered tooltip for
  * steps that teach a keyboard-only surface with no chrome to spotlight.
  */
@@ -178,19 +179,22 @@ export const POWER_TOUR_STEPS: readonly TourStepData[] = [
     content: "The agent scores every idea on the board — impact, effort, and confidence — right on the cards.",
     placement: "bottom"
   },
+  // The Arrange/Filter steps spotlight tldraw's native main menu (top-left ☰)
+  // where those submenus actually live — targeted via tldraw's own stable
+  // test id, since we can't put a data-tour attribute on its internals.
   {
-    target: '[data-tour="commands"]',
+    target: '[data-testid="main-menu.button"]',
     title: "Arrange layouts",
     content:
-      "From the command palette: arrange the board as a mind map, or as a priority grid — which pairs with triage scores.",
-    placement: "bottom"
+      "This board menu holds Arrange: lay the board out as a mind map, or as a priority grid — which pairs with triage scores.",
+    placement: "right"
   },
   {
-    target: '[data-tour="commands"]',
+    target: '[data-testid="main-menu.button"]',
     title: "Filters",
     content:
-      "Also in the palette: filter cards by origin, marked, triaged, or superseded — and clear it all with one action.",
-    placement: "bottom"
+      "The same menu holds Filter: show only marked, triaged, AI, or user cards; hide kinds or superseded ideas — and clear it all in one click.",
+    placement: "right"
   },
   {
     target: '[data-tour="summarize"]',

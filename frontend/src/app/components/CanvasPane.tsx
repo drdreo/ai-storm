@@ -275,12 +275,7 @@ export function CanvasPane() {
           <Separator orientation="vertical" className="!h-5" />
           <div className="flex-1" />
           <Toolbar.Root className="flex gap-2" aria-label="Canvas actions">
-            <ToolbarVerb
-              onClick={() => setPaletteOpen(true)}
-              variant="ghost"
-              tip="Open command palette (Ctrl/⌘ K)"
-              tour="commands"
-            >
+            <ToolbarVerb onClick={() => setPaletteOpen(true)} variant="ghost" tip="Open command palette (Ctrl/⌘ K)">
               <Command /> Commands
             </ToolbarVerb>
             <ToolbarVerb

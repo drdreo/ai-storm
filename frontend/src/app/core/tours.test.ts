@@ -83,12 +83,14 @@ describe("tour catalogs (#179)", () => {
     ["power", POWER_TOUR_STEPS]
   ] as const;
 
-  it.each(catalogs)("%s: targets stable data-tour anchors (or is an unanchored centered step)", (_name, steps) => {
+  it.each(catalogs)("%s: targets stable anchors (or is an unanchored centered step)", (_name, steps) => {
     for (const step of steps) {
       if (step.placement === "center") {
         expect(step.target).toBe("body");
       } else {
-        expect(step.target).toMatch(/^\[data-tour="[a-z-]+"\]$/);
+        // Our own data-tour anchors, or a data-testid tldraw ships on its
+        // native chrome (e.g. the ☰ main-menu trigger).
+        expect(step.target).toMatch(/^\[data-(tour|testid)="[a-z.-]+"\]$/);
       }
     }
   });
