@@ -10,6 +10,7 @@ import { useUiStore } from "./stores/ui.store";
 import { Sidebar } from "./components/sidebar/Sidebar";
 import { CanvasPane } from "./components/CanvasPane";
 import { ControlHub } from "./components/ControlHub";
+import { TourProvider } from "./components/TourProvider";
 import { SessionStatusDot } from "./components/SessionStatusDot";
 import { log } from "@/lib/log";
 
@@ -117,6 +118,7 @@ export function App() {
             <CanvasPane />
           </main>
           <aside
+            data-tour="control-hub"
             className={cn(
               "relative flex min-w-0 flex-col bg-background transition-[width] duration-150 ease-out",
               hubVisual === "hidden" ? "border-l-0" : "border-l"
@@ -157,6 +159,7 @@ export function App() {
           </aside>
         </div>
       </SidebarInset>
+      <TourProvider />
     </SidebarProvider>
   );
 }
