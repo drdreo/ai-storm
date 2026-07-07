@@ -1,90 +1,52 @@
-# ai-storm - ai supported branistorming
+# ai-storm ⚡ brainstorm with your AI
 
-A local-first AI supported brainstorming board. A Node.js daemon runs
-your AI CLI in a **real pseudo-terminal** and streams its output into a
-**tldraw** canvas — the raw conversation renders in an embedded terminal, while
-extracted ideas land as notes — across multiple isolated projects, with
-no external AI APIs, no subscriptions, and no cloud keys. 
+**Turn your AI into a brainstorming partner on an infinite canvas.**
 
-**Bring your own harness**. It reuses the CLI tools already running on your machine.
+In a world where coding is commoditized, ideas become more scarce.
+The goal is to have AI-driven brainstorming available on top of your existing tooling.
 
-## Architecture
+ai-storm uses the AI harness you already use; `claude`, `codex`, `pi`,
+`opencode`, you name it, in a real terminal, and streams the conversation onto a
+[tldraw](https://tldraw.dev) whiteboard. You chat on the right; ideas land as
+cards on the canvas, ready to arrange, connect, score, and riff on. 
 
-```
-┌──────────────────────────── Browser (React 19 + Vite, Zustand) ─────────────────────────────────┐
-│  Sidebar (projects)  │   Canvas pane (tldraw)            │   Control hub (terminal + agent)     │
-│  PRD §3.4              │   PRD §3.1 / §4.1                 │   PRD §3.1                           │
-│                        │                                   │                                      │
-│  project store ──────┼─ canvas controller (tldraw) ──────┼── ingestion store ── agent store     │
-│  CRDT registry (IDB)   │  per-project store → IndexedDB  │   xterm sink + RenderScheduler       │
-└────────────────────────┴───────────────────────────────────┴──────────────────────────────────────┘
-                                          │  WebSocket /pty (JSON, multiplexed by projectId)
-┌─────────────────────────────────────────▼─────────────────────────────────────────────────────────┐
-│  Node + Hono daemon (127.0.0.1)   PtyManager → PtySession (node-pty, real ConPTY/forkpty)           │
-│  PRD §4.2                         PRD §3.3 source                       AgentExecutor (subprocess)  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+And there is **no** lock in. You extract the ideas you want as markdown, JSON, GitHub issues, or whatever you let your AI do with them.
 
-Frontend is _React_ (Vite). State is _Zustand_: the WebSocket multiplexer, the Yjs project registry, the per-project ingestion
-pipelines and the _tldraw_ Editor. UI is _shadcn/ui_ - Tailwind v4. The conversation surface is a
-  _xterm.js_ terminal fed the raw PTY stream.
+![ai-storm live demo](docs/media/hero.gif)
 
-### The framework-agnostic core — `frontend/src/app/core/`
+- **Local-first.** Everything runs on `127.0.0.1`. No cloud, no subscription. You bring it, you own it.
+- **Bring your own harness.** It reuses the tools already on your machine,
+  and the used CLI is configurable per project (even a plain shell works).
+- **A real terminal, not a chat box.** Sessions run in a genuine
+  pseudo-terminal (ConPTY / forkpty), so your CLI's full TUI renders and
+  behaves exactly as it does in your normal terminal.
+- **Multiple projects, instantly.** Isolated boards + pages with sessions per project. Everything persists locally in your browser.
 
-Pure TypeScript with unit coverage (`pnpm test`, run by [Vitest](https://vitest.dev)):
+**Features:**
+- **Idea types**: feature, idea, risk, etc.
+- **Export ideas**: Generate a dedicated: PRD, plan, tasks, GitHub issues, plain markdown or JSON.
+- **Link issues**: Link generated ideas to GitHub issues.
+- **Filters**: Apply filters to the board to keep sanity.
+- **Smart arrangements**: priority grid, mind map
+- **Focus mode**: `CTRL + SHIFT + F` to focus on the board.
+- **Onboarding**: New users get a quick tutorial.
+- **Theme**: Dark, light, customize it.
 
-| Module                     | Responsibility                                         | PRD                       |
-| -------------------------- | ------------------------------------------------------ | ------------------------- |
-| `render-scheduler.ts`      | rAF double-buffer, throttled batched idea mutations    | §5.1 framerate throttling |
-| `markdown-block-parser.ts` | Markdown → structural block descriptors for idea cards | §3.3                      |
-| `idea-descriptors.ts`      | Idea kind registry + provenance decoration (#21/#31)   | §3.3                      |
-| `idea-layout.ts`           | Graph-driven mind-map "Arrange" layout (#16)           | §3.1                      |
-| `prompt-framing.ts`        | Card-verb prompt framing (#13/#15)                     | §3.6                      |
-| `canvas-text.ts`           | Serialize the canvas to normalized markdown            | §3.2                      |
+## Why?
 
-The tldraw island (`canvas-island.tsx`) owns the `idea-card` shape, the typed-edge
-graph, `applyIdeas`, the card-verb bar and the kind filter; it persists each
-project's board to IndexedDB via tldraw `persistenceKey`.
+Chat transcripts are where good ideas go to die. A linear scrollback can't show
+you which ideas cluster, which contradict, and which are worth building. ai-storm
+extracts ideas out of the conversation as it happens and gives them a spatial
+home — so a brainstorm ends with a map, not a wall of text.
 
-### The conversational session (PRD §2)
-
-A project session does **not** spawn a raw shell — it launches your configured
-**AI harness** (default `claude`) inside a **real pseudo-terminal** (ConPTY on
-Windows, forkpty on POSIX) via `node-pty`. Because it's a genuine TTY, the CLI
-runs fully interactively — its TUI renders, raw-mode keys work — exactly as in a
-normal terminal; keystrokes typed in the control-hub terminal go to the PTY and
-its output renders verbatim in xterm. The harness is editable per project (e.g.
-`pi`, `codex`, `aider`, or a plain shell like `powershell`). Contract-aware
-harnesses (`claude`, `pi`, `codex`) are primed at launch through their
-prompt/config seam so emitted `«IDEA»` / `«SCORE»` markers flow to the canvas
-from the first turn. Codex defaults to `gpt-5.3-codex-spark` with medium
-reasoning for cheaper/faster brainstorming runs unless you pass explicit model
-args. On Windows
-the backend resolves npm `.cmd`/`.ps1` shims via `where.exe`, input that races
-ahead of the spawning PTY is buffered until ready, and a missing harness streams
-a clear message instead of failing silently.
-
-### Persistence (PRD §3.5)
-
-Each project's canvas is a tldraw store persisted to **IndexedDB** under the key
-`TLDRAW_DOCUMENT_v2ai-storm:ws:{id}`. The project registry (titles, status,
-terminal config) is a Yjs CRDT document with its own IndexedDB store
-(`ai-storm-registry`) via `y-indexeddb`. On boot the app rehydrates both and
-restores the most recently active project.
-
-### Hot-switching (PRD §3.4) & memory (PRD §5.2)
-
-Switching the active project remounts the tldraw island onto the next
-project's persisted store (the React `key` changes) and swaps the kept-alive
-xterm instance — sub-100ms. Detaching a project tears down its pipeline, render
-scheduler, and PTY.
+![Finished brainstorm board](docs/media/finished-board.png)
 
 ## Getting started
 
-You need [Node.js](https://nodejs.org) (>=24) and
-[git](https://git-scm.com). and of course your AI harness of choice. `gh` CLI is optional.
+You need [Node.js](https://nodejs.org) ≥ 24, [git](https://git-scm.com), and
+your AI CLI of choice.
 
-**1. Install** — paste one line into a terminal:
+**1. Install** — one line:
 
 ```sh
 # Linux / macOS
@@ -100,10 +62,8 @@ irm https://raw.githubusercontent.com/drdreo/ai-storm/main/scripts/install.ps1 |
 ai-storm
 ```
 
-That's it — the app opens in your browser at `http://127.0.0.1:8787` and
-keeps running in the background until you stop it.
-
-Everyday commands:
+That's it. The app opens at `http://127.0.0.1:8787` and keeps running in the
+background until you stop it.
 
 | Command           | What it does                                    |
 | ----------------- | ----------------------------------------------- |
@@ -120,28 +80,48 @@ Support/ai-storm` (macOS) or `%LOCALAPPDATA%\ai-storm` (Windows). Already have
 a clone? `node packages/cli/bin/ai-storm.ts` runs the same launcher without
 installing anything. Distribution rationale: PD-023.
 
-## Requirements
+## How it works
 
-- **Node.js** ≥ 24.15 (backend runtime — uses native TS type-stripping)
-- **pnpm** (via `corepack pnpm`, bundled with Node)
-- A browser
+![Architecture diagram](docs/media/architecture.png)
 
-## Running (development)
+A local Node.js daemon owns the pseudo-terminals; the browser app is React 19
+(Vite) with Zustand, shadcn/ui + Tailwind v4, an
+[xterm.js](https://xtermjs.org) terminal fed the raw PTY stream, and a tldraw
+canvas as the idea surface.
 
-For everyday use, prefer the launcher above. For development you want the Vite
-dev server's HMR, so run two processes. **Backend** (Node + Hono + node-pty):
+### The conversational session
+
+A project session doesn't spawn a raw shell — it launches your configured AI
+harness (default `claude`) inside a real pseudo-terminal via
+[node-pty](https://github.com/microsoft/node-pty). Contract-aware harnesses
+(`claude`, `pi`, `codex`, `opencode`) are primed at launch. 
+They will try to use the ai-storm MCP / tools / extension, otherwise fallback to a marker based contract via emitted `«IDEA»` / `«SCORE»`.
+
+### Persistence
+
+Each project's canvas is a tldraw store persisted to IndexedDB. The project
+registry (titles, status, terminal config) is a Yjs CRDT document with its own
+IndexedDB store via `y-indexeddb`. On boot the app rehydrates both and restores
+the most recently active project.
+
+## Development
+
+For everyday use, prefer the launcher above. For development you want Vite's
+HMR, so run two processes.
+
+In root: `pnpm dev` (frontend + backend)
+
+**Backend** (Node + Hono + node-pty):
 
 ```sh
 cd backend
-pnpm install
-pnpm start    # ws://127.0.0.1:8787/pty
+pnpm dev    # ws://127.0.0.1:8787/pty
 ```
 
 **Frontend** (Vite dev server, proxies /pty → backend):
 
 ```sh
 cd frontend
-pnpm install
 pnpm dev      # http://localhost:4200
 ```
 
@@ -153,7 +133,10 @@ cd frontend && pnpm build
 cd ../backend && pnpm start -- --static ../frontend/dist
 ```
 
-## Tests
+Requirements: **Node.js** ≥ 24.15 (backend uses native TS type-stripping),
+**pnpm** via `corepack pnpm`, and a browser.
+
+### Tests
 
 ```sh
 # Unit — framework-agnostic core + Zustand stores (no browser needed)
@@ -162,20 +145,19 @@ cd frontend && pnpm test
 # Integration — against a running backend (pnpm start first)
 cd backend && node smoke_test.ts
 
-# Browser E2E — Playwright runner (auto-starts vite dev on :4200)
-#   UI suite (backend-free): boot, three panes, tldraw mount, create/rename,
-#   IndexedDB naming, theming, dialogs, empty state, tooltips
+# Browser E2E — Playwright runner
+#   UI suite (backend-free)
 cd frontend && pnpm e2e
 cd frontend && pnpm e2e:ui            # headed/watch UI mode
 
-#   Full suite incl. the ConPTY PTY round-trip + hot-switch scrollback
+#   Full suite incl. the ConPTY PTY round-trip
 #   (needs the Node backend on :8787 — start `pnpm dev:backend` first)
 cd frontend && pnpm e2e:all
 ```
 
-## Logging & tracing
+### Logging & tracing
 
-The frontend + backend emits structured flow logs and OpenTelemetry spans:
+Frontend and backend emit structured flow logs and OpenTelemetry spans:
 
 ```sh
 # Human-readable structured logs (level via AI_STORM_LOG=debug|info|warn|error)
@@ -187,20 +169,12 @@ cd backend && pnpm trace
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 pnpm trace
 ```
 
-
-The frontend mirrors the same shape (`frontend/src/lib/log.ts`), built on the
-standard shipped browser instrumentations
-([opentelemetry-browser](https://github.com/open-telemetry/opentelemetry-browser)):
+The frontend mirrors the same shape (`frontend/src/lib/log.ts`), built on
+[opentelemetry-browser](https://github.com/open-telemetry/opentelemetry-browser):
 `ConsoleInstrumentation` and `ErrorsInstrumentation` are always registered, so
-every `log.*`/`console.*` call and every uncaught error or unhandled rejection
-becomes an OTel log record. Setting `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in
-a git-ignored `frontend/.env.local`):
-
-```sh
-# frontend/.env.local
-VITE_OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-```
-
-Point both at the same collector to see a project flow end-to-end. See
-[`docs/design/observability.md`](docs/design/observability.md)
-(Jaeger all-in-one is the current recommendation).
+every `log.*`/`console.*` call and every uncaught error becomes an OTel log
+record. Set `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` (e.g. in a git-ignored
+`frontend/.env.local`) and point both at the same collector to see a project
+flow end-to-end. See
+[`docs/design/observability.md`](docs/design/observability.md) (Jaeger
+all-in-one is the current recommendation).
