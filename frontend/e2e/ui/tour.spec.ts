@@ -75,11 +75,7 @@ test.describe("intro tour", () => {
 });
 
 test.describe("power tour", () => {
-  test("never auto-runs before the milestone, but replays from Settings", async ({
-    shell,
-    page,
-    consoleErrors
-  }) => {
+  test("never auto-runs before the milestone, but replays from Settings", async ({ shell, page, consoleErrors }) => {
     await shell.goto();
     // Get the auto-started intro tour out of the way first.
     await tour(page).getByRole("button", { name: "Close" }).click();
@@ -94,7 +90,14 @@ test.describe("power tour", () => {
     await expect(tour(page).getByText("The card verb bar")).toBeVisible();
 
     // Step through all seven steps; toolbar-anchored ones included.
-    for (const title of ["Triage", "Arrange layouts", "Filters", "Summarize & Stats", "Export to format", "Focus mode"]) {
+    for (const title of [
+      "Triage",
+      "Arrange layouts",
+      "Filters",
+      "Summarize & Stats",
+      "Export to format",
+      "Focus mode"
+    ]) {
       await tour(page).getByRole("button", { name: /^Next/ }).click();
       await expect(tour(page).getByText(title, { exact: true })).toBeVisible();
     }

@@ -132,8 +132,7 @@ export const INTRO_TOUR_STEPS: readonly TourStepData[] = [
   {
     target: '[data-tour="canvas"]',
     title: "Your board",
-    content:
-      "An open canvas for you and the agent to think together. Press i to drop an idea card anywhere.",
+    content: "An open canvas for you and the agent to think together. Press i to drop an idea card anywhere.",
     placement: "bottom",
     hideOverlay: true
   },
@@ -199,8 +198,7 @@ export const POWER_TOUR_STEPS: readonly TourStepData[] = [
   {
     target: '[data-tour="summarize"]',
     title: "Summarize & Stats",
-    content:
-      "Converge the board into themes with Summarize; Stats shows counts, kinds, and the generation timeline.",
+    content: "Converge the board into themes with Summarize; Stats shows counts, kinds, and the generation timeline.",
     placement: "bottom"
   },
   {
