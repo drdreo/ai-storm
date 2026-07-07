@@ -130,11 +130,10 @@ export const INTRO_TOUR_STEPS: readonly TourStepData[] = [
     placement: "right"
   },
   {
-    target: '[data-tour="canvas"]',
+    target: "body",
     title: "Your board",
     content: "An open canvas for you and the agent to think together. Press i to drop an idea card anywhere.",
-    placement: "bottom",
-    hideOverlay: true
+    placement: "center"
   },
   {
     target: '[data-tour="control-hub"]',
@@ -144,11 +143,11 @@ export const INTRO_TOUR_STEPS: readonly TourStepData[] = [
     placement: "left"
   },
   {
-    target: "body",
+    target: '[data-tour="commands"]',
     title: "The command palette",
     content:
       "Ctrl/⌘ K finds every action — arrange, filter, summarize, export. If you remember one thing, remember this.",
-    placement: "center"
+    placement: "bottom"
   },
   {
     target: '[data-tour="settings"]',

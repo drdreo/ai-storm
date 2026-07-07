@@ -75,7 +75,6 @@ const OPTIONS = {
 const STYLES = {
   tooltip: {
     borderRadius: "calc(var(--radius) + 4px)",
-    border: "1px solid var(--border)",
     padding: "1rem"
   },
   tooltipTitle: { fontSize: "0.875rem", fontWeight: 600 },
