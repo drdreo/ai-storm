@@ -42,7 +42,6 @@ And there is **no** lock in. You extract the ideas you want as markdown, JSON, G
 - **Theming**: Dark/light/system plus palette, font, radius, density, and
   contrast knobs.
 
-
 ![Finished brainstorm board](docs/media/finished-board.png)
 
 ## Getting started

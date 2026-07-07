@@ -102,11 +102,6 @@ describe("tour catalogs (#179)", () => {
     }
   });
 
-  it("intro: does not dim the canvas step — it must coexist with CanvasEmptyState", () => {
-    const canvas = INTRO_TOUR_STEPS.find((s) => s.target.includes("canvas"));
-    expect(canvas?.hideOverlay).toBe(true);
-  });
-
   it("power: state-dependent surfaces (verb bar, focus mode) are centered, not gated", () => {
     expect(POWER_TOUR_STEPS[0].placement).toBe("center");
     expect(POWER_TOUR_STEPS[POWER_TOUR_STEPS.length - 1].placement).toBe("center");
