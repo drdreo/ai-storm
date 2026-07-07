@@ -1,5 +1,5 @@
 import type { AgentArtifact, Completion, Idea, Score } from "@ai-storm/shared";
-import type { Editor, TLContent, TLShapeId } from "tldraw";
+import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 import { backend } from "./backend.store";
 import {
@@ -10,9 +10,9 @@ import {
   type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
-  exportTldrawContent as islandExportTldrawContent,
+  exportTldrawPages as islandExportTldrawPages,
   importBoard as islandImportBoard,
-  importTldrawContent as islandImportTldrawContent,
+  importTldrawPages as islandImportTldrawPages,
   selectedText,
   serializeBoardIdeasSnapshot,
   serializeEditor,
@@ -31,7 +31,7 @@ import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-inde
 import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
-import type { PortableBoard } from "../core/project-portable";
+import type { PortableBoard, TldrawPage } from "../core/project-portable";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -407,16 +407,16 @@ export const canvas = {
     }
   },
 
-  /** Full-fidelity tldraw snapshot of the mounted page (all shapes + assets), or `undefined` if unmounted/empty. */
-  async exportTldraw(projectId: string): Promise<TLContent | undefined> {
+  /** Full-fidelity tldraw snapshot of every mounted page (names, shapes, assets), or `undefined` if unmounted. */
+  async exportTldraw(projectId: string): Promise<TldrawPage[] | undefined> {
     if (!editor || projectId !== activeId) return undefined;
-    return islandExportTldrawContent(editor);
+    return islandExportTldrawPages(editor);
   },
 
   /** Restore a full-fidelity tldraw snapshot onto the mounted (normally empty) canvas. */
-  importTldraw(projectId: string, content: TLContent): boolean {
+  importTldraw(projectId: string, pages: TldrawPage[]): boolean {
     if (!editor || projectId !== activeId) return false;
-    islandImportTldrawContent(editor, content);
+    islandImportTldrawPages(editor, pages);
     bumpIdeasTick();
     scheduleBoardSnapshot();
     return true;

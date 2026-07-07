@@ -117,13 +117,19 @@ describe("whole-state export (buildFullExportBundle / parseImportFile)", () => {
     expect(() => parseImportFile(JSON.stringify(bad))).toThrow(/not a recognizable/i);
   });
 
-  it("round-trips the optional full-fidelity tldraw snapshot and rejects a malformed one", () => {
-    const tldraw = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: { schemaVersion: 2 } } as never;
+  it("round-trips the optional full-fidelity tldraw pages and rejects malformed ones", () => {
+    const content = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: { schemaVersion: 2 } } as never;
+    const tldraw = [
+      { name: "TODO", content },
+      { name: "Done" } // empty page — name still round-trips
+    ];
     const bundle = buildFullExportBundle([exportProjectEntry(meta, board, undefined, tldraw)]);
     expect(parseImportFile(JSON.stringify(bundle))[0].tldraw).toEqual(tldraw);
 
-    const bad = { ...bundle, projects: [{ ...bundle.projects[0], tldraw: { shapes: "nope" } }] };
-    expect(() => parseImportFile(JSON.stringify(bad))).toThrow(/not a recognizable/i);
+    for (const bad of [{ shapes: "nope" }, [{ content }], [{ name: "x", content: { shapes: "nope" } }]]) {
+      const mangled = { ...bundle, projects: [{ ...bundle.projects[0], tldraw: bad }] };
+      expect(() => parseImportFile(JSON.stringify(mangled))).toThrow(/not a recognizable/i);
+    }
   });
 
   it("rejects non-JSON and non-object values", () => {

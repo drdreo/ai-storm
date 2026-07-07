@@ -252,7 +252,8 @@ describe("project store — folders (#128)", () => {
   it("importProjects() prefers the full-fidelity tldraw snapshot and falls back to the board", async () => {
     const { project, canvasMock } = await bootStore();
     const board = { cards: [], edges: [] };
-    const tldraw = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: {} } as never;
+    const content = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: {} } as never;
+    const tldraw = [{ name: "Page 1", content }];
 
     await project.importProjects([
       { title: "With snapshot", terminal: {}, board, tldraw },

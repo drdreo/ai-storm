@@ -30,6 +30,16 @@ export interface PortableBoard {
   edges: PortableEdge[];
 }
 
+/**
+ * One tldraw page in a full-fidelity snapshot: its user-visible name plus its
+ * content (absent for an empty page). `TLContent` embeds its own serialized
+ * schema, so tldraw migrates old snapshots on import.
+ */
+export interface TldrawPage {
+  name: string;
+  content?: TLContent;
+}
+
 export interface ProjectExportBundle {
   version: 1;
   exportedAt: number;
@@ -39,8 +49,8 @@ export interface ProjectExportBundle {
     terminal: TerminalConfig;
   };
   board: PortableBoard;
-  /** Full-fidelity tldraw page snapshot (all shapes, positions, assets). */
-  tldraw?: TLContent;
+  /** Full-fidelity tldraw snapshot, one entry per page (shapes, positions, assets). */
+  tldraw?: TldrawPage[];
 }
 
 /** One project inside a whole-state export: its portable meta plus its board. */
@@ -52,11 +62,12 @@ export interface ExportedProject {
   folder?: string;
   board: PortableBoard;
   /**
-   * Full-fidelity tldraw page snapshot (all shapes, positions, assets).
-   * Preferred on import when present; `board` is the validated fallback for
-   * files that lack it (or whose snapshot fails to restore).
+   * Full-fidelity tldraw snapshot, one entry per page (shapes, positions,
+   * assets, page names). Preferred on import when present; `board` is the
+   * validated, page-less fallback for files that lack it (or whose snapshot
+   * fails to restore).
    */
-  tldraw?: TLContent;
+  tldraw?: TldrawPage[];
 }
 
 /** Whole-state export: every project (with board) in one file. */
@@ -83,13 +94,13 @@ export function exportProjectEntry(
   meta: ProjectMeta,
   board: PortableBoard,
   folder?: string,
-  tldraw?: TLContent
+  tldraw?: TldrawPage[]
 ): ExportedProject {
   return { title: meta.title, color: meta.color, terminal: portableTerminal(meta.terminal), folder, board, tldraw };
 }
 
 /** Wrap a project's meta + board into the portable envelope. */
-export function buildExportBundle(meta: ProjectMeta, board: PortableBoard, tldraw?: TLContent): ProjectExportBundle {
+export function buildExportBundle(meta: ProjectMeta, board: PortableBoard, tldraw?: TldrawPage[]): ProjectExportBundle {
   return {
     version: CURRENT_VERSION,
     exportedAt: Date.now(),
@@ -112,13 +123,20 @@ function isValidBoard(board: unknown): boolean {
 }
 
 /**
- * The optional full-fidelity snapshot is tldraw's own format — only its outer
- * shell is checked here (tldraw validates/migrates the rest on import).
+ * The optional full-fidelity snapshot is a list of named tldraw pages; each
+ * page's content is tldraw's own format — only its outer shell is checked
+ * here (tldraw validates/migrates the rest on import).
  */
-function isValidTldraw(content: unknown): boolean {
-  if (content === undefined) return true;
-  const c = content as Record<string, unknown> | undefined;
-  return !!c && typeof c === "object" && Array.isArray(c.shapes) && !!c.schema && typeof c.schema === "object";
+function isValidTldraw(pages: unknown): boolean {
+  if (pages === undefined) return true;
+  if (!Array.isArray(pages)) return false;
+  return pages.every((page) => {
+    const p = page as Record<string, unknown> | undefined;
+    if (!p || typeof p !== "object" || typeof p.name !== "string") return false;
+    if (p.content === undefined) return true;
+    const c = p.content as Record<string, unknown>;
+    return typeof c === "object" && !!c && Array.isArray(c.shapes) && !!c.schema && typeof c.schema === "object";
+  });
 }
 
 function assertVersion(bundle: Record<string, unknown>): void {
