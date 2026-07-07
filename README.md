@@ -43,13 +43,6 @@ And there is **no** lock in. You extract the ideas you want as markdown, JSON, G
   contrast knobs.
 
 
-## Why?
-
-Chat transcripts are where good ideas go to die. A linear scrollback can't show
-you which ideas cluster, which contradict, and which are worth building. ai-storm
-extracts ideas out of the conversation as it happens and gives them a spatial
-home — so a brainstorm ends with a map, not a wall of text.
-
 ![Finished brainstorm board](docs/media/finished-board.png)
 
 ## Getting started
