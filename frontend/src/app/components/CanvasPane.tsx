@@ -258,8 +258,15 @@ export function CanvasPane() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* The tour anchor (#179) sits on this header, not the full-height canvas
+          <main>: a viewport-sized target leaves Floating UI nowhere on-screen
+          to place the tooltip, and the header is chrome — the intro tour must
+          not spotlight the canvas interior (CanvasEmptyState owns it). */}
       {!focusMode && (
-        <div className="z-[2] flex h-[var(--toolbar-h)] shrink-0 items-center gap-2 border-b bg-background px-3">
+        <div
+          data-tour="canvas"
+          className="z-[2] flex h-[var(--toolbar-h)] shrink-0 items-center gap-2 border-b bg-background px-3"
+        >
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="!h-5" />
           <div className="flex-1" />

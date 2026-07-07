@@ -1,4 +1,5 @@
-import { Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon, Monitor, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { theme, useThemeStore } from "../stores/theme.store";
@@ -168,6 +169,20 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 { value: "high", label: "High" }
               ]}
             />
+          </SettingsRow>
+
+          <SettingsRow title="Tutorial" description="Replay the guided tour of the app's surfaces (#179).">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                // Close first — the tour spotlights chrome the dialog covers.
+                onOpenChange(false);
+                ui.startIntroTour();
+              }}
+            >
+              <RotateCcw aria-hidden /> Replay intro tour
+            </Button>
           </SettingsRow>
 
           <SettingsRow title="Debug mode" description="Inspector overlay with card and board metadata (#219).">

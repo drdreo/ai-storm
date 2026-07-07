@@ -192,7 +192,7 @@ export function Sidebar() {
   const ungrouped = projects.filter((w) => dnd.containerOf(w) === null);
 
   return (
-    <UISidebar variant="inset" collapsible="icon">
+    <UISidebar variant="inset" collapsible="icon" data-tour="sidebar">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -316,7 +316,7 @@ export function Sidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="sm" onClick={() => ui.openSettings()} tooltip="Settings">
+            <SidebarMenuButton size="sm" onClick={() => ui.openSettings()} tooltip="Settings" data-tour="settings">
               <Settings className="size-4" />
               <span className="truncate text-xs">Settings</span>
             </SidebarMenuButton>

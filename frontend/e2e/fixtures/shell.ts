@@ -110,7 +110,20 @@ export class Shell {
  */
 const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health|\/api\/|bad gateway|502/i;
 
-export const test = base.extend<{ shell: Shell; consoleErrors: string[] }>({
+export const test = base.extend<{ toursEnabled: boolean; shell: Shell; consoleErrors: string[] }>({
+  /**
+   * The intro tour (#179) auto-starts on a fresh profile, which every spec
+   * here is. Its overlay would sit on top of whatever a spec is asserting, so
+   * the suite runs with the `as:tours=off` kill switch preloaded; only
+   * `tour.spec.ts` opts back in via `test.use({ toursEnabled: true })`.
+   */
+  toursEnabled: [false, { option: true }],
+  page: async ({ page, toursEnabled }, use) => {
+    if (!toursEnabled) {
+      await page.addInitScript(() => localStorage.setItem("as:tours", "off"));
+    }
+    await use(page);
+  },
   consoleErrors: async ({ page }, use) => {
     const errors: string[] = [];
     page.on("console", (m) => {
