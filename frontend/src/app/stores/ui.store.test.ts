@@ -31,3 +31,20 @@ describe("focus mode", () => {
     expect(useUiStore.getState().focusMode).toBe(false);
   });
 });
+
+describe("debug mode (#219)", () => {
+  beforeEach(() => {
+    useUiStore.setState({ debugMode: false });
+  });
+
+  it("starts off (no localStorage in the Node test env)", () => {
+    expect(useUiStore.getState().debugMode).toBe(false);
+  });
+
+  it("setDebugMode flips the flag without a localStorage available", () => {
+    ui.setDebugMode(true);
+    expect(useUiStore.getState().debugMode).toBe(true);
+    ui.setDebugMode(false);
+    expect(useUiStore.getState().debugMode).toBe(false);
+  });
+});

@@ -2,6 +2,7 @@ import { Sun, Moon, Monitor } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { theme, useThemeStore } from "../stores/theme.store";
+import { ui, useUiStore } from "../stores/ui.store";
 
 /** One choice in a {@link Segmented} control. `swatch` shows an inline color dot. */
 interface SegOption<T extends string> {
@@ -83,13 +84,14 @@ function SettingsRow({
  */
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const s = useThemeStore();
+  const debugMode = useUiStore((st) => st.debugMode);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance preferences for this device.</DialogDescription>
+          <DialogDescription>Appearance and developer preferences for this device.</DialogDescription>
         </DialogHeader>
 
         <div className="divide-y">
@@ -164,6 +166,18 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               options={[
                 { value: "normal", label: "Normal" },
                 { value: "high", label: "High" }
+              ]}
+            />
+          </SettingsRow>
+
+          <SettingsRow title="Debug mode" description="Inspector overlay with card and board metadata (#219).">
+            <Segmented
+              label="Debug mode"
+              value={debugMode ? "on" : "off"}
+              onChange={(v) => ui.setDebugMode(v === "on")}
+              options={[
+                { value: "off", label: "Off" },
+                { value: "on", label: "On" }
               ]}
             />
           </SettingsRow>
