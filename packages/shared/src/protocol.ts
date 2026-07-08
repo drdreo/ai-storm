@@ -208,6 +208,7 @@ export type ServerMessage =
   | IdeaMessage
   | ScoreMessage
   | CompletionMessage
+  | ReferenceMessage
   | ExitMessage
   | AgentStatusMessage
   | AgentArtifactsMessage
@@ -347,6 +348,37 @@ export interface CompletionMessage {
   type: "completion";
   projectId: string;
   completion: Completion;
+}
+
+/**
+ * An external-link reference attached to one EXISTING card (#227). Like a
+ * {@link Score} or {@link Completion} it *updates* a card already on the board
+ * rather than creating one: it targets the card's short ref (idea-graph §4) and
+ * carries a plain external URL — Figma, a Google Doc, a spec, any web link — so
+ * the reference concept generalizes past the first-class GitHub/Linear issue
+ * links (#125). `label` is the optional display text (Confluence-style
+ * "text → url"); absent, the canvas derives one from the URL's host.
+ */
+export interface Reference {
+  /** Short ref of the card the reference is attached to (idea-graph §4). */
+  ref: string;
+  /** The external URL (http/https). */
+  url: string;
+  /** Optional display text; the canvas falls back to the URL's host when absent. */
+  label?: string;
+}
+
+/**
+ * A single external-link reference destined to be attached to an existing card
+ * on the canvas (#227). Emitted by the MCP `link_idea` tool (the agent hanging
+ * a reference URL off a card); the manual inline editor writes `meta.links`
+ * directly on the client and never round-trips through here. Applied additively
+ * per ref (deduped by URL, last write wins the label), like the issue links (#125).
+ */
+export interface ReferenceMessage {
+  type: "reference";
+  projectId: string;
+  reference: Reference;
 }
 
 /**

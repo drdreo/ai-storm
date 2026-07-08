@@ -19,7 +19,7 @@
 import { rmSync } from "node:fs";
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
-import type { Completion, Idea, Score } from "@ai-storm/shared";
+import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
 import { ScanGate } from "./scan-gate.ts";
@@ -277,6 +277,7 @@ export class NodePtySessionBackend implements SessionBackend {
     onIdea: (idea: Idea) => void,
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
+    onReference: (reference: Reference) => void,
     onError: (message: string) => void
   ): Promise<void> {
     const session = this.#sessions.get(projectId);
@@ -290,14 +291,16 @@ export class NodePtySessionBackend implements SessionBackend {
     session.onError = onError;
     // Route the MCP tool path into this attachment (mcp-idea-capture §6) —
     // shared sinks, same WS callbacks. No-op for markers-only sessions.
-    // `onCompletion` (#167) has no scanner producer, so it rides the attachment
-    // directly rather than being stored on the session like onIdea/onScore.
+    // `onCompletion` (#167) and `onReference` (#227) have no scanner producer,
+    // so they ride the attachment directly rather than being stored on the
+    // session like onIdea/onScore.
     this.#mcp.attachSession(projectId, {
       ideaSink: session.ideaSink,
       scoreSink: session.scoreSink,
       onIdea,
       onScore,
-      onCompletion
+      onCompletion,
+      onReference
     });
     log.info("session.attached", { project: projectId });
   }

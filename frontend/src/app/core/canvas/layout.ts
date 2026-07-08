@@ -5,9 +5,10 @@
  * user-triggered (never auto-rewrite a manual placement).
  */
 import { atom, type Atom, Box, type Editor, type TLShapeId } from "tldraw";
-import type { AgentArtifact, Completion, Score } from "@ai-storm/shared";
+import type { AgentArtifact, Completion, Reference, Score } from "@ai-storm/shared";
 import { layoutMindMap, layoutPriorityGrid, type GridFrame, type ScoredCard } from "../idea-layout";
 import { githubIssueKey, type IssueLink } from "../issue-links";
+import { type CardLink, upsertLink } from "../card-links";
 import { ideaCards, resolveRef, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 import { ideaEdges } from "./edges";
 
@@ -183,6 +184,24 @@ export function applyIssueLinks(editor: Editor, artifacts: readonly AgentArtifac
       editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, issue } });
     }
   }
+}
+
+/**
+ * Attach an external-link reference to its target card (#227) — the apply path
+ * for the MCP `link_idea` tool, the generic sibling of {@link applyIssueLinks}.
+ * Resolves the reference's short ref, appends the link to the card's `meta.links`
+ * via {@link upsertLink} (deduped by URL, last write wins the label), and
+ * preserves any existing links/meta. Unknown refs are ignored (the card may have
+ * been deleted). Stored on `meta`, so no schema migration — like the score (#60).
+ */
+export function applyReference(editor: Editor, reference: Reference): void {
+  const id = resolveRef(editor, reference.ref);
+  if (!id) return;
+  const shape = editor.getShape(id);
+  if (!shape || shape.type !== "idea-card") return;
+  const link: CardLink = reference.label ? { url: reference.url, label: reference.label } : { url: reference.url };
+  const links = upsertLink(((shape.meta as IdeaCardMeta).links ?? []) as CardLink[], link);
+  editor.updateShape({ id, type: "idea-card", meta: { ...shape.meta, links } });
 }
 
 /**

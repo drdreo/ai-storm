@@ -31,7 +31,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { BoardIdeasSnapshot, Completion, Idea, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -58,6 +58,11 @@ export interface McpAttachment {
    *  this — so no shared dedupe sink is needed (a tool call is discrete, not a
    *  per-frame re-render), and the canvas applies it last-write-wins per ref. */
   onCompletion: (completion: Completion) => void;
+  /** Emit an external-link reference for an existing card (#227). Like
+   *  {@link onCompletion} it has no scanner producer — only the `link_idea` tool
+   *  feeds it — so no shared dedupe sink is needed; the canvas appends it to the
+   *  card's `meta.links` (deduped by URL). */
+  onReference: (reference: Reference) => void;
 }
 
 /** What the endpoint sees after a successful token check. */

@@ -253,6 +253,16 @@ async function dispatch(
             });
             send({ type: "completion", projectId, completion });
           },
+          // Each external-link reference → the canvas, attaching a link to a
+          // card (#227). Delivered via the MCP `link_idea` tool.
+          (reference) => {
+            log.info("ai.reference.sent", {
+              project: projectId,
+              ref: reference.ref,
+              url: reference.url
+            });
+            send({ type: "reference", projectId, reference });
+          },
           (message) => {
             log.warn("session.error", { project: projectId, message });
             send({ type: "error", projectId, message });

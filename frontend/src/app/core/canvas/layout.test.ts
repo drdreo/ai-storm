@@ -5,9 +5,9 @@
  * real ref resolution, meta-merge, and group-toggle logic run for real.
  */
 import { describe, it, expect } from "vitest";
-import type { Score, Completion } from "@ai-storm/shared";
+import type { Score, Completion, Reference } from "@ai-storm/shared";
 import { EditorFake, ideaCardShape } from "../../../testing";
-import { applyScore, applyCompletion, markSelected, markSelectedDone } from "./layout";
+import { applyScore, applyCompletion, applyReference, markSelected, markSelectedDone } from "./layout";
 
 /** Seed a card whose ref defaults to its id, with optional extra meta. */
 function seedCard(e: EditorFake, id: string, meta: Record<string, unknown> = {}): void {
@@ -67,6 +67,47 @@ describe("applyCompletion", () => {
     seedCard(e, "a1", { done: false });
     applyCompletion(e.asEditor(), { ref: "ghost", done: true });
     expect(e.get("a1").meta.done).toBe(false);
+  });
+});
+
+describe("applyReference", () => {
+  it("attaches a link with a label to the target card's meta.links", () => {
+    const e = new EditorFake();
+    seedCard(e, "a1");
+    applyReference(e.asEditor(), { ref: "a1", url: "https://figma.com/file/abc", label: "Figma" } as Reference);
+    expect(e.get("a1").meta.links).toEqual([{ url: "https://figma.com/file/abc", label: "Figma" }]);
+  });
+
+  it("omits the label when the reference has none", () => {
+    const e = new EditorFake();
+    seedCard(e, "a1");
+    applyReference(e.asEditor(), { ref: "a1", url: "https://example.com" });
+    expect(e.get("a1").meta.links).toEqual([{ url: "https://example.com" }]);
+  });
+
+  it("appends additional links and dedupes by URL (last write wins the label)", () => {
+    const e = new EditorFake();
+    seedCard(e, "a1");
+    applyReference(e.asEditor(), { ref: "a1", url: "https://a.com", label: "A" });
+    applyReference(e.asEditor(), { ref: "a1", url: "https://b.com" });
+    applyReference(e.asEditor(), { ref: "a1", url: "https://a.com", label: "A2" });
+    expect(e.get("a1").meta.links).toEqual([{ url: "https://b.com" }, { url: "https://a.com", label: "A2" }]);
+  });
+
+  it("preserves other meta fields when attaching a link", () => {
+    const e = new EditorFake();
+    seedCard(e, "a1", { starred: true });
+    applyReference(e.asEditor(), { ref: "a1", url: "https://example.com" });
+    const meta = e.get("a1").meta;
+    expect(meta.starred).toBe(true);
+    expect(meta.ref).toBe("a1");
+  });
+
+  it("ignores a reference for an unknown ref", () => {
+    const e = new EditorFake();
+    seedCard(e, "a1");
+    applyReference(e.asEditor(), { ref: "ghost", url: "https://example.com" });
+    expect(e.get("a1").meta.links).toBeUndefined();
   });
 });
 

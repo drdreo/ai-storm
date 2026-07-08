@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { log } from "../../log.ts";
 import { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 
-const AI_STORM_MCP_TOOLS = ["capture_idea", "capture_score", "mark_idea_done", "get_board_ideas"] as const;
+const AI_STORM_MCP_TOOLS = ["capture_idea", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas"] as const;
 
 /**
  * Everything a harness profile needs to wire itself to the backend MCP server

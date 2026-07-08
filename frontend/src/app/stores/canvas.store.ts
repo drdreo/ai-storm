@@ -1,4 +1,4 @@
-import type { AgentArtifact, Completion, Idea, Score } from "@ai-storm/shared";
+import type { AgentArtifact, Completion, Idea, Reference, Score } from "@ai-storm/shared";
 import type { Editor, TLShapeId } from "tldraw";
 import { create } from "zustand";
 import { backend } from "./backend.store";
@@ -7,6 +7,7 @@ import {
   applyScore as islandApplyScore,
   applyCompletion as islandApplyCompletion,
   applyIssueLinks as islandApplyIssueLinks,
+  applyReference as islandApplyReference,
   type CanvasBridge,
   collectBoard,
   exportBoard as islandExportBoard,
@@ -248,6 +249,14 @@ export const canvas = {
   applyIssueLinks(projectId: string, artifacts: readonly AgentArtifact[]): void {
     if (editor && projectId === activeId) {
       islandApplyIssueLinks(editor, artifacts);
+      scheduleBoardSnapshot();
+    }
+  },
+
+  /** Attach an external-link reference to its target card's meta (#227). */
+  applyReference(projectId: string, reference: Reference): void {
+    if (editor && projectId === activeId) {
+      islandApplyReference(editor, reference);
       scheduleBoardSnapshot();
     }
   },

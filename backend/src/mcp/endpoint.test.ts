@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { BoardIdeasSnapshot, Completion, Idea, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
@@ -35,14 +35,16 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   const ideas: Idea[] = [];
   const scores: Score[] = [];
   const completions: Completion[] = [];
+  const references: Reference[] = [];
   registry.attachSession(projectId, {
     ideaSink,
     scoreSink,
     onIdea: (i) => ideas.push(i),
     onScore: (s) => scores.push(s),
-    onCompletion: (c) => completions.push(c)
+    onCompletion: (c) => completions.push(c),
+    onReference: (r) => references.push(r)
   });
-  return { ...target, ideaSink, scoreSink, ideas, scores, completions };
+  return { ...target, ideaSink, scoreSink, ideas, scores, completions, references };
 }
 
 function snapshot(title: string, ref = "a1"): BoardIdeasSnapshot {
@@ -149,13 +151,16 @@ describe("MCP endpoint — protocol surface", () => {
       "capture_idea",
       "capture_score",
       "mark_idea_done",
+      "link_idea",
       "get_board_ideas"
     ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
     // `done` is optional (defaults to marking done); only the target ref is required.
     expect(tools[2].inputSchema.required).toEqual(["ref"]);
-    expect(tools[3].inputSchema.properties).toEqual({});
+    // link_idea needs a target ref and a url; label is optional.
+    expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
+    expect(tools[4].inputSchema.properties).toEqual({});
   });
 
   it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
@@ -327,6 +332,59 @@ describe("mark_idea_done — completion state (#167)", () => {
     const body = await callTool(app, "ws1", target.token, "mark_idea_done", { ref: "a1" });
     expect(body.result!.isError).toBe(true);
     expect(body.result!.content[0].text).toContain("not attached");
+  });
+});
+
+describe("link_idea — external-link reference (#227)", () => {
+  it("attaches a link with a label, emits the reference, and reports it", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    const body = await callTool(app, "ws1", w.token, "link_idea", {
+      ref: "a1",
+      url: "https://figma.com/file/abc",
+      label: "Figma spec"
+    });
+    expect(textOf(body)).toBe("Linked https://figma.com/file/abc to @a1.");
+    expect(w.references).toEqual([{ ref: "a1", url: "https://figma.com/file/abc", label: "Figma spec" }]);
+  });
+
+  it("omits label when not provided (or blank)", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    await callTool(app, "ws1", w.token, "link_idea", { ref: "a1", url: "https://docs.google.com/x" });
+    await callTool(app, "ws1", w.token, "link_idea", { ref: "a2", url: "https://example.com", label: "   " });
+    expect(w.references).toEqual([
+      { ref: "a1", url: "https://docs.google.com/x" },
+      { ref: "a2", url: "https://example.com" }
+    ]);
+  });
+
+  it("trims the url and always flows through (no dedupe on the wire)", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    await callTool(app, "ws1", w.token, "link_idea", { ref: "a1", url: "  https://example.com/x  " });
+    await callTool(app, "ws1", w.token, "link_idea", { ref: "a1", url: "https://example.com/x" });
+    expect(w.references).toEqual([
+      { ref: "a1", url: "https://example.com/x" },
+      { ref: "a1", url: "https://example.com/x" }
+    ]);
+  });
+
+  it.each([
+    ["missing ref", { url: "https://example.com" }],
+    ["bad ref charset", { ref: "@a1", url: "https://example.com" }],
+    ["missing url", { ref: "a1" }],
+    ["empty url", { ref: "a1", url: "   " }],
+    ["non-http scheme", { ref: "a1", url: "javascript:alert(1)" }],
+    ["not a url", { ref: "a1", url: "not a url" }],
+    ["non-string label", { ref: "a1", url: "https://example.com", label: 5 }]
+  ])("rejects %s as a tool error and emits nothing", async (_label, args) => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    const body = await callTool(app, "ws1", w.token, "link_idea", args);
+    expect(body.result!.isError).toBe(true);
+    expect(body.result!.content[0].text.length).toBeGreaterThan(0);
+    expect(w.references).toEqual([]);
   });
 });
 
