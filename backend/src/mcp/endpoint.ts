@@ -27,7 +27,7 @@
  */
 
 import { Hono } from "hono";
-import type { Completion, Idea, IdeaLink, Score } from "@ai-storm/shared";
+import type { Completion, Idea, IdeaLink, Reference, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
 
@@ -150,6 +150,35 @@ export const TOOLS = [
     }
   },
   {
+    name: "link_idea",
+    description:
+      "Attach an external reference link to an existing canvas card — a Figma file, a Google Doc, a " +
+      "spec, a design, any web URL. Use this to hang supporting material off an idea so it renders as a " +
+      "clickable chip on the card. Targets the card by its @ref; pass an optional label for the display text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ref: {
+          type: "string",
+          pattern: REF_PATTERN.source,
+          description: "The card's @ref (required — a link needs a target card)."
+        },
+        url: {
+          type: "string",
+          maxLength: 2048,
+          description: "The external URL (must start with http:// or https://)."
+        },
+        label: {
+          type: "string",
+          maxLength: 120,
+          description: "Optional display text for the link; the card falls back to the URL's host when omitted."
+        }
+      },
+      required: ["ref", "url"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "get_board_ideas",
     description:
       "Read the active canvas board for this attached project/session. Returns the current page's idea " +
@@ -249,6 +278,41 @@ function parseMarkDone(args: Record<string, unknown>): Completion {
   return { ref, done: done === undefined ? true : done };
 }
 
+function parseLinkReference(args: Record<string, unknown>): Reference {
+  const { ref, url, label } = args;
+  if (typeof ref !== "string" || !REF_PATTERN.test(ref)) {
+    throw new Error('`ref` is required: the card\'s short ref (e.g. "a1" for @a1).');
+  }
+  if (typeof url !== "string" || url.trim().length === 0) {
+    throw new Error("`url` is required and must be a non-empty string (the external link).");
+  }
+  const trimmed = url.trim();
+  if (trimmed.length > 2048) {
+    throw new Error(`\`url\` is too long (${trimmed.length} chars; max 2048).`);
+  }
+  // Only http(s): the chip is a real anchor opened in a new tab, so a
+  // `javascript:`/`data:` scheme is both useless here and a needless footgun.
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error("`url` must be an absolute http(s) URL, e.g. https://figma.com/file/….");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("`url` must use the http or https scheme.");
+  }
+  if (label !== undefined && typeof label !== "string") {
+    throw new Error("`label` must be a string when present.");
+  }
+  if (typeof label === "string" && label.length > 120) {
+    throw new Error(`\`label\` is too long (${label.length} chars; max 120).`);
+  }
+  const reference: Reference = { ref, url: trimmed };
+  const trimmedLabel = typeof label === "string" ? label.trim() : "";
+  if (trimmedLabel.length > 0) reference.label = trimmedLabel;
+  return reference;
+}
+
 // ── JSON-RPC plumbing ──
 
 type RpcId = string | number | null;
@@ -346,6 +410,14 @@ function handleToolCall(
         attachment.onScore(score);
       }
       return toolText(id, `Scored @${score.ref}.`);
+    }
+    if (name === "link_idea") {
+      // No sink: a reference is a discrete attach, not a re-rendered marker, so
+      // it always flows through; the canvas dedupes by URL per card (#227).
+      const reference = parseLinkReference(args);
+      log.info("idea.reference", { project: projectId, ref: reference.ref, url: reference.url });
+      attachment.onReference(reference);
+      return toolText(id, `Linked ${reference.url} to @${reference.ref}.`);
     }
     // mark_idea_done — no sink: a completion is a discrete state change, not a
     // re-rendered marker, so it always flows through (idempotent on the canvas).

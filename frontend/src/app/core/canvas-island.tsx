@@ -51,7 +51,7 @@ export {
   selectedText,
   serializeBoardIdeasSnapshot
 } from "./canvas/serialize";
-export { applyScore, applyCompletion, applyIssueLinks } from "./canvas/layout";
+export { applyScore, applyCompletion, applyIssueLinks, applyReference } from "./canvas/layout";
 export { exportBoard, exportTldrawPages, importBoard, importTldrawPages } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];

@@ -26,10 +26,11 @@ import {
   useEditor,
   useIsEditing
 } from "tldraw";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { type CardContent, cardToText } from "../canvas-text";
 import { AI_PROVENANCE_BADGE, kindLabel, normalizeKind } from "../idea-descriptors";
 import { collectIssueLinks, type IssueLink } from "../issue-links";
+import { type CardLink, linkLabel, normalizeLinkUrl, upsertLink } from "../card-links";
 import { issueStatus, useIssueStatusStore } from "../../stores/issue-status.store";
 import { canvasRefIndex } from "./refs";
 
@@ -110,6 +111,14 @@ export interface IdeaCardMeta {
    * `meta` (like `starred`/`score`) so no schema migration.
    */
   issue?: IssueLink;
+  /**
+   * Generic external-link references attached to this card (#227) — the general
+   * case of {@link issue}: any web URL (Figma, a Google Doc, a spec), set by the
+   * agent via the MCP `link_idea` tool or by the user in the card's inline link
+   * editor. Rendered as clickable chips alongside the issue links. `meta` (like
+   * `starred`/`score`) so no schema migration; absent means none attached.
+   */
+  links?: CardLink[];
   [key: string]: unknown;
 }
 
@@ -320,6 +329,191 @@ function IssueLinkChip({ link, accent }: { link: IssueLink; accent: string }): R
 }
 
 /**
+ * One generic external-link chip (#227) — a clickable pill in the card's bottom
+ * stat strip, the general case of {@link IssueLinkChip} (no tracker status dot,
+ * since a plain link has no API to ask). Shows the link's label (or its host)
+ * with a ↗ external-link cue; the full URL lives in the tooltip. While the card
+ * is being edited, a × appears to detach the link. `stopEventPropagation` on
+ * pointerdown keeps tldraw from starting a drag; the anchor click stays default
+ * so it opens the URL in a new tab.
+ */
+function CardLinkChip({
+  link,
+  accent,
+  editing,
+  onRemove
+}: {
+  link: CardLink;
+  accent: string;
+  editing: boolean;
+  onRemove: () => void;
+}): React.JSX.Element {
+  return (
+    <span style={{ ...scoreChip(accent), display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <a
+        href={link.url}
+        target="_blank"
+        rel="noreferrer"
+        title={link.url}
+        onPointerDown={stopEventPropagation}
+        style={{ display: "inline-flex", alignItems: "center", gap: 3, color: accent, textDecoration: "none" }}
+      >
+        {linkLabel(link)}
+        <span aria-hidden style={{ opacity: 0.7 }}>
+          ↗
+        </span>
+      </a>
+      {editing ? (
+        <button
+          type="button"
+          title="Remove link"
+          aria-label={`Remove link ${linkLabel(link)}`}
+          onPointerDown={stopEventPropagation}
+          onClick={(e) => {
+            stopEventPropagation(e);
+            onRemove();
+          }}
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            padding: 0,
+            margin: 0,
+            lineHeight: 1,
+            color: accent,
+            opacity: 0.7,
+            fontSize: 11
+          }}
+        >
+          ✕
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The inline "add link" affordance shown while a card is being edited (#227):
+ * an expandable row with a URL field and an optional label field (the
+ * Confluence-style "text → url"), pinned below the card's edit fields. Pasting a
+ * URL and pressing Enter (or Add) normalizes it (a bare host gains `https://`;
+ * non-http schemes are rejected) and appends it to `meta.links` via
+ * {@link upsertLink}. Kept local so the read view stays a plain set of chips.
+ */
+function CardLinkEditor({ shape, accent }: { shape: IdeaCardShape; accent: string }): React.JSX.Element {
+  const editor = useEditor();
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState(false);
+
+  const add = () => {
+    const normalized = normalizeLinkUrl(url);
+    if (!normalized) {
+      setError(true);
+      return;
+    }
+    const trimmedLabel = label.trim();
+    const link: CardLink = trimmedLabel ? { url: normalized, label: trimmedLabel } : { url: normalized };
+    const links = upsertLink(((shape.meta as IdeaCardMeta).links ?? []) as CardLink[], link);
+    editor.updateShape({ id: shape.id, type: "idea-card", meta: { ...shape.meta, links } });
+    setUrl("");
+    setLabel("");
+    setError(false);
+    setOpen(false);
+  };
+
+  const field: React.CSSProperties = {
+    width: "100%",
+    boxSizing: "border-box",
+    border: `1px solid color-mix(in srgb, ${accent} 40%, transparent)`,
+    borderRadius: 6,
+    background: "transparent",
+    color: "inherit",
+    padding: "3px 6px",
+    fontSize: 11,
+    outline: "none"
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onPointerDown={stopEventPropagation}
+        onClick={(e) => {
+          stopEventPropagation(e);
+          setOpen(true);
+        }}
+        style={{ ...scoreChip(accent), cursor: "pointer", border: `1px dashed color-mix(in srgb, ${accent} 45%, transparent)` }}
+      >
+        🔗 Add link
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }} onPointerDown={stopEventPropagation}>
+      <input
+        autoFocus
+        value={url}
+        placeholder="Paste URL…"
+        onChange={(e) => {
+          setUrl(e.target.value);
+          setError(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+          }
+        }}
+        style={{ ...field, borderColor: error ? "#e5484d" : field.borderColor }}
+      />
+      <input
+        value={label}
+        placeholder="Label (optional)"
+        onChange={(e) => setLabel(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setOpen(false);
+          }
+        }}
+        style={field}
+      />
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={(e) => {
+            stopEventPropagation(e);
+            setOpen(false);
+          }}
+          style={{ ...scoreChip(accent), cursor: "pointer" }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            stopEventPropagation(e);
+            add();
+          }}
+          style={{ ...scoreChip(accent), cursor: "pointer", fontWeight: 700 }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Shared style for the in-edit title/body fields (#72): a borderless, transparent
  * textarea that sits exactly where the read-only text was, so entering edit mode
  * doesn't shift the card's layout. Font/size/color are applied per-field.
@@ -435,6 +629,16 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
   // plus any references detected in the card's own text — derived per render,
   // never stored, so editing the text updates the chips immediately.
   const issueLinks = collectIssueLinks(title, body, (shape.meta as IdeaCardMeta).issue);
+  // Generic external links (#227): the general case of the issue link — any web
+  // URL, attached explicitly (MCP `link_idea` or the inline editor). Deduped
+  // against the issue chips so a link that is already a tracked issue isn't
+  // rendered twice.
+  const issueUrls = new Set(issueLinks.map((l) => l.url));
+  const cardLinks = (((shape.meta as IdeaCardMeta).links ?? []) as CardLink[]).filter((l) => !issueUrls.has(l.url));
+  const removeLink = (url: string) => {
+    const links = (((shape.meta as IdeaCardMeta).links ?? []) as CardLink[]).filter((l) => l.url !== url);
+    editor.updateShape({ id: shape.id, type: "idea-card", meta: { ...shape.meta, links } });
+  };
   const toggleStar = (e: React.SyntheticEvent) => {
     stopEventPropagation(e);
     editor.updateShape({
@@ -474,7 +678,9 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
         display: "flex",
         flexDirection: "column",
         gap: 5,
-        overflow: "hidden",
+        // While editing, let the inline link editor extend past the card's fixed
+        // height without being clipped (#227); read view stays clipped.
+        overflow: isEditing ? "visible" : "hidden",
         pointerEvents: "all",
         opacity: superseded ? 0.85 : done ? 0.72 : 1
       }}
@@ -558,11 +764,13 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           ) : null}
         </>
       )}
-      {score || issueLinks.length > 0 ? (
+      {score || issueLinks.length > 0 || cardLinks.length > 0 || isEditing ? (
         // The bottom stat strip: the AI triage score (#60/#100) as impact /
-        // effort / confidence chips, then any linked external issues (#125) as
-        // clickable chips — pinned to the bottom so they read as stats below
-        // the idea, scannable without hovering; each chip's title spells it out.
+        // effort / confidence chips, then linked external issues (#125) and any
+        // generic external links (#227) as clickable chips — pinned to the
+        // bottom so they read as stats below the idea, scannable without
+        // hovering; each chip's title spells it out. While editing, the "add
+        // link" affordance and per-chip remove buttons appear here too.
         <div
           style={{
             marginTop: "auto",
@@ -596,6 +804,16 @@ function IdeaCardBody({ shape }: { shape: IdeaCardShape }): React.JSX.Element {
           {issueLinks.map((link) => (
             <IssueLinkChip key={link.url} link={link} accent={accent} />
           ))}
+          {cardLinks.map((link) => (
+            <CardLinkChip
+              key={link.url}
+              link={link}
+              accent={accent}
+              editing={isEditing}
+              onRemove={() => removeLink(link.url)}
+            />
+          ))}
+          {isEditing ? <CardLinkEditor shape={shape} accent={accent} /> : null}
         </div>
       ) : null}
     </HTMLContainer>

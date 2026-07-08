@@ -203,6 +203,26 @@ const TOOLS_REGISTRATION = `
   });
 
   pi.registerTool({
+    name: "link_idea",
+    label: "Link idea",
+    description:
+      "Attach an external reference link to an existing canvas card — a Figma file, a Google Doc, a " +
+      "spec, a design, any web URL. Use this to hang supporting material off an idea so it renders as a " +
+      "clickable chip on the card. Targets the card by its @ref; pass an optional label for the display text.",
+    promptSnippet: "Attach an external reference link to a canvas card",
+    parameters: Type.Object({
+      ref: Type.String({ pattern: "^[\\\\w-]+$", description: "The card's @ref (required — a link needs a target card)." }),
+      url: Type.String({ maxLength: 2048, description: "The external URL (must start with http:// or https://)." }),
+      label: Type.Optional(
+        Type.String({ maxLength: 120, description: "Optional display text; falls back to the URL's host when omitted." })
+      )
+    }),
+    async execute(_toolCallId, params) {
+      return { content: [{ type: "text", text: await forward("link_idea", params) }], details: {} };
+    }
+  });
+
+  pi.registerTool({
     name: "get_board_ideas",
     label: "Get board ideas",
     description:

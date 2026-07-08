@@ -120,6 +120,10 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       // Done/reopen (#167) → toggle the target card's completion on the canvas.
       canvas.applyCompletion(projectId, msg.completion);
       break;
+    case "reference":
+      // External-link reference (#227) → attach the link to the target card.
+      canvas.applyReference(projectId, msg.reference);
+      break;
     case "session-status":
       applyStatus(projectId, msg.status);
       if (msg.status === "attached") canvas.publishBoardSnapshot(projectId);
