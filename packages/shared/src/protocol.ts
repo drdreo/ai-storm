@@ -28,6 +28,8 @@
 export * from "./modes.js";
 export * from "./project.js";
 
+import type { ProjectStatus } from "./project.js";
+
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =
   | AttachMessage
@@ -37,6 +39,7 @@ export type ClientMessage =
   | KillMessage
   | ContextMessage
   | BoardSnapshotMessage
+  | ProjectsCatalogMessage
   | AgentMessage;
 
 /**
@@ -160,6 +163,59 @@ export interface BoardSnapshotMessage {
   type: "board-snapshot";
   projectId: string;
   snapshot: BoardIdeasSnapshot;
+}
+
+/**
+ * One project in the workspace-wide catalog (#228). A compact directory entry —
+ * the metadata the browser owns (title, sidebar folder, status, color,
+ * timestamps) plus a cheap read of the project's board (its tldraw page names
+ * and idea-card count) — so a terminal AI attached to one project can discover
+ * which OTHER projects exist without seeing their ideas. `active` flags the
+ * project currently open on the canvas (the one `get_board_ideas` reads).
+ */
+export interface ProjectCatalogEntry {
+  id: string;
+  title: string;
+  /** Sidebar folder title grouping this project, when it sits inside a folder. */
+  folder?: string;
+  status: ProjectStatus;
+  /** Sidebar accent color, when one was set. */
+  color?: string;
+  /** True for the project whose board is currently mounted on the canvas. */
+  active: boolean;
+  /** Epoch ms of creation. */
+  createdAt: number;
+  /** Epoch ms of last activity. */
+  lastActiveAt: number;
+  /** tldraw page names (boards-within-a-project), in document order. */
+  pages: string[];
+  /** Number of idea cards across all of the project's pages. */
+  ideaCount: number;
+}
+
+/**
+ * The whole-workspace project directory (#228). Unlike a {@link BoardIdeasSnapshot}
+ * (scoped to one project/session route), this is GLOBAL — the browser publishes
+ * the same catalog for every attached session, and the MCP `get_projects` tool
+ * returns it verbatim. It deliberately carries no idea content, only per-project
+ * metadata + counts, so listing projects never leaks another board's ideas.
+ */
+export interface ProjectCatalog {
+  version: 1;
+  updatedAt: number;
+  projects: ProjectCatalogEntry[];
+}
+
+/**
+ * Browser-published workspace project directory for the MCP `get_projects` tool
+ * (#228). The backend has no knowledge of the frontend-owned project registry,
+ * so the mounted app pushes the catalog (built from its project store + a cheap
+ * per-project board read). Global — not keyed by `projectId` — since the catalog
+ * describes the whole workspace, not one session's route.
+ */
+export interface ProjectsCatalogMessage {
+  type: "projects-catalog";
+  catalog: ProjectCatalog;
 }
 
 /**
@@ -497,7 +553,9 @@ export function parseClientMessage(raw: string): ClientMessage {
   if (typeof msg !== "object" || msg === null || !("type" in msg)) {
     throw new Error("Malformed message: missing `type`");
   }
-  if (msg.type !== "attach" && !("projectId" in msg)) {
+  // `attach` mints the projectId server-side; `projects-catalog` is workspace-
+  // global (no single project owns it). Every other message routes by projectId.
+  if (msg.type !== "attach" && msg.type !== "projects-catalog" && !("projectId" in msg)) {
     throw new Error("Malformed message: missing `projectId`");
   }
 
@@ -530,6 +588,15 @@ export function parseClientMessage(raw: string): ClientMessage {
     case "board-snapshot":
       if (typeof m.snapshot !== "object" || m.snapshot === null) {
         throw new Error("Malformed `board-snapshot` message: `snapshot` must be an object");
+      }
+      break;
+    case "projects-catalog":
+      if (
+        typeof m.catalog !== "object" ||
+        m.catalog === null ||
+        !Array.isArray((m.catalog as { projects?: unknown }).projects)
+      ) {
+        throw new Error("Malformed `projects-catalog` message: `catalog.projects` must be an array");
       }
       break;
     case "agent":

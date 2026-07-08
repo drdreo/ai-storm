@@ -188,6 +188,20 @@ export const TOOLS = [
       properties: {},
       additionalProperties: false
     }
+  },
+  {
+    name: "get_projects",
+    description:
+      "List every brainstorming project in this ai-storm workspace as compact JSON. Use this to discover " +
+      "which OTHER projects exist before deciding whether to pull in a referenced one — get_board_ideas only " +
+      "ever reads the project this session is attached to. Returns per-project metadata (id, title, sidebar " +
+      "folder, status, color, timestamps), the project's tldraw page names, and its idea-card count, but NOT " +
+      "the ideas themselves. The `active` project is the one this session's board tools operate on.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    }
   }
 ] as const;
 
@@ -362,6 +376,16 @@ function handleToolCall(
   const args = (params?.arguments ?? {}) as Record<string, unknown>;
   if (typeof name !== "string" || !TOOL_NAMES.has(name)) {
     return rpcError(id, -32602, `Unknown tool: ${String(name)}`);
+  }
+  // `get_projects` reads the workspace-wide catalog, which is global (not tied
+  // to this session's attachment) — so it answers even for a detached session,
+  // before the attachment guard below. It deliberately reveals other projects'
+  // existence/metadata, but never their ideas (§: capture stays project-scoped).
+  if (name === "get_projects") {
+    if (!session.catalog) {
+      return toolError(id, "No project catalog available yet. Open the ai-storm app and try again.");
+    }
+    return toolText(id, JSON.stringify(session.catalog));
   }
   const attachment = session.attachment;
   if (!attachment) {

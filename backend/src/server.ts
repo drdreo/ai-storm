@@ -339,6 +339,13 @@ async function dispatch(
         edges: msg.snapshot.edges.length
       });
       break;
+    case "projects-catalog":
+      // Workspace-wide directory for the MCP `get_projects` tool (#228). Global,
+      // not project-scoped: the browser publishes the whole registry so a session
+      // attached to one project can discover which others exist.
+      mcpRegistry.updateCatalog(msg.catalog);
+      log.debug("projects.catalog", { projects: msg.catalog.projects.length });
+      break;
     case "agent":
       // Concurrency ceiling (#142): each run is a full harness process; an
       // unbounded burst of `agent` messages would fork-bomb the host.

@@ -27,8 +27,20 @@ interface PersistedShapeRecord {
   id?: string;
   typeName?: string;
   type?: string;
+  /** Page name (only on `typeName === "page"` records; unused on shapes). */
+  name?: string;
+  /** Fractional-index sort key, present on page records — orders the pages. */
+  index?: string;
   props?: { kind?: string; title?: string; body?: string; origin?: Origin; superseded?: boolean };
   meta?: IdeaCardMeta;
+}
+
+/** A cheap read of a non-mounted project's board: its page names + idea count (#228). */
+export interface PersistedBoardSummary {
+  /** tldraw page names in document order (by fractional index). */
+  pages: string[];
+  /** Number of `idea-card` shapes across every page. */
+  ideaCount: number;
 }
 
 /**
@@ -130,6 +142,31 @@ export async function readPersistedIdeas(projectId: string, projectTitle: string
     return records
       .filter((r) => r.typeName === "shape" && r.type === "idea-card" && typeof r.id === "string")
       .map((r) => toSearchableIdea(projectId, projectTitle, r.id!, r.props ?? {}, r.meta ?? {}));
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Read a non-mounted project's page names + idea-card count for the project
+ * catalog (#228), straight out of its persisted tldraw store — no switching
+ * onto the board. Best-effort like {@link readPersistedIdeas}: a project that
+ * has never been mounted (no DB yet), a blocked open, or an older schema yields
+ * an empty summary rather than failing the whole catalog.
+ */
+export async function readPersistedBoardSummary(projectId: string): Promise<PersistedBoardSummary> {
+  const empty: PersistedBoardSummary = { pages: [], ideaCount: 0 };
+  if (!(await boardDbExists(projectId))) return empty;
+  const db = await openBoardDb(projectId);
+  if (!db) return empty;
+  try {
+    const records = await readAllRecords(db);
+    const pages = records
+      .filter((r) => r.typeName === "page" && typeof r.name === "string")
+      .sort((a, b) => (a.index ?? "").localeCompare(b.index ?? ""))
+      .map((r) => r.name!);
+    const ideaCount = records.filter((r) => r.typeName === "shape" && r.type === "idea-card").length;
+    return { pages, ideaCount };
   } finally {
     db.close();
   }

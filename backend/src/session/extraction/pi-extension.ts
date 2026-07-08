@@ -234,4 +234,20 @@ const TOOLS_REGISTRATION = `
       return { content: [{ type: "text", text: await forward("get_board_ideas", params) }], details: {} };
     }
   });
+
+  pi.registerTool({
+    name: "get_projects",
+    label: "Get projects",
+    description:
+      "List every brainstorming project in this ai-storm workspace as compact JSON. Use this to discover " +
+      "which OTHER projects exist before deciding whether to pull in a referenced one — get_board_ideas only " +
+      "ever reads the project this session is attached to. Returns per-project metadata (id, title, sidebar " +
+      "folder, status, color, timestamps), the project's tldraw page names, and its idea-card count, but NOT " +
+      "the ideas themselves. The active project is the one this session's board tools operate on.",
+    promptSnippet: "List the ai-storm workspace projects",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, params) {
+      return { content: [{ type: "text", text: await forward("get_projects", params) }], details: {} };
+    }
+  });
 `;

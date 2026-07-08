@@ -3,7 +3,8 @@ import type { Idea, ServerMessage, TerminalConfig } from "@ai-storm/shared";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
-import { project } from "./project.store";
+import { project, useProjectStore } from "./project.store";
+import { buildProjectCatalog } from "../core/project-catalog";
 import { RenderScheduler } from "../core/render-scheduler";
 import { TerminalBinding, type TerminalSink } from "./terminal-binding";
 
@@ -101,6 +102,20 @@ function applyStatus(projectId: string, status: string): void {
   }
 }
 
+/**
+ * Publish the workspace-wide project catalog to the backend MCP registry for the
+ * `get_projects` tool (#228). Reads each project's page names + idea count (the
+ * active board live off its editor, the rest from their persisted stores) and
+ * sends the compact directory. Fired whenever a session attaches, so an agent
+ * that lists projects mid-session sees the current registry. Best-effort — a
+ * failed board read contributes an empty summary, never a rejected publish.
+ */
+async function publishProjectCatalog(): Promise<void> {
+  const { projects, folders, activeId } = useProjectStore.getState();
+  const summaries = await canvas.collectBoardSummaries(projects.map((p) => p.id));
+  backend.send({ type: "projects-catalog", catalog: buildProjectCatalog(projects, folders, activeId, summaries) });
+}
+
 /** Route one backend session message to its surface (terminal / canvas / status). */
 function ingestMessage(projectId: string, msg: ServerMessage): void {
   switch (msg.type) {
@@ -126,7 +141,12 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       break;
     case "session-status":
       applyStatus(projectId, msg.status);
-      if (msg.status === "attached") canvas.publishBoardSnapshot(projectId);
+      if (msg.status === "attached") {
+        canvas.publishBoardSnapshot(projectId);
+        // Refresh the workspace directory so a get_projects call this session (#228)
+        // sees the current registry — fire-and-forget (reads persisted boards).
+        void publishProjectCatalog();
+      }
       break;
     case "exit":
       active.get(projectId)?.scheduler.flushNow();

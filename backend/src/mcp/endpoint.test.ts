@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, ProjectCatalog, Reference, Score } from "@ai-storm/shared";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
@@ -152,7 +152,8 @@ describe("MCP endpoint — protocol surface", () => {
       "capture_score",
       "mark_idea_done",
       "link_idea",
-      "get_board_ideas"
+      "get_board_ideas",
+      "get_projects"
     ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
@@ -161,6 +162,8 @@ describe("MCP endpoint — protocol surface", () => {
     // link_idea needs a target ref and a url; label is optional.
     expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
     expect(tools[4].inputSchema.properties).toEqual({});
+    // get_projects is a no-argument workspace read.
+    expect(tools[5].inputSchema.properties).toEqual({});
   });
 
   it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
@@ -432,6 +435,89 @@ describe("get_board_ideas — active board read tool (#196)", () => {
     const detached = await callTool(app, "ws1", w.token, "get_board_ideas", {});
     expect(detached.result!.isError).toBe(true);
     expect(detached.result!.content[0].text).toContain("not attached");
+  });
+});
+
+describe("get_projects — workspace catalog read tool (#228)", () => {
+  const catalog = (): ProjectCatalog => ({
+    version: 1,
+    updatedAt: 1720000000000,
+    projects: [
+      {
+        id: "ws1",
+        title: "Edge caching",
+        folder: "Infra",
+        status: "active",
+        color: "blue",
+        active: true,
+        createdAt: 1,
+        lastActiveAt: 2,
+        pages: ["Page 1", "Spikes"],
+        ideaCount: 7
+      },
+      {
+        id: "ws2",
+        title: "Onboarding",
+        status: "idle",
+        active: false,
+        createdAt: 3,
+        lastActiveAt: 4,
+        pages: ["Page 1"],
+        ideaCount: 0
+      }
+    ]
+  });
+
+  it("returns the whole-workspace catalog as JSON", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    registry.updateCatalog(catalog());
+
+    const payload = JSON.parse(textOf(await callTool(app, "ws1", w.token, "get_projects", {}))) as ProjectCatalog;
+    expect(payload.projects.map((p) => p.title)).toEqual(["Edge caching", "Onboarding"]);
+    expect(payload.projects[0]).toMatchObject({
+      folder: "Infra",
+      active: true,
+      pages: ["Page 1", "Spikes"],
+      ideaCount: 7
+    });
+  });
+
+  it("is global — any attached session route returns the same catalog", async () => {
+    const { registry, app } = setup();
+    const w1 = wire(registry, "ws1");
+    const w2 = wire(registry, "ws2");
+    registry.updateCatalog(catalog());
+
+    const fromWs1 = JSON.parse(textOf(await callTool(app, "ws1", w1.token, "get_projects", {}))) as ProjectCatalog;
+    const fromWs2 = JSON.parse(textOf(await callTool(app, "ws2", w2.token, "get_projects", {}))) as ProjectCatalog;
+    expect(fromWs2).toEqual(fromWs1);
+  });
+
+  it("answers even for a detached session (the catalog is not attachment-scoped)", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    registry.updateCatalog(catalog());
+    registry.detachSession("ws1");
+
+    const payload = JSON.parse(textOf(await callTool(app, "ws1", w.token, "get_projects", {}))) as ProjectCatalog;
+    expect(payload.projects).toHaveLength(2);
+  });
+
+  it("returns a tool error before the browser publishes a catalog", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    const body = await callTool(app, "ws1", w.token, "get_projects", {});
+    expect(body.result!.isError).toBe(true);
+    expect(body.result!.content[0].text).toContain("No project catalog");
+  });
+
+  it("still 404s on a wrong token", async () => {
+    const { registry, app } = setup();
+    wire(registry, "ws1");
+    registry.updateCatalog(catalog());
+    const res = await rpc(app, "ws1", "not-the-token", "tools/call", { name: "get_projects", arguments: {} });
+    expect(res.status).toBe(404);
   });
 });
 

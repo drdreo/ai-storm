@@ -31,7 +31,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { BoardIdeasSnapshot, Completion, Idea, ProjectCatalog, Reference, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -70,6 +70,9 @@ export interface McpSession {
   /** The current attachment, or null while detached ("session not attached"). */
   attachment: McpAttachment | null;
   boardSnapshot: BoardIdeasSnapshot | null;
+  /** The workspace-wide project directory (#228), or null before the browser
+   *  first publishes it. Shared across every session (global, not route-scoped). */
+  catalog: ProjectCatalog | null;
   /** Mint the next session-scoped `i<n>` ref (§3.3). */
   mintRef: () => string;
 }
@@ -115,6 +118,11 @@ export class McpSessionRegistry {
   #baseUrl: string | null = null;
 
   #entries = new Map<string, Entry>();
+
+  /** The last workspace-wide project catalog the browser published (#228). One
+   *  process-wide value, not per-entry: the catalog describes the whole
+   *  workspace, so every attached session's `get_projects` reads the same one. */
+  #catalog: ProjectCatalog | null = null;
 
   /** Hand the registry the server's reachable origin (no trailing slash). */
   configure(baseUrl: string): void {
@@ -165,6 +173,14 @@ export class McpSessionRegistry {
     if (entry) entry.boardSnapshot = snapshot;
   }
 
+  /** Replace the workspace-wide project catalog (#228). Global — no project id:
+   *  the browser publishes the whole directory, and it is not tied to any one
+   *  session's lifecycle (it outlives detach; a kill of one project doesn't
+   *  clear the others). */
+  updateCatalog(catalog: ProjectCatalog): void {
+    this.#catalog = catalog;
+  }
+
   /** Kill: forget the project — its URL 404s and its `i<n>` counter resets. */
   removeSession(projectId: string): void {
     this.#entries.delete(projectId);
@@ -182,12 +198,18 @@ export class McpSessionRegistry {
   resolve(projectId: string, token: string): McpSession | undefined {
     const entry = this.#entries.get(projectId);
     if (!entry || !tokenMatches(entry.token, token)) return undefined;
+    // Arrow closes over the method's `this` so the getter can reach the
+    // process-wide catalog without aliasing `this` to a local (no-this-alias).
+    const currentCatalog = () => this.#catalog;
     return {
       get attachment() {
         return entry.attachment;
       },
       get boardSnapshot() {
         return entry.boardSnapshot;
+      },
+      get catalog() {
+        return currentCatalog();
       },
       mintRef: () => {
         entry.nextRef = skipMintedRefs(entry.nextRef, entry.boardSnapshot);

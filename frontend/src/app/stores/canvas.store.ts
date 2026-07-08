@@ -28,7 +28,12 @@ import {
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
 import type { SearchableIdea } from "../core/canvas/search";
-import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
+import {
+  type PersistedBoardSummary,
+  readPersistedBoardSummary,
+  readPersistedIdeas,
+  toSearchableIdea
+} from "../core/canvas/search-index";
 import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
@@ -449,6 +454,31 @@ export const canvas = {
       })
     );
     return results.flat();
+  },
+
+  /**
+   * Collect each project's page names + idea-card count for the workspace
+   * catalog (#228). The mounted project is read live off its editor (freshest);
+   * every other project is read read-only from its persisted tldraw store, so
+   * the catalog spans all boards without switching onto each one. Best-effort
+   * per project — an unreadable board contributes an empty summary.
+   */
+  async collectBoardSummaries(projectIds: readonly string[]): Promise<Map<string, PersistedBoardSummary>> {
+    const entries = await Promise.all(
+      projectIds.map(async (id): Promise<[string, PersistedBoardSummary]> => {
+        if (editor && id === activeId) {
+          return [
+            id,
+            {
+              pages: editor.getPages().map((p) => p.name),
+              ideaCount: allIdeaCards(editor).length
+            }
+          ];
+        }
+        return [id, await readPersistedBoardSummary(id)];
+      })
+    );
+    return new Map(entries);
   },
 
   /**
