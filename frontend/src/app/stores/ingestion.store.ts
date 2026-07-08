@@ -116,6 +116,20 @@ async function publishProjectCatalog(): Promise<void> {
   backend.send({ type: "projects-catalog", catalog: buildProjectCatalog(projects, folders, activeId, summaries) });
 }
 
+/**
+ * Publish board snapshots for the NON-mounted projects (#228), reconstructed from
+ * their persisted stores, so `get_board_ideas <projectId>` can read a referenced
+ * or background project — not just the active one (which publishes itself live
+ * via {@link canvas.publishBoardSnapshot}). Fired on attach alongside the catalog.
+ */
+async function publishBackgroundBoardSnapshots(): Promise<void> {
+  const { projects } = useProjectStore.getState();
+  const snapshots = await canvas.collectBackgroundBoardSnapshots(projects.map((p) => p.id));
+  for (const [projectId, snapshot] of snapshots) {
+    backend.send({ type: "board-snapshot", projectId, snapshot });
+  }
+}
+
 /** Route one backend session message to its surface (terminal / canvas / status). */
 function ingestMessage(projectId: string, msg: ServerMessage): void {
   switch (msg.type) {
@@ -143,9 +157,11 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       applyStatus(projectId, msg.status);
       if (msg.status === "attached") {
         canvas.publishBoardSnapshot(projectId);
-        // Refresh the workspace directory so a get_projects call this session (#228)
-        // sees the current registry — fire-and-forget (reads persisted boards).
+        // Refresh the workspace directory + the other projects' boards so a
+        // get_projects / get_board_ideas call this session (#228) sees the current
+        // registry and can read a referenced project — fire-and-forget.
         void publishProjectCatalog();
+        void publishBackgroundBoardSnapshots();
       }
       break;
     case "exit":

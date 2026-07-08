@@ -69,10 +69,13 @@ export interface McpAttachment {
 export interface McpSession {
   /** The current attachment, or null while detached ("session not attached"). */
   attachment: McpAttachment | null;
-  boardSnapshot: BoardIdeasSnapshot | null;
   /** The workspace-wide project directory (#228), or null before the browser
    *  first publishes it. Shared across every session (global, not route-scoped). */
   catalog: ProjectCatalog | null;
+  /** The last board snapshot the browser published for `projectId`, or null
+   *  (#228). Any project is readable — the tool takes an id, so a session can
+   *  read a project it discovered via `get_projects`, not just its own. */
+  snapshotFor: (projectId: string) => BoardIdeasSnapshot | null;
   /** Mint the next session-scoped `i<n>` ref (§3.3). */
   mintRef: () => string;
 }
@@ -80,7 +83,6 @@ export interface McpSession {
 interface Entry {
   token: string;
   attachment: McpAttachment | null;
-  boardSnapshot: BoardIdeasSnapshot | null;
   /** Next `i<n>` index — session-scoped, survives reattach, dies with kill(). */
   nextRef: number;
 }
@@ -119,6 +121,13 @@ export class McpSessionRegistry {
 
   #entries = new Map<string, Entry>();
 
+  /** Board snapshots the browser publishes, keyed by projectId (#228). Kept
+   *  process-wide (not on the per-session {@link Entry}) so `get_board_ideas` can
+   *  read ANY project by id — the active board live off its editor, background
+   *  projects reconstructed from their persisted stores — not only the session's
+   *  own route. `mintRef`'s collision guard reads the session's own entry here. */
+  #snapshots = new Map<string, BoardIdeasSnapshot>();
+
   /** The last workspace-wide project catalog the browser published (#228). One
    *  process-wide value, not per-entry: the catalog describes the whole
    *  workspace, so every attached session's `get_projects` reads the same one. */
@@ -139,7 +148,7 @@ export class McpSessionRegistry {
     if (!this.#baseUrl) return undefined;
     let entry = this.#entries.get(projectId);
     if (!entry) {
-      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, boardSnapshot: null, nextRef: 1 };
+      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
       this.#entries.set(projectId, entry);
     }
     return { token: entry.token, url: `${this.#baseUrl}/mcp/${projectId}/${entry.token}` };
@@ -152,7 +161,7 @@ export class McpSessionRegistry {
    */
   restoreSession(projectId: string, token: string): void {
     if (this.#entries.has(projectId)) return; // live entry wins
-    this.#entries.set(projectId, { token, attachment: null, boardSnapshot: null, nextRef: 1 });
+    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
   }
 
   /** Route the tool path into this attachment's sinks/callbacks (no-op if the
@@ -168,9 +177,12 @@ export class McpSessionRegistry {
     if (entry) entry.attachment = null;
   }
 
+  /** Store the browser's latest board snapshot for `projectId` (#196/#228).
+   *  Keyed by projectId in a process-wide map (not gated on a session entry), so
+   *  a background project the browser reconstructed from its persisted store is
+   *  readable by any session's `get_board_ideas`. */
   updateBoardSnapshot(projectId: string, snapshot: BoardIdeasSnapshot): void {
-    const entry = this.#entries.get(projectId);
-    if (entry) entry.boardSnapshot = snapshot;
+    this.#snapshots.set(projectId, snapshot);
   }
 
   /** Replace the workspace-wide project catalog (#228). Global — no project id:
@@ -198,21 +210,21 @@ export class McpSessionRegistry {
   resolve(projectId: string, token: string): McpSession | undefined {
     const entry = this.#entries.get(projectId);
     if (!entry || !tokenMatches(entry.token, token)) return undefined;
-    // Arrow closes over the method's `this` so the getter can reach the
-    // process-wide catalog without aliasing `this` to a local (no-this-alias).
+    // Arrows close over the method's `this` so the getter/closures can reach the
+    // process-wide catalog + snapshot map without aliasing `this` (no-this-alias).
     const currentCatalog = () => this.#catalog;
+    const snapshotFor = (id: string) => this.#snapshots.get(id) ?? null;
     return {
       get attachment() {
         return entry.attachment;
       },
-      get boardSnapshot() {
-        return entry.boardSnapshot;
-      },
       get catalog() {
         return currentCatalog();
       },
+      snapshotFor,
       mintRef: () => {
-        entry.nextRef = skipMintedRefs(entry.nextRef, entry.boardSnapshot);
+        // Collision guard reads THIS session's own project snapshot (#210).
+        entry.nextRef = skipMintedRefs(entry.nextRef, snapshotFor(projectId));
         return `i${entry.nextRef++}`;
       }
     };

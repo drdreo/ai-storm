@@ -226,10 +226,16 @@ const TOOLS_REGISTRATION = `
     name: "get_board_ideas",
     label: "Get board ideas",
     description:
-      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
-      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
-    promptSnippet: "Read the active ai-storm board ideas",
-    parameters: Type.Object({}),
+      "Read a project's canvas board by id. Pass projectId — either this session's own project, or any " +
+      "id you got from get_projects — to pull that board's idea cards, edges, and card positions as compact " +
+      "JSON. This is how you read the ideas of a referenced project after discovering it with get_projects.",
+    promptSnippet: "Read an ai-storm project's board ideas by id",
+    parameters: Type.Object({
+      projectId: Type.String({
+        pattern: "^[\\\\w-]+$",
+        description: "The project's id (the id field from get_projects), whose board to read."
+      })
+    }),
     async execute(_toolCallId, params) {
       return { content: [{ type: "text", text: await forward("get_board_ideas", params) }], details: {} };
     }

@@ -45,6 +45,8 @@ const SERVER_INFO = { name: "ai-storm", version: "3.0.0" };
 const KIND_PATTERN = /^[a-z][\w-]*$/;
 /** Ref charset — the marker grammar's injection guard, applied to tool input too (§10). */
 const REF_PATTERN = /^[\w-]+$/;
+/** Project-id charset — `ws_<uuid>` and the test `ws1` form; same injection guard. */
+const PROJECT_ID_PATTERN = /^[\w-]+$/;
 
 /** Exported for the pi-extension parity test (extraction.test.ts): the
  *  generated pi extension must register every tool this endpoint dispatches. */
@@ -181,11 +183,19 @@ export const TOOLS = [
   {
     name: "get_board_ideas",
     description:
-      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
-      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
+      "Read a project's canvas board by id. Pass `projectId` — either this session's own project, or any " +
+      "id you got from get_projects — to pull that board's idea cards, edges, and card positions as compact " +
+      "JSON. This is how you read the ideas of a referenced project after discovering it with get_projects.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        projectId: {
+          type: "string",
+          pattern: PROJECT_ID_PATTERN.source,
+          description: "The project's id (the `id` field from get_projects), whose board to read."
+        }
+      },
+      required: ["projectId"],
       additionalProperties: false
     }
   },
@@ -377,15 +387,34 @@ function handleToolCall(
   if (typeof name !== "string" || !TOOL_NAMES.has(name)) {
     return rpcError(id, -32602, `Unknown tool: ${String(name)}`);
   }
-  // `get_projects` reads the workspace-wide catalog, which is global (not tied
-  // to this session's attachment) — so it answers even for a detached session,
-  // before the attachment guard below. It deliberately reveals other projects'
-  // existence/metadata, but never their ideas (§: capture stays project-scoped).
+  // Read tools operate on browser-published state that is NOT tied to this
+  // session's attachment (the catalog is workspace-global; a board snapshot is
+  // keyed by projectId), so they answer before the attachment guard — even for a
+  // detached session. `get_projects` reveals other projects' metadata but never
+  // their ideas; `get_board_ideas` reads a project's ideas BY ID, which is the
+  // deliberate "read a referenced project" path (#228).
   if (name === "get_projects") {
     if (!session.catalog) {
       return toolError(id, "No project catalog available yet. Open the ai-storm app and try again.");
     }
     return toolText(id, JSON.stringify(session.catalog));
+  }
+  if (name === "get_board_ideas") {
+    const projectId = args.projectId;
+    if (typeof projectId !== "string" || !PROJECT_ID_PATTERN.test(projectId)) {
+      return toolError(
+        id,
+        "`projectId` is required: the `id` of the project to read (from get_projects, or this session's own project)."
+      );
+    }
+    const snapshot = session.snapshotFor(projectId);
+    if (!snapshot) {
+      return toolError(
+        id,
+        `No board snapshot available for project "${projectId}". Check the id against get_projects; a just-created project may need the ai-storm app open.`
+      );
+    }
+    return toolText(id, JSON.stringify(snapshot));
   }
   const attachment = session.attachment;
   if (!attachment) {
@@ -395,12 +424,6 @@ function handleToolCall(
     return toolError(id, "Session not attached — no live canvas connection; nothing was captured.");
   }
   try {
-    if (name === "get_board_ideas") {
-      if (!session.boardSnapshot) {
-        return toolError(id, "No active board snapshot is available yet. Open this project's board and try again.");
-      }
-      return toolText(id, JSON.stringify(session.boardSnapshot));
-    }
     if (name === "capture_idea") {
       const idea = parseCaptureIdea(args);
       // Shared dedupe BEFORE minting (§6): if the scanner (or an earlier tool

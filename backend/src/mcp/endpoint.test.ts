@@ -161,7 +161,8 @@ describe("MCP endpoint — protocol surface", () => {
     expect(tools[2].inputSchema.required).toEqual(["ref"]);
     // link_idea needs a target ref and a url; label is optional.
     expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
-    expect(tools[4].inputSchema.properties).toEqual({});
+    // get_board_ideas reads a project's board by id.
+    expect(tools[4].inputSchema.required).toEqual(["projectId"]);
     // get_projects is a no-argument workspace read.
     expect(tools[5].inputSchema.properties).toEqual({});
   });
@@ -391,50 +392,77 @@ describe("link_idea — external-link reference (#227)", () => {
   });
 });
 
-describe("get_board_ideas — active board read tool (#196)", () => {
-  it("returns the latest board snapshot for the authenticated project route", async () => {
+describe("get_board_ideas — read a project's board by id (#196/#228)", () => {
+  it("returns the board snapshot for the requested projectId", async () => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
-    registry.updateBoardSnapshot("ws1", snapshot("Scoped board"));
+    registry.updateBoardSnapshot("ws1", snapshot("Own board"));
 
-    const body = await callTool(app, "ws1", w.token, "get_board_ideas", {});
+    const body = await callTool(app, "ws1", w.token, "get_board_ideas", { projectId: "ws1" });
     const payload = JSON.parse(textOf(body)) as BoardIdeasSnapshot;
 
-    expect(payload.cards.map((card) => card.title)).toEqual(["Scoped board"]);
+    expect(payload.cards.map((card) => card.title)).toEqual(["Own board"]);
     expect(payload.selection.refs).toEqual(["a1"]);
     expect(payload.filter).toEqual({ kind: "feature" });
   });
 
-  it("does not expose another project's board snapshot", async () => {
+  it("reads ANOTHER project's board by id — the referenced-project read path", async () => {
     const { registry, app } = setup();
     const w1 = wire(registry, "ws1");
-    const w2 = wire(registry, "ws2");
+    wire(registry, "ws2");
     registry.updateBoardSnapshot("ws1", snapshot("For ws1"));
     registry.updateBoardSnapshot("ws2", snapshot("For ws2"));
 
-    const body = await callTool(app, "ws1", w1.token, "get_board_ideas", {});
-    expect(JSON.parse(textOf(body)).cards[0].title).toBe("For ws1");
-
-    const wrongRoute = await rpc(app, "ws1", w2.token, "tools/call", {
-      name: "get_board_ideas",
-      arguments: {}
-    });
-    expect(wrongRoute.status).toBe(404);
+    // From ws1's authenticated route, ask for ws2's board (discovered via get_projects).
+    const body = await callTool(app, "ws1", w1.token, "get_board_ideas", { projectId: "ws2" });
+    expect(JSON.parse(textOf(body)).cards[0].title).toBe("For ws2");
   });
 
-  it("returns tool errors when detached or before the browser publishes a snapshot", async () => {
+  it("reads a project that has no session entry at all (background board only)", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    // ws3 was never MCP-registered, but the browser published its board.
+    registry.updateBoardSnapshot("ws3", snapshot("Background board"));
+
+    const body = await callTool(app, "ws1", w.token, "get_board_ideas", { projectId: "ws3" });
+    expect(JSON.parse(textOf(body)).cards[0].title).toBe("Background board");
+  });
+
+  it("answers even when detached — the snapshot is not attachment-scoped", async () => {
+    const { registry, app } = setup();
+    const w = wire(registry, "ws1");
+    registry.updateBoardSnapshot("ws1", snapshot("Detached board"));
+    registry.detachSession("ws1");
+
+    const body = await callTool(app, "ws1", w.token, "get_board_ideas", { projectId: "ws1" });
+    expect(JSON.parse(textOf(body)).cards[0].title).toBe("Detached board");
+  });
+
+  it("errors on a missing projectId, a bad charset, or an unpublished project", async () => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
 
-    const missing = await callTool(app, "ws1", w.token, "get_board_ideas", {});
-    expect(missing.result!.isError).toBe(true);
-    expect(missing.result!.content[0].text).toContain("No active board snapshot");
+    const missingArg = await callTool(app, "ws1", w.token, "get_board_ideas", {});
+    expect(missingArg.result!.isError).toBe(true);
+    expect(missingArg.result!.content[0].text).toContain("`projectId` is required");
 
-    registry.updateBoardSnapshot("ws1", snapshot("Detached board"));
-    registry.detachSession("ws1");
-    const detached = await callTool(app, "ws1", w.token, "get_board_ideas", {});
-    expect(detached.result!.isError).toBe(true);
-    expect(detached.result!.content[0].text).toContain("not attached");
+    const badCharset = await callTool(app, "ws1", w.token, "get_board_ideas", { projectId: "ws1; rm -rf" });
+    expect(badCharset.result!.isError).toBe(true);
+
+    const unpublished = await callTool(app, "ws1", w.token, "get_board_ideas", { projectId: "nope" });
+    expect(unpublished.result!.isError).toBe(true);
+    expect(unpublished.result!.content[0].text).toContain("No board snapshot available");
+  });
+
+  it("still 404s on a wrong token before any argument is read", async () => {
+    const { registry, app } = setup();
+    wire(registry, "ws1");
+    registry.updateBoardSnapshot("ws1", snapshot("Own board"));
+    const res = await rpc(app, "ws1", "not-the-token", "tools/call", {
+      name: "get_board_ideas",
+      arguments: { projectId: "ws1" }
+    });
+    expect(res.status).toBe(404);
   });
 });
 

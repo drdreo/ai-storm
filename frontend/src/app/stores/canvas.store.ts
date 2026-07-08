@@ -27,9 +27,11 @@ import {
   arrangeMindMap as layoutArrangeMindMap,
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
+import type { BoardIdeasSnapshot } from "@ai-storm/shared";
 import type { SearchableIdea } from "../core/canvas/search";
 import {
   type PersistedBoardSummary,
+  readPersistedBoardSnapshot,
   readPersistedBoardSummary,
   readPersistedIdeas,
   toSearchableIdea
@@ -454,6 +456,26 @@ export const canvas = {
       })
     );
     return results.flat();
+  },
+
+  /**
+   * Reconstruct board snapshots for every project EXCEPT the mounted one (#228),
+   * read read-only from their persisted tldraw stores. The active board is
+   * published live off its editor (see {@link publishBoardSnapshot}); this covers
+   * the rest so `get_board_ideas <projectId>` can read a referenced/background
+   * project without switching onto it. Best-effort — a project with no persisted
+   * board (never opened) is omitted.
+   */
+  async collectBackgroundBoardSnapshots(projectIds: readonly string[]): Promise<Map<string, BoardIdeasSnapshot>> {
+    const entries = await Promise.all(
+      projectIds
+        .filter((id) => id !== activeId)
+        .map(async (id): Promise<readonly [string, BoardIdeasSnapshot] | null> => {
+          const snapshot = await readPersistedBoardSnapshot(id);
+          return snapshot ? ([id, snapshot] as const) : null;
+        })
+    );
+    return new Map(entries.filter((e): e is readonly [string, BoardIdeasSnapshot] => e !== null));
   },
 
   /**

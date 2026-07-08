@@ -14,6 +14,7 @@
  * live-editor path (a persisted shape and a live shape carry the same `props` /
  * `meta`), so both sources yield identical result shapes.
  */
+import type { BoardIdeaCard, BoardIdeaEdge, BoardIdeasSnapshot, IdeaRelation } from "@ai-storm/shared";
 import type { IdeaCardMeta, Origin } from "./idea-card";
 import type { SearchableIdea } from "./search";
 
@@ -22,8 +23,8 @@ const STORE_PREFIX = "TLDRAW_DOCUMENT_v2";
 const PERSISTENCE_PREFIX = "ai-storm:ws:";
 const RECORDS_TABLE = "records";
 
-/** The subset of a persisted tldraw shape record we read. */
-interface PersistedShapeRecord {
+/** The subset of a persisted tldraw record (shape, page, or binding) we read. */
+export interface PersistedShapeRecord {
   id?: string;
   typeName?: string;
   type?: string;
@@ -31,8 +32,15 @@ interface PersistedShapeRecord {
   name?: string;
   /** Fractional-index sort key, present on page records — orders the pages. */
   index?: string;
-  props?: { kind?: string; title?: string; body?: string; origin?: Origin; superseded?: boolean };
-  meta?: IdeaCardMeta;
+  /** Top-level shape position (idea-card records) — the card's board coordinates. */
+  x?: number;
+  y?: number;
+  /** Arrow-binding endpoints (`typeName === "binding"`): the arrow and the shape
+   *  it binds to; the terminal (start/end) rides in `props`. */
+  fromId?: string;
+  toId?: string;
+  props?: { kind?: string; title?: string; body?: string; origin?: Origin; superseded?: boolean; terminal?: string };
+  meta?: IdeaCardMeta & { relation?: string };
 }
 
 /** A cheap read of a non-mounted project's board: its page names + idea count (#228). */
@@ -170,4 +178,108 @@ export async function readPersistedBoardSummary(projectId: string): Promise<Pers
   } finally {
     db.close();
   }
+}
+
+/**
+ * Reconstruct a non-mounted project's {@link BoardIdeasSnapshot} straight from its
+ * persisted tldraw store (#228) — the read side of `get_board_ideas` reading a
+ * project OTHER than the active one, without switching onto it. The mounted
+ * project is published live off its editor (`serializeBoardIdeasSnapshot`); this
+ * covers every other project so a session can read a board it discovered via
+ * `get_projects`.
+ *
+ * Unlike the editor path (current page only), this spans ALL of the project's
+ * pages — there is no "current page" for a board no one is looking at, and every
+ * idea is what a cross-project read wants. Edges are rebuilt from the persisted
+ * arrow shapes + their binding records (mirroring `ideaEdges`); selection/filter
+ * are empty (UI state that only exists for the mounted board). Best-effort: a
+ * missing DB / older schema yields `null` (the caller then publishes nothing).
+ */
+export async function readPersistedBoardSnapshot(projectId: string): Promise<BoardIdeasSnapshot | null> {
+  if (!(await boardDbExists(projectId))) return null;
+  const db = await openBoardDb(projectId);
+  if (!db) return null;
+  try {
+    return boardSnapshotFromRecords(await readAllRecords(db));
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Pure record → {@link BoardIdeasSnapshot} mapping (extracted from
+ * {@link readPersistedBoardSnapshot} so it is unit-testable without IndexedDB).
+ * Rebuilds cards (with positions), and edges from the persisted arrow shapes +
+ * their `arrow` binding records — mirroring `ideaEdges`: an arrow's `start`
+ * binding is the source card, its `end` binding the target, and only arrows with
+ * both endpoints on idea cards become edges.
+ */
+export function boardSnapshotFromRecords(records: PersistedShapeRecord[], now = Date.now()): BoardIdeasSnapshot {
+  const cardRecords = records.filter(
+    (r) => r.typeName === "shape" && r.type === "idea-card" && typeof r.id === "string"
+  );
+  const cardIds = new Set(cardRecords.map((r) => r.id!));
+  const refByShape = new Map<string, string | null>();
+  const cards: BoardIdeaCard[] = cardRecords.map((r) => {
+    const props = r.props ?? {};
+    const meta = r.meta ?? {};
+    const ref = typeof meta.ref === "string" ? meta.ref : null;
+    refByShape.set(r.id!, ref);
+    return {
+      ref,
+      id: r.id!,
+      kind: props.kind ?? "",
+      title: props.title ?? "",
+      body: props.body ?? "",
+      origin: props.origin ?? "user",
+      createdAt: typeof meta.createdAt === "number" ? meta.createdAt : undefined,
+      starred: !!meta.starred,
+      done: !!meta.done,
+      superseded: !!props.superseded,
+      score: meta.score,
+      position: { x: typeof r.x === "number" ? r.x : 0, y: typeof r.y === "number" ? r.y : 0 }
+    };
+  });
+
+  // An arrow's two binding records recover its endpoints; `connect()` binds
+  // `start` to the source card and `end` to the target (see edges.ts).
+  const arrowEnds = new Map<string, { from?: string; to?: string }>();
+  for (const r of records) {
+    if (r.typeName !== "binding" || r.type !== "arrow" || typeof r.fromId !== "string" || typeof r.toId !== "string") {
+      continue;
+    }
+    const ends = arrowEnds.get(r.fromId) ?? {};
+    if (r.props?.terminal === "start") ends.from = r.toId;
+    else if (r.props?.terminal === "end") ends.to = r.toId;
+    arrowEnds.set(r.fromId, ends);
+  }
+  const arrowRelation = new Map<string, IdeaRelation>();
+  for (const r of records) {
+    if (r.typeName === "shape" && r.type === "arrow" && typeof r.id === "string") {
+      arrowRelation.set(r.id, r.meta?.relation === "supersedes" ? "supersedes" : "about");
+    }
+  }
+  const edges: BoardIdeaEdge[] = [];
+  for (const [arrowId, ends] of arrowEnds) {
+    if (!ends.from || !ends.to || !cardIds.has(ends.from) || !cardIds.has(ends.to)) continue;
+    edges.push({
+      from: refByShape.get(ends.from) ?? null,
+      to: refByShape.get(ends.to) ?? null,
+      fromId: ends.from,
+      toId: ends.to,
+      relation: arrowRelation.get(arrowId) ?? "about"
+    });
+  }
+
+  const firstPage = records
+    .filter((r) => r.typeName === "page")
+    .sort((a, b) => (a.index ?? "").localeCompare(b.index ?? ""))[0];
+  return {
+    version: 1,
+    pageId: typeof firstPage?.id === "string" ? firstPage.id : "",
+    updatedAt: now,
+    cards,
+    edges,
+    selection: { refs: [], ids: [] }
+  };
 }
