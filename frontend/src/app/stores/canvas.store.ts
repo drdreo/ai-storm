@@ -596,7 +596,7 @@ export const canvas = {
       const missing = ideas.filter((idea) => !idea.ref).length;
       const refs = missing ? await reserveCanonicalRefs(projectId, missing) : [];
       let index = 0;
-      const canonical = ideas.map((idea) => (idea.ref ? idea : { ...idea, id: refs[index++] }));
+      const canonical = ideas.map((idea) => (idea.ref ? idea : { ...idea, ref: refs[index++] }));
       if (editor && projectId === activeId) {
         islandApplyIdeas(editor, canonical);
         bumpIdeasTick();

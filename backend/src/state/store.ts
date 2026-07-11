@@ -404,6 +404,15 @@ export class StateStore {
   async importState(bundle: PortableStateBundle, projectIds?: readonly string[]): Promise<RegistryDocument> {
     if (bundle.version !== 2 || bundle.registry?.version !== STATE_FORMAT_VERSION)
       throw new Error("Unsupported state export version");
+    if (
+      !bundle.boards ||
+      typeof bundle.boards !== "object" ||
+      Array.isArray(bundle.boards) ||
+      !bundle.histories ||
+      typeof bundle.histories !== "object" ||
+      Array.isArray(bundle.histories)
+    )
+      throw new Error("State import requires board and history documents");
     return this.#serialized(this.registryPath, async () => {
       const registry = await readRegistryFile(this.registryPath);
       const selected = new Set(projectIds ?? bundle.registry.projects.map((project) => project.id));

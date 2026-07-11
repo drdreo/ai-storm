@@ -49,7 +49,7 @@ const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;
 /**
  * A line that LOOKS like an attempted idea marker but did not parse — used to
  * diagnose a contract-following lapse: mangled guillemets (`«IDEA »`, `?IDEA?`),
- * the bare word (`CreateIdeaInput: …`), bracketed (`[IDEA]`), or markdown-wrapped
+ * the bare word (`Idea: …`), bracketed (`[IDEA]`), or markdown-wrapped
  * (`**IDEA**`). Anchored at line start so a mid-sentence "idea" is not flagged,
  * and `\bidea\b` so "Ideally"/"ideas" don't trip it.
  */

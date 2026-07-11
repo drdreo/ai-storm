@@ -22,7 +22,7 @@ describe("serializeSelectedIdeas", () => {
     );
     e.select("shape:1");
 
-    expect(serializeSelectedIdeas(e.asEditor())).toEqual({ version: 1, cards: [], edges: [] });
+    expect(serializeSelectedIdeas(e.asEditor())).toEqual({ version: 2, cards: [], edges: [] });
     expect(e.get("shape:1").meta.ref).toBeUndefined();
   });
 
@@ -100,6 +100,6 @@ describe("serializeSelectedIdeas", () => {
 
     expect(json).not.toContain("props");
     expect(json).not.toContain("base64");
-    expect(JSON.parse(json!)).toMatchObject({ version: 1, cards: [{ title: "Plain data" }] });
+    expect(JSON.parse(json!)).toMatchObject({ version: 2, cards: [{ title: "Plain data" }] });
   });
 });

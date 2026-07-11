@@ -13,7 +13,7 @@ import { ideaEdges } from "./edges";
 import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 
 export interface SerializedSelectedIdeas {
-  version: 1;
+  version: 2;
   cards: IdeaCard[];
   edges: IdeaEdge[];
 }
@@ -117,7 +117,7 @@ export function serializeSelectedIdeas(editor: Editor): SerializedSelectedIdeas 
       : [];
   });
 
-  return { version: 1, cards, edges };
+  return { version: 2, cards, edges };
 }
 
 /** JSON form of {@link serializeSelectedIdeas}, for downstream clipboard/tooling callers. */

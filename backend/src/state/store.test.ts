@@ -107,6 +107,12 @@ describe("StateStore", () => {
     });
     expect(bundle).not.toHaveProperty("logs");
     expect(bundle).not.toHaveProperty("daemon");
+    await expect(source.importState({ ...bundle, boards: undefined as never })).rejects.toThrow(
+      "requires board and history documents"
+    );
+    await expect(source.importState({ ...bundle, histories: undefined as never })).rejects.toThrow(
+      "requires board and history documents"
+    );
 
     const emptyTarget = await store();
     await emptyTarget.importState(bundle);

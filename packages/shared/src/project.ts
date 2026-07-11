@@ -75,7 +75,8 @@ export interface PortableBoardState {
   version: 1;
   revision: number;
   nextIdeaRef: number;
-  document: unknown | null;
+  /** Null means the project has not mounted an editor yet. */
+  document: unknown;
 }
 
 export interface PortableHistoryState {

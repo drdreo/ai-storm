@@ -1,5 +1,5 @@
 /**
- * CreateIdeaInput scanner (extraction-contract §3) — the robust 20% we keep after dropping
+ * Idea scanner (extraction-contract §3) — the robust 20% we keep after dropping
  * server-side chat extraction.
  *
  * The conversation surface is now a real terminal: raw PTY bytes are streamed to
