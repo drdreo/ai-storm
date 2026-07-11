@@ -1,4 +1,5 @@
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
+import { FakeStateBackend } from "./state-backend";
 
 /**
  * Page object for the ai-storm shell (#84). Keeps specs readable by naming the
@@ -93,7 +94,10 @@ export class Shell {
     return dialog;
   }
 
-  /** Names of the IndexedDB databases the app has opened in this page. */
+  /**
+   * Names of the IndexedDB databases the app has opened in this page. Since
+   * #233 the app must not create any — asserted by shell.spec.
+   */
   async indexedDbNames(): Promise<string[]> {
     return this.page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name ?? "").filter(Boolean));
   }
@@ -110,7 +114,12 @@ export class Shell {
  */
 const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health|\/api\/|bad gateway|502/i;
 
-export const test = base.extend<{ toursEnabled: boolean; shell: Shell; consoleErrors: string[] }>({
+export const test = base.extend<{
+  toursEnabled: boolean;
+  stateBackend: FakeStateBackend;
+  shell: Shell;
+  consoleErrors: string[];
+}>({
   /**
    * The intro tour (#179) auto-starts on a fresh profile, which every spec
    * here is. Its overlay would sit on top of whatever a spec is asserting, so
@@ -118,6 +127,18 @@ export const test = base.extend<{ toursEnabled: boolean; shell: Shell; consoleEr
    * `tour.spec.ts` opts back in via `test.use({ toursEnabled: true })`.
    */
   toursEnabled: [false, { option: true }],
+  /**
+   * The backend filesystem is the sole durable authority (#233), so the app
+   * refuses to boot without a `/pty` socket. The fake serves the state
+   * protocol from per-test memory — fresh isolated state per test, surviving
+   * reloads within one — while PTY/session traffic stays absent, keeping the
+   * suite's backend-free premise for everything session-shaped.
+   */
+  stateBackend: async ({ page }, use) => {
+    const fake = new FakeStateBackend();
+    await fake.install(page);
+    await use(fake);
+  },
   page: async ({ page, toursEnabled }, use) => {
     if (!toursEnabled) {
       await page.addInitScript(() => localStorage.setItem("as:tours", "off"));
@@ -134,7 +155,8 @@ export const test = base.extend<{ toursEnabled: boolean; shell: Shell; consoleEr
     });
     await use(errors);
   },
-  shell: async ({ page }, use) => {
+  shell: async ({ page, stateBackend }, use) => {
+    void stateBackend; // Depend on the fixture so the fake is routed before goto().
     await use(new Shell(page));
   }
 });
