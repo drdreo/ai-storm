@@ -32,14 +32,6 @@ vi.mock("../core/canvas-island", () => ({
   importBoard: vi.fn(),
   importTldrawPages: vi.fn(),
   selectedText: vi.fn(() => ""),
-  serializeBoardIdeasSnapshot: vi.fn(() => ({
-    version: 1,
-    pageId: "page:page",
-    updatedAt: 0,
-    cards: [],
-    edges: [],
-    selection: { refs: [], ids: [] }
-  })),
   serializeEditor: vi.fn(() => ""),
   serializeForHandoff: vi.fn(() => ""),
   serializeForTriage: vi.fn(() => "")

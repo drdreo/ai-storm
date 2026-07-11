@@ -226,12 +226,27 @@ const TOOLS_REGISTRATION = `
     name: "get_board_ideas",
     label: "Get board ideas",
     description:
-      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
-      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
-    promptSnippet: "Read the active ai-storm board ideas",
-    parameters: Type.Object({}),
+      "Read every page of a project's durable canvas board without requiring an attached browser. " +
+      "Pass a project id returned by get_projects.",
+    promptSnippet: "Read an ai-storm project's board ideas by id",
+    parameters: Type.Object({
+      projectId: Type.String({ pattern: "^[A-Za-z0-9_-]+$", description: "The project id returned by get_projects." })
+    }),
     async execute(_toolCallId, params) {
       return { content: [{ type: "text", text: await forward("get_board_ideas", params) }], details: {} };
+    }
+  });
+
+  pi.registerTool({
+    name: "get_projects",
+    label: "Get projects",
+    description:
+      "List all brainstorming projects from the durable backend registry, including runtime status, page names, " +
+      "and idea counts but no terminal configuration or board contents.",
+    promptSnippet: "List the ai-storm projects",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, params) {
+      return { content: [{ type: "text", text: await forward("get_projects", params) }], details: {} };
     }
   });
 `;

@@ -88,7 +88,7 @@ export function buildApp(config: ServerConfig, stateStore = new StateStore()) {
   // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
   mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
   mcpRegistry.configureRefAllocator(async (projectId) => (await stateStore.reserveIdeaRefs(projectId, 1))[0]);
-  app.route("/mcp", mcpRoutes(mcpRegistry));
+  app.route("/mcp", mcpRoutes(mcpRegistry, stateStore));
   app.route("/api/fs", fsRoutes());
   app.route("/api/issues", issueRoutes());
 
@@ -251,6 +251,7 @@ async function dispatch(
           // control bytes of a cursor-addressed TUI survive JSON intact. This is
           // the AI's response stream; byte volume is debug-level (would flood).
           (raw) => {
+            mcpRegistry.setRuntimeState(projectId, "responding");
             log.debug("ai.data", { project: projectId, bytes: raw.length });
             send({ type: "data", projectId, data: Buffer.from(raw, "utf8").toString("base64") });
           },
@@ -295,14 +296,17 @@ async function dispatch(
             send({ type: "reference", projectId, reference });
           },
           (message) => {
+            mcpRegistry.setRuntimeState(projectId, "error");
             log.warn("session.error", { project: projectId, message });
             send({ type: "error", projectId, message });
           }
         );
         attached.add(projectId);
+        mcpRegistry.setRuntimeState(projectId, "attached");
         send({ type: "session-status", projectId, status: "attached" });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        mcpRegistry.setRuntimeState(projectId, "error");
         log.error("attach.error", { project: projectId, message });
         send({ type: "error", projectId, message });
       }
@@ -361,14 +365,6 @@ async function dispatch(
           message: err instanceof Error ? err.message : String(err)
         });
       }
-      break;
-    case "board-snapshot":
-      mcpRegistry.updateBoardSnapshot(msg.projectId, msg.snapshot);
-      log.debug("board.snapshot", {
-        project: msg.projectId,
-        cards: msg.snapshot.cards.length,
-        edges: msg.snapshot.edges.length
-      });
       break;
     case "agent":
       // Concurrency ceiling (#142): each run is a full harness process; an

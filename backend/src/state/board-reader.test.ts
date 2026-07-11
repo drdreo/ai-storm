@@ -12,8 +12,24 @@ function card(id: string, parentId: string, ref: string, x: number, y: number) {
     parentId,
     x,
     y,
-    props: { kind: "feature", title: `Title ${ref}`, body: "Body", origin: "ai", superseded: ref === "i1" },
-    meta: { ref, starred: true, done: false, createdAt: 123, score: { impact: 4, effort: 2 } }
+    props: {
+      kind: "feature",
+      color: "blue",
+      title: `Title ${ref}`,
+      body: "Body",
+      origin: "ai",
+      superseded: ref === "i1"
+    },
+    meta: {
+      ref,
+      starred: true,
+      done: false,
+      createdAt: 123,
+      editedByUser: true,
+      score: { impact: 4, effort: 2 },
+      issue: { provider: "github", key: "owner/repo#1", url: "https://github.com/owner/repo/issues/1" },
+      links: [{ url: "https://example.com", label: "Design" }]
+    }
   };
 }
 function arrow(id: string, parentId: string, relation: string) {
@@ -49,20 +65,31 @@ describe("deriveBoardIdeas", () => {
     const result = deriveBoardIdeas({ revision: 9, document });
     expect(result.version).toBe(1);
     expect(result.revision).toBe(9);
-    expect(result.pages.map((item) => item.pageId)).toEqual(["page:1", "page:2"]);
+    expect(result.pages.map((item) => item.id)).toEqual(["page:1", "page:2"]);
     expect(result.pages[0].name).toBe("First");
     expect(result.pages[0].cards.map((item) => item.ref)).toEqual(["i2", "i1"]);
     expect(result.pages[0].cards[1]).toMatchObject({
       id: "shape:a",
       title: "Title i1",
       origin: "ai",
+      color: "blue",
+      editedByUser: true,
+      issue: { provider: "github", key: "owner/repo#1" },
+      links: [{ url: "https://example.com", label: "Design" }],
       starred: true,
       superseded: true,
       score: { impact: 4, effort: 2 },
       position: { x: 100, y: 50 }
     });
     expect(result.pages[0].edges).toEqual([
-      { from: "i1", to: "i2", fromId: "shape:a", toId: "shape:b", relation: "supersedes" }
+      {
+        id: "shape:arrow1",
+        from: "i1",
+        to: "i2",
+        fromId: "shape:a",
+        toId: "shape:b",
+        relation: "supersedes"
+      }
     ]);
     expect(result.pages[1].cards.map((item) => item.ref)).toEqual(["i3"]);
   });
