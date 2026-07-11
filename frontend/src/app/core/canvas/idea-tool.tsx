@@ -37,7 +37,16 @@ import { CARD_W, CARD_H, type IdeaCardMeta, type IdeaCardShape } from "./idea-ca
  * the shape's defaults (`origin: 'user'`, `title: 'Untitled idea'`), so this is
  * the user analogue of `applyIdeas`' AI-origin `createShape`. Returns the new id.
  */
-export function createUserIdea(editor: Editor, at: VecLike): void {
+let allocateIdeaRef: (() => Promise<string>) | null = null;
+
+/** Install the backend allocator once during canvas boot. */
+export function setIdeaRefAllocator(allocator: () => Promise<string>): void {
+  allocateIdeaRef = allocator;
+}
+
+export async function createUserIdea(editor: Editor, at: VecLike): Promise<void> {
+  if (!allocateIdeaRef) throw new Error("Idea ref allocator is unavailable");
+  const ref = await allocateIdeaRef();
   const id = createShapeId();
   editor.run(() => {
     editor.createShape<IdeaCardShape>({
@@ -47,7 +56,7 @@ export function createUserIdea(editor: Editor, at: VecLike): void {
       y: at.y - CARD_H / 2,
       // No props → the shape's getDefaultProps wins: origin: 'user'. Stamp the
       // creation time (#124) so the card is dateable by full-text search.
-      meta: { createdAt: Date.now() } satisfies IdeaCardMeta
+      meta: { ref, createdAt: Date.now() } satisfies IdeaCardMeta
     });
     editor.select(id);
     // Enter the card's text edit mode (idea-card canEdit === true) so the title
@@ -70,7 +79,7 @@ export class IdeaCardTool extends StateNode {
   }
 
   override onPointerDown(): void {
-    createUserIdea(this.editor, this.editor.inputs.currentPagePoint);
+    void createUserIdea(this.editor, this.editor.inputs.currentPagePoint);
     // Drop back to select so the freshly-created card is immediately editable
     // and movable — the same one-shot feel as placing a native note.
     this.editor.setCurrentTool("select");

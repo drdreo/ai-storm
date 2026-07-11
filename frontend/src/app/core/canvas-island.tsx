@@ -16,9 +16,9 @@
  * - `canvas/CardVerbBar`, `canvas/menus` — the in-canvas UI
  *
  * "As close to native tldraw as possible": native arrows for edges, the native styles
- * system for color, native menu slots for chrome, and `persistenceKey` → IndexedDB.
+ * system for color, native menu slots for chrome, and a backend-loaded custom store.
  */
-import { Tldraw, type Editor, type TLComponents } from "tldraw";
+import { Tldraw, type Editor, type TLComponents, type TLStore } from "tldraw";
 import "tldraw/tldraw.css";
 import { useMemo, useState, useEffect } from "react";
 import { useThemeStore } from "../stores/theme.store";
@@ -62,6 +62,8 @@ export interface CanvasBridge {
   onEditorMount(editor: Editor): void;
   /** Called after local canvas changes that should refresh the backend read model (#196). */
   onBoardChanged?(): void;
+  /** Browser-only camera/selection/page state; never sent to the backend. */
+  onSessionChanged?(): void;
   /** Fired when a card verb (#13/#15) is picked on a selected card. */
   onCardVerb: CardVerbHandler;
   /** Fired when "Reference in terminal" (#194) is picked on selected cards. */
@@ -75,19 +77,21 @@ export interface CanvasBridge {
 export function CanvasIsland({
   projectId,
   bridge,
+  store,
   emptyStateActions,
   sessionAttached = false
 }: {
   projectId: string;
   bridge: CanvasBridge;
+  /** Backend-loaded document store. It is constructed before this island mounts. */
+  store: TLStore;
   /** Primary-action handlers for the first-run empty state (#106). */
   emptyStateActions?: EmptyStateActions;
   /** Whether a live session backs this project — gates the card verbs (#106). */
   sessionAttached?: boolean;
 }): React.JSX.Element {
-  // One store per project, keyed by id → its own IndexedDB room (PD-001,
-  // local-first; survives reload). Changing `key`/`persistenceKey` remounts
-  // <Tldraw> onto the next project's store — the hot-switch of PRD §3.4.
+  // One backend-loaded store per project. Changing `key` remounts <Tldraw>
+  // onto the next project's document — the hot-switch of PRD §3.4.
   //
   // The filter atom is created here, so it's scoped to this island: switching
   // projects remounts CanvasIsland (it's keyed by id in CanvasPane), which
@@ -114,9 +118,12 @@ export function CanvasIsland({
   }, [editor, themeMode]);
   useEffect(() => {
     if (!editor) return;
-    return editor.store.listen(() => {
-      bridge.onBoardChanged?.();
-    });
+    const stopDocument = editor.store.listen(() => bridge.onBoardChanged?.(), { source: "user", scope: "document" });
+    const stopSession = editor.store.listen(() => bridge.onSessionChanged?.(), { source: "user", scope: "session" });
+    return () => {
+      stopDocument();
+      stopSession();
+    };
   }, [editor, bridge]);
 
   const components = useMemo<TLComponents>(
@@ -157,7 +164,7 @@ export function CanvasIsland({
     <div style={{ position: "absolute", inset: 0 }}>
       <Tldraw
         key={projectId}
-        persistenceKey={`ai-storm:ws:${projectId}`}
+        store={store}
         shapeUtils={SHAPE_UTILS}
         tools={IDEA_TOOLS}
         overrides={[ideaToolOverrides, focusModeOverrides]}

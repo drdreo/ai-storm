@@ -27,6 +27,7 @@ import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
 import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
 import { encodeServerMessage } from "./ws/codec.ts";
+import { StateFileError, StateStore, type StoredFolder, type StoredProject } from "./state/store.ts";
 
 let connectionSeq = 0;
 
@@ -74,7 +75,7 @@ export interface ServerConfig {
   agentTimeoutMs?: number;
 }
 
-export function buildApp(config: ServerConfig) {
+export function buildApp(config: ServerConfig, stateStore = new StateStore()) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
   const backend = getRuntime();
@@ -86,6 +87,7 @@ export function buildApp(config: ServerConfig) {
   // and the session backends feed it tokens/attachments per session. The bind
   // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
   mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
+  mcpRegistry.configureRefAllocator(async (projectId) => (await stateStore.reserveIdeaRefs(projectId, 1))[0]);
   app.route("/mcp", mcpRoutes(mcpRegistry));
   app.route("/api/fs", fsRoutes());
   app.route("/api/issues", issueRoutes());
@@ -101,6 +103,9 @@ export function buildApp(config: ServerConfig) {
       const attached = new Set<string>();
       // Agent subprocesses spawned by this connection, torn down on disconnect.
       const agents = new Set<ChildProcess>();
+      // State commands from one browser are ordered. This makes optimistic
+      // create→patch→board-load sequences deterministic while PTY traffic stays live.
+      let stateQueue = Promise.resolve();
 
       // `socket` is captured on open so message handlers can push to the client.
       let socket: { send: (data: string) => void; readyState: number } | null = null;
@@ -143,7 +148,14 @@ export function buildApp(config: ServerConfig) {
             send({ type: "error", message: m });
             return;
           }
-          void dispatch(msg, backend, conn, send, attached, agents, config);
+          if (msg.type === "state-request") {
+            stateQueue = stateQueue.then(
+              () => dispatch(msg, backend, stateStore, conn, send, attached, agents, config),
+              () => dispatch(msg, backend, stateStore, conn, send, attached, agents, config)
+            );
+          } else {
+            void dispatch(msg, backend, stateStore, conn, send, attached, agents, config);
+          }
         },
         onClose() {
           log.info("ws.close", { conn, attached: attached.size, liveAgents: agents.size });
@@ -173,6 +185,7 @@ export function buildApp(config: ServerConfig) {
 async function dispatch(
   msg: ClientMessage,
   backend: SessionBackend,
+  stateStore: StateStore,
   conn: string,
   send: (msg: ServerMessage) => void,
   attached: Set<string>,
@@ -180,6 +193,24 @@ async function dispatch(
   config: ServerConfig
 ): Promise<void> {
   switch (msg.type) {
+    case "state-request": {
+      try {
+        const data = await dispatchStateRequest(msg.operation, msg.projectId, msg.payload ?? {}, stateStore);
+        send({ type: "state-response", requestId: msg.requestId, operation: msg.operation, ok: true, data });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error("state.request_failed", { operation: msg.operation, project: msg.projectId, message });
+        send({
+          type: "state-response",
+          requestId: msg.requestId,
+          operation: msg.operation,
+          ok: false,
+          error: message,
+          ...(error instanceof StateFileError ? { path: error.path } : {})
+        });
+      }
+      break;
+    }
     case "attach": {
       const { projectId } = msg;
       log.info("attach.request", {
@@ -382,6 +413,84 @@ async function dispatch(
         }
       }
       break;
+  }
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) throw new Error(`State request requires ${field}`);
+  return value;
+}
+
+function requiredProjectId(projectId: string | undefined): string {
+  return requiredString(projectId, "projectId");
+}
+function requiredObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`State request requires ${field}`);
+  return value as Record<string, unknown>;
+}
+
+export async function dispatchStateRequest(
+  operation: import("@ai-storm/shared").StateOperation,
+  projectId: string | undefined,
+  payload: Record<string, unknown>,
+  store: StateStore
+): Promise<unknown> {
+  switch (operation) {
+    case "registry-load":
+      return store.readRegistry();
+    case "registry-create-project": {
+      const project = payload.project as Omit<StoredProject, "createdAt" | "updatedAt"> | undefined;
+      if (!project || typeof project !== "object") throw new Error("State request requires project");
+      await store.createProject(project);
+      return store.readRegistry();
+    }
+    case "registry-patch-project":
+      await store.updateProject(requiredProjectId(projectId), requiredObject(payload.patch, "patch"));
+      return store.readRegistry();
+    case "registry-delete-project":
+      await store.deleteProject(requiredProjectId(projectId));
+      return store.readRegistry();
+    case "registry-create-folder": {
+      const folder = payload.folder as StoredFolder | undefined;
+      if (!folder || typeof folder !== "object") throw new Error("State request requires folder");
+      await store.createFolder(folder);
+      return store.readRegistry();
+    }
+    case "registry-patch-folder":
+      await store.updateFolder(requiredString(payload.folderId, "folderId"), requiredObject(payload.patch, "patch"));
+      return store.readRegistry();
+    case "registry-delete-folder":
+      await store.deleteFolder(requiredString(payload.folderId, "folderId"));
+      return store.readRegistry();
+    case "board-load": {
+      const board = await store.readBoard(requiredProjectId(projectId));
+      return { revision: board.revision, document: board.document };
+    }
+    case "board-save": {
+      const expectedRevision = payload.expectedRevision;
+      if (!Number.isSafeInteger(expectedRevision)) throw new Error("State request requires expectedRevision");
+      if (!Object.hasOwn(payload, "document")) throw new Error("State request requires document");
+      return store.writeBoard(requiredProjectId(projectId), expectedRevision as number, payload.document);
+    }
+    case "reserve-idea-refs": {
+      const count = payload.count;
+      if (!Number.isSafeInteger(count)) throw new Error("State request requires count");
+      return { refs: await store.reserveIdeaRefs(requiredProjectId(projectId), count as number) };
+    }
+    case "history-load":
+      return store.readHistory(requiredProjectId(projectId));
+    case "history-append":
+      return store.appendHistoryEntry(requiredProjectId(projectId), requiredObject(payload.entry, "entry"));
+    case "history-update":
+      return store.updateHistoryEntry(
+        requiredProjectId(projectId),
+        requiredString(payload.entryId, "entryId"),
+        requiredObject(payload.patch, "patch")
+      );
+    case "history-delete":
+      return store.deleteHistoryEntry(requiredProjectId(projectId), requiredString(payload.entryId, "entryId"));
+    case "history-clear":
+      return store.clearHistory(requiredProjectId(projectId));
   }
 }
 

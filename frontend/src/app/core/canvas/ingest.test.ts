@@ -5,9 +5,26 @@
  * ghosting are what's under test, not a mock of them.
  */
 import { describe, it, expect } from "vitest";
+import type { Idea } from "@ai-storm/shared";
 import { EditorFake } from "../../../testing";
 import { CARD_H, CARD_W } from "./idea-card";
-import { applyIdeas } from "./ingest";
+import { applyIdeas as applyCanonicalIdeas } from "./ingest";
+
+/** Unit seam mirroring canvas.store's backend reservation before ingestion. */
+function applyIdeas(editor: ReturnType<EditorFake["asEditor"]>, ideas: Idea[]): void {
+  let next =
+    [
+      ...editor.getCurrentPageShapes().map((shape) => (shape.type === "idea-card" ? String(shape.meta.ref ?? "") : "")),
+      ...ideas.map((idea) => idea.id ?? "")
+    ].reduce((max, ref) => {
+      const match = /^i(\d+)$/.exec(ref);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+  applyCanonicalIdeas(
+    editor,
+    ideas.map((idea) => (idea.id ? idea : { ...idea, id: `i${next++}` }))
+  );
+}
 
 describe("applyIdeas", () => {
   it("is a no-op for an empty batch", () => {
@@ -31,18 +48,18 @@ describe("applyIdeas", () => {
     // A kindless AI card would default to blue; a known kind sets its own tint.
     expect(card.props.color).toBeTruthy();
     // Canvas-minted ref starts at a1.
-    expect(card.meta.ref).toBe("a1");
+    expect(card.meta.ref).toBe("i1");
     expect(typeof card.meta.createdAt).toBe("number");
   });
 
-  it("mints sequential a<n> refs across a batch", () => {
+  it("mints sequential i<n> refs across a batch", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
       { title: "A", body: "" },
       { title: "B", body: "" },
       { title: "C", body: "" }
     ]);
-    expect(e.cards().map((c) => c.meta.ref)).toEqual(["a1", "a2", "a3"]);
+    expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1", "i2", "i3"]);
   });
 
   it("continues the ref sequence from persisted cards across calls", () => {
@@ -50,40 +67,33 @@ describe("applyIdeas", () => {
     applyIdeas(e.asEditor(), [{ title: "A", body: "" }]);
     applyIdeas(e.asEditor(), [{ title: "B", body: "" }]);
     // The second call must not reuse a1 — it reads the persisted max.
-    expect(e.cards().map((c) => c.meta.ref)).toEqual(["a1", "a2"]);
+    expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1", "i2"]);
   });
 
-  it("honours a producer-stamped id (MCP i<n>) without perturbing the a<n> mint", () => {
+  it("honours producer-stamped canonical ids", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
       { id: "i7", title: "MCP card", body: "" },
       { title: "canvas card", body: "" }
     ]);
     const refs = e.cards().map((c) => c.meta.ref);
-    // The stamped ref is kept as-is; the disjoint a-mint still starts at a1.
-    expect(refs).toEqual(["i7", "a1"]);
+    expect(refs).toEqual(["i7", "i8"]);
   });
 
-  it("remints a stamped id that collides with a card already on the board (#210)", () => {
+  it("refuses a canonical id that collides with a card already on the board", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [{ id: "i1", title: "Original", body: "" }]);
-    // A restarted backend re-issues i1; honouring it would make @i1 ambiguous.
     applyIdeas(e.asEditor(), [{ id: "i1", title: "Impostor", body: "" }]);
-
-    const original = e.cards().find((c) => c.props.title === "Original")!;
-    const impostor = e.cards().find((c) => c.props.title === "Impostor")!;
-    // The existing card keeps its ref; the incoming card gets a fresh canvas mint.
-    expect(original.meta.ref).toBe("i1");
-    expect(impostor.meta.ref).toBe("a1");
+    expect(e.cards().map((card) => card.props.title)).toEqual(["Original"]);
   });
 
-  it("remints a stamped id that collides within the same batch (#210)", () => {
+  it("refuses duplicate canonical ids within the same batch", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
       { id: "i1", title: "First", body: "" },
       { id: "i1", title: "Second", body: "" }
     ]);
-    expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1", "a1"]);
+    expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1"]);
   });
 
   it("anchors a linked card beside its resolved target and draws a relation arrow", () => {
@@ -125,7 +135,7 @@ describe("applyIdeas", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
       { title: "Parent", body: "" }, // becomes a1
-      { title: "Child", body: "", links: [{ to: "a1" }] }
+      { title: "Child", body: "", links: [{ to: "i1" }] }
     ]);
     expect(e.arrows()).toHaveLength(1);
     const child = e.cards().find((c) => c.props.title === "Child")!;

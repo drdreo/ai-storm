@@ -36,6 +36,10 @@ async function makeStore(opts: { attached: boolean }): Promise<Harness> {
     backend: {
       connect: vi.fn(),
       send,
+      request: vi.fn(async () => {
+        throw new Error("offline test backend");
+      }),
+      onOpen: vi.fn(() => () => {}),
       subscribe: (_id: string, h: (msg: ServerMessage) => void) => {
         handlers.push(h);
         return () => {};

@@ -1,10 +1,10 @@
 import { test, expect } from "../fixtures/shell";
 
 /**
- * Run history (#104). Backend-free coverage of the acceptance criteria that
- * need a real browser: a convergence run leaves a history entry, the entry
- * survives a reload (CRDT store in IndexedDB), an empty run is represented
- * clearly, and history can be cleared. The agent-run (spec/triage) recording
+ * Run history (#104). Browser coverage of the acceptance criteria: a
+ * convergence run leaves a history entry, the entry survives a reload
+ * (backend `history.json` — served by the fake state backend here, #233), an
+ * empty run is represented clearly, and history can be cleared. The agent-run (spec/triage) recording
  * paths are unit-tested in the stores — no live session exists in this suite.
  */
 test.describe("run history", () => {
@@ -27,7 +27,7 @@ test.describe("run history", () => {
     const row = page.getByRole("button", { name: /Summary/ }).filter({ hasText: "no output" });
     await expect(row).toBeVisible();
 
-    // Reload — the entry must come back from IndexedDB.
+    // Reload — the entry must come back from the backend history store.
     await shell.goto();
     await openHistory(page);
     await expect(row).toBeVisible();

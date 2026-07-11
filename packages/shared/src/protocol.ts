@@ -37,7 +37,54 @@ export type ClientMessage =
   | KillMessage
   | ContextMessage
   | BoardSnapshotMessage
-  | AgentMessage;
+  | AgentMessage
+  | StateRequestMessage;
+
+/** Backend-owned durable state operations. Mutations are intentionally granular;
+ * board-save is the sole whole-document write. `requestId` correlates an ack. */
+export type StateOperation =
+  | "registry-load"
+  | "registry-create-project"
+  | "registry-patch-project"
+  | "registry-delete-project"
+  | "registry-create-folder"
+  | "registry-patch-folder"
+  | "registry-delete-folder"
+  | "board-load"
+  | "board-save"
+  | "reserve-idea-refs"
+  | "history-load"
+  | "history-append"
+  | "history-update"
+  | "history-delete"
+  | "history-clear";
+
+const STATE_OPERATIONS: ReadonlySet<string> = new Set<StateOperation>([
+  "registry-load",
+  "registry-create-project",
+  "registry-patch-project",
+  "registry-delete-project",
+  "registry-create-folder",
+  "registry-patch-folder",
+  "registry-delete-folder",
+  "board-load",
+  "board-save",
+  "reserve-idea-refs",
+  "history-load",
+  "history-append",
+  "history-update",
+  "history-delete",
+  "history-clear"
+]);
+
+export interface StateRequestMessage {
+  type: "state-request";
+  requestId: string;
+  operation: StateOperation;
+  projectId?: string;
+  /** Operation-specific payload. The backend validates required fields. */
+  payload?: Record<string, unknown>;
+}
 
 /**
  * Ensure the durable session for a project exists and start streaming its
@@ -212,7 +259,20 @@ export type ServerMessage =
   | ExitMessage
   | AgentStatusMessage
   | AgentArtifactsMessage
+  | StateResponseMessage
   | ErrorMessage;
+
+/** Acknowledgment for one backend state request. Storage failures include the
+ * affected path when available; board conflicts return the latest revision and document. */
+export interface StateResponseMessage {
+  type: "state-response";
+  requestId: string;
+  operation: StateOperation;
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+  path?: string;
+}
 
 /** Lifecycle of a durable session, decoupled from a specific connection. */
 export interface SessionStatusMessage {
@@ -497,7 +557,7 @@ export function parseClientMessage(raw: string): ClientMessage {
   if (typeof msg !== "object" || msg === null || !("type" in msg)) {
     throw new Error("Malformed message: missing `type`");
   }
-  if (msg.type !== "attach" && !("projectId" in msg)) {
+  if (msg.type !== "attach" && msg.type !== "state-request" && !("projectId" in msg)) {
     throw new Error("Malformed message: missing `projectId`");
   }
 
@@ -530,6 +590,19 @@ export function parseClientMessage(raw: string): ClientMessage {
     case "board-snapshot":
       if (typeof m.snapshot !== "object" || m.snapshot === null) {
         throw new Error("Malformed `board-snapshot` message: `snapshot` must be an object");
+      }
+      break;
+    case "state-request":
+      requireString(m, "requestId", "state-request");
+      requireString(m, "operation", "state-request");
+      if (!STATE_OPERATIONS.has(m.operation as string))
+        throw new Error("Malformed `state-request` message: unknown operation");
+      if (m.projectId !== undefined) requireString(m, "projectId", "state-request");
+      if (
+        m.payload !== undefined &&
+        (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload))
+      ) {
+        throw new Error("Malformed `state-request` message: `payload` must be an object");
       }
       break;
     case "agent":

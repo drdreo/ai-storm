@@ -29,6 +29,9 @@ async function makeStore() {
         return () => {};
       },
       onOpen: () => () => {},
+      request: async () => {
+        throw new Error("offline test backend");
+      },
       connect: () => {},
       send: () => {}
     }
