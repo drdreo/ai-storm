@@ -1,7 +1,16 @@
 import type { AgentArtifact, Completion, Idea, Reference, Score } from "@ai-storm/shared";
-import type { Editor, TLShapeId } from "tldraw";
+import {
+  createTLStore,
+  defaultBindingUtils,
+  defaultShapeUtils,
+  getSnapshot,
+  loadSnapshot,
+  type Editor,
+  type TLShapeId,
+  type TLStore
+} from "tldraw";
 import { create } from "zustand";
-import { backend } from "./backend.store";
+import { backend, useBackendStore } from "./backend.store";
 import {
   applyIdeas as islandApplyIdeas,
   applyScore as islandApplyScore,
@@ -22,13 +31,14 @@ import {
 } from "../core/canvas-island";
 import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
 import { allIdeaCards, type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
-import { createUserIdea } from "../core/canvas/idea-tool";
+import { createUserIdea, setIdeaRefAllocator } from "../core/canvas/idea-tool";
+import { IdeaCardShapeUtil } from "../core/canvas/idea-card";
 import {
   arrangeMindMap as layoutArrangeMindMap,
   arrangePriorityGrid as layoutArrangePriorityGrid
 } from "../core/canvas/layout";
 import type { SearchableIdea } from "../core/canvas/search";
-import { readPersistedIdeas, toSearchableIdea } from "../core/canvas/search-index";
+import { toSearchableIdea } from "../core/canvas/search-index";
 import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
@@ -54,8 +64,13 @@ import type { PortableBoard, TldrawPage } from "../core/project-portable";
  */
 
 interface CanvasState {
-  /** True once the canvas is initialized (parity with the old CRDT-boot flag). */
+  /** True once the canvas controller can load backend documents. */
   ready: boolean;
+  activeStore: TLStore | null;
+  loadState: "idle" | "loading" | "ready" | "error";
+  error: string | null;
+  recoveryPath: string | null;
+  unsaved: boolean;
   /**
    * Monotonic counter bumped whenever the mounted canvas gains cards (a fresh
    * `applyIdeas`, or a project mounting with persisted cards). The toolbar's
@@ -66,6 +81,11 @@ interface CanvasState {
 
 export const useCanvasStore = create<CanvasState>(() => ({
   ready: false,
+  activeStore: null,
+  loadState: "idle",
+  error: null,
+  recoveryPath: null,
+  unsaved: false,
   ideasTick: 0
 }));
 
@@ -89,6 +109,219 @@ let filterController: {
   set(filter: BoardFilter): void;
 } | null = null;
 let snapshotTimer: number | null = null;
+type BoardDocumentSnapshot = ReturnType<typeof getSnapshot>["document"];
+interface LoadedBoard {
+  revision: number;
+  document: BoardDocumentSnapshot | null;
+}
+const stores = new Map<string, TLStore>();
+const refPools = new Map<string, string[]>();
+const refPoolRefills = new Set<string>();
+const revisions = new Map<string, number>();
+let queuedDocument: BoardDocumentSnapshot | null = null;
+let saveTimer: number | null = null;
+let maxSaveTimer: number | null = null;
+let saveInFlight: Promise<void> | null = null;
+let suppressSaves = false;
+
+function sessionKey(projectId: string): string {
+  return `ai-storm:ui:${projectId}`;
+}
+
+async function reserveCanonicalRefs(projectId: string, count: number): Promise<string[]> {
+  const pool = refPools.get(projectId);
+  const refs = pool?.splice(0, count) ?? [];
+  if (refs.length < count) {
+    refs.push(
+      ...(
+        await backend.request<{ refs: string[] }>("reserve-idea-refs", {
+          projectId,
+          payload: { count: count - refs.length }
+        })
+      ).refs
+    );
+  }
+  refillRefPool(projectId);
+  return refs;
+}
+
+function refillRefPool(projectId: string): void {
+  const pool = refPools.get(projectId);
+  if (!pool || pool.length >= 16 || refPoolRefills.has(projectId)) return;
+  refPoolRefills.add(projectId);
+  void backend
+    .request<{ refs: string[] }>("reserve-idea-refs", { projectId, payload: { count: 32 } })
+    .then(({ refs }) => pool.push(...refs))
+    .finally(() => refPoolRefills.delete(projectId));
+}
+
+function installRefGuard(projectId: string, store: TLStore): void {
+  store.sideEffects.registerBeforeCreateHandler("shape", (record) => {
+    if (record.type !== "idea-card") return record;
+    const meta = record.meta as IdeaCardMeta;
+    const duplicate =
+      !!meta.ref &&
+      store
+        .allRecords()
+        .some(
+          (existing) => existing.typeName === "shape" && existing.id !== record.id && existing.meta.ref === meta.ref
+        );
+    if (meta.ref && !duplicate) return record;
+    const ref = refPools.get(projectId)?.shift();
+    if (!ref) {
+      console.error("[ai-storm] canonical ref pool exhausted; idea creation was not assigned a ref");
+      return record;
+    }
+    refillRefPool(projectId);
+    return { ...record, meta: { ...record.meta, ref } };
+  });
+}
+
+function buildStore(projectId: string, board: LoadedBoard, refs: string[]): TLStore {
+  const store = createTLStore({
+    shapeUtils: [...defaultShapeUtils, IdeaCardShapeUtil],
+    bindingUtils: [...defaultBindingUtils]
+  });
+  try {
+    const rawSession = localStorage.getItem(sessionKey(projectId));
+    const session = rawSession ? JSON.parse(rawSession) : undefined;
+    if (board.document || session) loadSnapshot(store, { document: board.document ?? undefined, session });
+  } catch (error) {
+    const wrapped = new Error(
+      `Unable to migrate or validate board ${projectId}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    (wrapped as Error & { path?: string }).path = `projects/${projectId}/board.json`;
+    throw wrapped;
+  }
+  refPools.set(projectId, refs);
+  installRefGuard(projectId, store);
+  stores.set(projectId, store);
+  revisions.set(projectId, board.revision);
+  return store;
+}
+
+async function loadProject(projectId: string): Promise<TLStore> {
+  useCanvasStore.setState({ loadState: "loading", error: null, recoveryPath: null });
+  try {
+    const board = await backend.request<LoadedBoard>("board-load", { projectId });
+    const { refs } = await backend.request<{ refs: string[] }>("reserve-idea-refs", {
+      projectId,
+      payload: { count: 32 }
+    });
+    const store = buildStore(projectId, board, refs);
+    if (activeId === projectId) useCanvasStore.setState({ activeStore: store, loadState: "ready" });
+    return store;
+  } catch (error) {
+    const path = (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`;
+    useCanvasStore.setState({
+      loadState: "error",
+      error: error instanceof Error ? error.message : String(error),
+      recoveryPath: path
+    });
+    throw error;
+  }
+}
+
+function clearSaveTimers(): void {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  if (maxSaveTimer !== null) clearTimeout(maxSaveTimer);
+  saveTimer = maxSaveTimer = null;
+}
+
+async function saveQueued(): Promise<void> {
+  clearSaveTimers();
+  if (saveInFlight || !activeId || !queuedDocument) return;
+  const projectId = activeId;
+  const document = queuedDocument;
+  queuedDocument = null;
+  const expectedRevision = revisions.get(projectId) ?? 0;
+  saveInFlight = backend
+    .request<{ ok: boolean; board?: { revision: number }; conflict?: LoadedBoard }>("board-save", {
+      projectId,
+      payload: { expectedRevision, document }
+    })
+    .then((result) => {
+      if (result.ok && result.board) {
+        revisions.set(projectId, result.board.revision);
+        useCanvasStore.setState({ error: null, recoveryPath: null });
+      } else if (result.conflict) {
+        revisions.set(projectId, result.conflict.revision);
+        if (activeId === projectId) queuedDocument = null;
+        const store = stores.get(projectId);
+        if (store) {
+          suppressSaves = true;
+          try {
+            loadSnapshot(store, { document: result.conflict.document ?? undefined });
+          } finally {
+            suppressSaves = false;
+          }
+        }
+      }
+    })
+    .catch((error) => {
+      // If the user switched while this flush was in flight, the old project's
+      // live store still retains its document; never put that snapshot into the
+      // newly active project's queue.
+      if (activeId === projectId) queuedDocument = document;
+      useCanvasStore.setState({
+        error: error instanceof Error ? error.message : String(error),
+        recoveryPath: (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`
+      });
+    })
+    .finally(() => {
+      saveInFlight = null;
+      useCanvasStore.setState({ unsaved: queuedDocument !== null });
+      if (queuedDocument && useBackendStore.getState().state === "open") scheduleSave();
+    });
+  await saveInFlight;
+}
+
+function scheduleSave(): void {
+  useCanvasStore.setState({ unsaved: true });
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => void saveQueued(), 500) as unknown as number;
+  if (maxSaveTimer === null) maxSaveTimer = setTimeout(() => void saveQueued(), 2000) as unknown as number;
+}
+
+function saveLocalSession(): void {
+  if (!editor || !activeId) return;
+  try {
+    localStorage.setItem(sessionKey(activeId), JSON.stringify(getSnapshot(editor.store).session));
+  } catch {
+    /* browser-only best effort */
+  }
+}
+function queueDocumentSave(): void {
+  if (suppressSaves || !editor || !activeId) return;
+  queuedDocument = getSnapshot(editor.store).document;
+  saveLocalSession();
+  scheduleSave();
+}
+
+async function reconcileOnReconnect(): Promise<void> {
+  if (!activeId || !queuedDocument) return;
+  const projectId = activeId;
+  try {
+    const latest = await backend.request<LoadedBoard>("board-load", { projectId });
+    if (latest.revision === revisions.get(projectId)) await saveQueued();
+    else {
+      queuedDocument = null;
+      revisions.set(projectId, latest.revision);
+      const store = stores.get(projectId);
+      if (store) {
+        suppressSaves = true;
+        try {
+          loadSnapshot(store, { document: latest.document ?? undefined });
+        } finally {
+          suppressSaves = false;
+        }
+      }
+      useCanvasStore.setState({ unsaved: false });
+    }
+  } catch {
+    /* retain the in-memory recovery snapshot */
+  }
+}
 
 function bumpIdeasTick(): void {
   useCanvasStore.setState((s) => ({ ideasTick: s.ideasTick + 1 }));
@@ -127,6 +360,7 @@ function onEditorMount(ed: Editor): void {
   if (queued?.length) {
     pending.delete(activeId!);
     islandApplyIdeas(ed, queued);
+    queueDocumentSave();
   }
   // Recompute the kind-filter chips against the now-loaded store (covers a
   // reload restoring persisted cards, not just freshly-drained ones).
@@ -141,6 +375,11 @@ function onEditorMount(ed: Editor): void {
   scheduleBoardSnapshot();
 }
 
+backend.onOpen(() => void reconcileOnReconnect());
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => void saveQueued());
+}
+
 export const canvas = {
   /**
    * A single stable bridge identity handed to React for the app's lifetime.
@@ -149,7 +388,11 @@ export const canvas = {
    */
   bridge: {
     onEditorMount: (ed: Editor) => onEditorMount(ed),
-    onBoardChanged: () => scheduleBoardSnapshot(),
+    onBoardChanged: () => {
+      scheduleBoardSnapshot();
+      queueDocumentSave();
+    },
+    onSessionChanged: () => saveLocalSession(),
     onCardVerb: (text, intent, sourceRefs) => cardVerbHandler?.(text, intent, sourceRefs),
     onReferenceIdeas: (cards) => referenceHandler?.(cards),
     onCreateIssue: () => createIssueHandler?.(),
@@ -168,26 +411,50 @@ export const canvas = {
     }
   } as CanvasBridge,
 
-  /** No CRDT collection to stand up — just flip ready (parity with old boot). */
   async init(): Promise<void> {
+    setIdeaRefAllocator(async () => {
+      if (!activeId) throw new Error("No active project");
+      return (await reserveCanonicalRefs(activeId, 1))[0];
+    });
     useCanvasStore.setState({ ready: true });
   },
 
-  /** tldraw owns store loading; nothing to pre-rehydrate (parity shim). */
-  async ensureReady(_projectId: string): Promise<void> {
-    /* tldraw owns store loading; nothing to pre-rehydrate. */
+  async ensureReady(projectId: string): Promise<void> {
+    if (!stores.has(projectId)) await loadProject(projectId);
+  },
+
+  retryLoad(projectId: string): Promise<void> {
+    stores.delete(projectId);
+    return loadProject(projectId).then(() => undefined);
+  },
+
+  downloadRecovery(projectId: string): void {
+    const store = stores.get(projectId);
+    if (!store) return;
+    const blob = new Blob([JSON.stringify(getSnapshot(store).document, null, 2)], { type: "application/json" });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = `${projectId}-recovery.json`;
+    anchor.click();
+    URL.revokeObjectURL(href);
   },
 
   /**
    * Hot-switch the bound project (PRD §3.4). `CanvasPane` remounts
-   * `<CanvasIsland>` by changing its `key`/`persistenceKey`; this drops the old
+   * `<CanvasIsland>` by changing its `key`/backend-loaded store; this drops the old
    * editor handle so background applies queue until the new editor mounts. A
    * switch to the already-active project is a no-op (keeps the live editor).
    */
   switchTo(projectId: string): void {
     if (projectId === activeId) return;
+    void saveQueued();
     activeId = projectId;
     editor = null;
+    queuedDocument = null;
+    const store = stores.get(projectId);
+    useCanvasStore.setState({ activeStore: store ?? null, loadState: store ? "ready" : "loading", unsaved: false });
+    if (!store) void loadProject(projectId);
   },
 
   /**
@@ -197,15 +464,21 @@ export const canvas = {
    */
   applyIdeas(projectId: string, ideas: Idea[]): void {
     if (ideas.length === 0) return;
-    if (editor && projectId === activeId) {
-      islandApplyIdeas(editor, ideas);
-      bumpIdeasTick();
-      scheduleBoardSnapshot();
-    } else {
-      const q = pending.get(projectId) ?? [];
-      q.push(...ideas);
-      pending.set(projectId, q);
-    }
+    void (async () => {
+      const missing = ideas.filter((idea) => !idea.id).length;
+      const refs = missing ? await reserveCanonicalRefs(projectId, missing) : [];
+      let index = 0;
+      const canonical = ideas.map((idea) => (idea.id ? idea : { ...idea, id: refs[index++] }));
+      if (editor && projectId === activeId) {
+        islandApplyIdeas(editor, canonical);
+        bumpIdeasTick();
+        scheduleBoardSnapshot();
+      } else {
+        const q = pending.get(projectId) ?? [];
+        q.push(...canonical);
+        pending.set(projectId, q);
+      }
+    })();
   },
 
   /**
@@ -382,38 +655,10 @@ export const canvas = {
     return true;
   },
 
-  /**
-   * Wait until tldraw's local IndexedDB persistence for the mounted editor has
-   * flushed. tldraw throttles persists (350ms) and *drops* its pending diff
-   * queue when the editor unmounts, so any flow that writes a board and then
-   * immediately switches projects (the sequential import walk) must flush
-   * first or the writes are silently lost. tldraw doesn't expose a public
-   * flush; this drives the `window.tlsync` handle its local sync client
-   * registers for debugging (tldraw pinned at ^5.1.0).
-   */
+  /** Flush the coalesced backend board write before a switch/export completes. */
   async flushPersistence(): Promise<void> {
-    interface TlSyncClient {
-      isPersisting: boolean;
-      shouldDoFullDBWrite: boolean;
-      diffQueue: unknown[];
-      scheduledPersistTimeout: unknown;
-      persistIfNeeded(): void;
-    }
-    const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      const tlsync = (window as { tlsync?: TlSyncClient }).tlsync;
-      if (!tlsync) return;
-      if (
-        !tlsync.isPersisting &&
-        !tlsync.shouldDoFullDBWrite &&
-        tlsync.diffQueue.length === 0 &&
-        !tlsync.scheduledPersistTimeout
-      ) {
-        return;
-      }
-      tlsync.persistIfNeeded();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+    if (queuedDocument) await saveQueued();
+    if (saveInFlight) await saveInFlight;
   },
 
   /** Full-fidelity tldraw snapshot of every mounted page (names, shapes, assets), or `undefined` if unmounted. */
@@ -445,7 +690,22 @@ export const canvas = {
           // All pages, not just the open one — parity with the persisted path.
           return allIdeaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
         }
-        return readPersistedIdeas(id, title);
+        try {
+          const store = stores.get(id) ?? (await loadProject(id));
+          return store
+            .allRecords()
+            .filter((record) => record.typeName === "shape" && (record as { type?: string }).type === "idea-card")
+            .map((record) => {
+              const shape = record as unknown as {
+                id: string;
+                props: Parameters<typeof toSearchableIdea>[3];
+                meta: IdeaCardMeta;
+              };
+              return toSearchableIdea(id, title, shape.id, shape.props, shape.meta ?? {});
+            });
+        } catch {
+          return [];
+        }
       })
     );
     return results.flat();
@@ -498,13 +758,9 @@ export const canvas = {
   /** Tear down a deleted project's canvas state and its persisted store. */
   removeProject(projectId: string): void {
     pending.delete(projectId);
-    // tldraw's local sync names the IndexedDB database
-    // `TLDRAW_DOCUMENT_v2<persistenceKey>` (LocalIndexedDb, pinned to tldraw 5.x);
-    // deleting it discards the board for good. Best-effort: never block deletion.
-    try {
-      indexedDB.deleteDatabase(`TLDRAW_DOCUMENT_v2ai-storm:ws:${projectId}`);
-    } catch {
-      /* ignore */
-    }
+    stores.delete(projectId);
+    refPools.delete(projectId);
+    revisions.delete(projectId);
+    localStorage.removeItem(sessionKey(projectId));
   }
 };

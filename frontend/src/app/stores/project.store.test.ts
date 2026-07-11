@@ -29,6 +29,34 @@ class LocalStorageStub {
   }
 }
 
+let registry = { projects: [] as Array<Record<string, any>>, folders: [] as Array<Record<string, any>>, revision: 0 };
+
+async function stateRequest(operation: string, options: { projectId?: string; payload?: Record<string, any> } = {}) {
+  const payload = options.payload ?? {};
+  if (operation === "registry-load") return structuredClone(registry);
+  if (operation === "registry-create-project") {
+    const project = payload.project;
+    registry.projects.push({ ...project, updatedAt: project.createdAt });
+  } else if (operation === "registry-patch-project") {
+    const index = registry.projects.findIndex((item) => item.id === options.projectId);
+    if (index >= 0) registry.projects[index] = { ...registry.projects[index], ...payload.patch, updatedAt: Date.now() };
+  } else if (operation === "registry-delete-project") {
+    registry.projects = registry.projects.filter((item) => item.id !== options.projectId);
+  } else if (operation === "registry-create-folder") {
+    registry.folders.push(payload.folder);
+  } else if (operation === "registry-patch-folder") {
+    const index = registry.folders.findIndex((item) => item.id === payload.folderId);
+    if (index >= 0) registry.folders[index] = { ...registry.folders[index], ...payload.patch };
+  } else if (operation === "registry-delete-folder") {
+    registry.folders = registry.folders.filter((item) => item.id !== payload.folderId);
+    registry.projects = registry.projects.map((item) =>
+      item.folderId === payload.folderId ? { ...item, folderId: undefined } : item
+    );
+  }
+  registry.revision++;
+  return structuredClone(registry);
+}
+
 async function bootStore() {
   vi.resetModules();
   // A canvas controller double exposing only the seam the registry drives.
@@ -45,6 +73,7 @@ async function bootStore() {
     flushPersistence: vi.fn(async () => {})
   };
   vi.doMock("./canvas.store", () => ({ canvas: canvasMock }));
+  vi.doMock("./backend.store", () => ({ backend: { request: vi.fn(stateRequest) } }));
   const mod = await import("./project.store");
   await mod.project.boot();
   return { ...mod, canvasMock };
@@ -52,9 +81,10 @@ async function bootStore() {
 
 describe("project store — registry lifecycle", () => {
   beforeEach(() => {
-    // Fresh IDB + active-pointer store so each boot starts from a clean slate.
+    // Fresh backend authority + active pointer for each test.
     (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
+    registry = { projects: [], folders: [], revision: 0 };
   });
 
   it("stands up a starter project on first boot and marks it active", async () => {
@@ -98,6 +128,7 @@ describe("project store — folders (#128)", () => {
   beforeEach(() => {
     (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
+    registry = { projects: [], folders: [], revision: 0 };
   });
 
   it("createFolder() adds a folder and renameFolder() updates its title", async () => {

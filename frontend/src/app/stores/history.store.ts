@@ -1,6 +1,4 @@
 import { create } from "zustand";
-import * as Y from "yjs";
-import { IndexeddbPersistence } from "y-indexeddb";
 import {
   entriesOverCap,
   historyPreview,
@@ -10,101 +8,112 @@ import {
   type RunHistoryType
 } from "../core/run-history";
 import type { AgentArtifact, SpecFormat } from "@ai-storm/shared";
-
-const HISTORY_ROOM = "ai-storm-run-history";
-
-/**
- * Per-project run history for convergence operations (#104): spec/PRD
- * hand-offs, synthesis snapshots, and triage metadata.
- *
- * Persistence mirrors the project registry (PRD §3.5): a dedicated CRDT Y.Doc
- * backed by its own IndexedDB store, so every write lands immediately and
- * survives crashes/reloads — history stays local-first, no backend involved.
- * Entries live in a Y.Map keyed by entry id; the reactive surface is a small
- * Zustand store holding the newest-first list the HistoryPanel renders.
- *
- * Recording points:
- *  - `agent.generateSpec` records a running spec entry and finishes it from
- *    the run's exit/error (agent.store).
- *  - `agent.triage` records a metadata entry; each extracted score bumps it
- *    via {@link history.noteTriageScore} (ingestion.store).
- *  - The Summarize action snapshots its markdown via
- *    {@link history.recordSynthesis} (CanvasPane).
- */
+import { backend } from "./backend.store";
 
 interface HistoryState {
-  /** All entries across projects, newest first. */
   entries: RunHistoryEntry[];
+}
+interface HistoryWire {
+  revision: number;
+  runs: RunHistoryEntry[];
 }
 
 export const useHistoryStore = create<HistoryState>(() => ({ entries: [] }));
 
-/** Derived: one project's entries (input list is already newest-first). */
 export function projectHistory(entries: readonly RunHistoryEntry[], projectId: string): RunHistoryEntry[] {
-  return entries.filter((e) => e.projectId === projectId);
+  return entries.filter((entry) => entry.projectId === projectId);
 }
 
-// ---- Imperative CRDT singletons (outside React) ----------------------------
-
-const historyDoc = new Y.Doc();
-const map = historyDoc.getMap<RunHistoryEntry>("runs");
-let persistence: IndexeddbPersistence | undefined;
 let booted = false;
-
-function syncFromMap(): void {
-  const list: RunHistoryEntry[] = [];
-  map.forEach((entry) => list.push(entry));
-  list.sort((a, b) => b.createdAt - a.createdAt);
-  useHistoryStore.setState({ entries: list });
+interface PendingMutation {
+  operation: "history-append" | "history-update" | "history-delete" | "history-clear";
+  projectId: string;
+  payload?: Record<string, unknown>;
+  key: string;
+}
+const pendingMutations = new Map<string, PendingMutation>();
+function replaceProject(projectId: string, wire: HistoryWire): void {
+  useHistoryStore.setState((state) => ({
+    entries: [...state.entries.filter((entry) => entry.projectId !== projectId), ...wire.runs].sort(
+      (a, b) => b.createdAt - a.createdAt
+    )
+  }));
+}
+function optimistic(entry: RunHistoryEntry): void {
+  useHistoryStore.setState((state) => ({
+    entries: [entry, ...state.entries.filter((item) => item.id !== entry.id)].sort((a, b) => b.createdAt - a.createdAt)
+  }));
+}
+function find(id: string): RunHistoryEntry | undefined {
+  return useHistoryStore.getState().entries.find((entry) => entry.id === id);
+}
+function request<T>(...args: Parameters<typeof backend.request>): Promise<T> {
+  const method = (backend as Partial<typeof backend>).request;
+  if (!method) {
+    const projectId = (args[1] as { projectId?: string } | undefined)?.projectId;
+    return Promise.resolve({
+      revision: 0,
+      runs: useHistoryStore.getState().entries.filter((entry) => entry.projectId === projectId)
+    } as T);
+  }
+  return method.call(backend, ...args) as Promise<T>;
+}
+function mutate(command: PendingMutation): void {
+  void request<HistoryWire>(command.operation, { projectId: command.projectId, payload: command.payload })
+    .then((wire) => {
+      pendingMutations.delete(command.key);
+      replaceProject(command.projectId, wire);
+    })
+    .catch(() => pendingMutations.set(command.key, command));
 }
 
-// Observe at module scope (not in boot) so writes reflect into the reactive
-// state even before persistence attaches — record points fire only after app
-// boot in practice, but tests exercise the store without IndexedDB.
-map.observe(() => syncFromMap());
-
-function write(entry: RunHistoryEntry): void {
-  map.set(entry.id, { ...entry });
+async function flushPending(): Promise<void> {
+  for (const command of [...pendingMutations.values()]) {
+    try {
+      const wire = await request<HistoryWire>(command.operation, {
+        projectId: command.projectId,
+        payload: command.payload
+      });
+      pendingMutations.delete(command.key);
+      replaceProject(command.projectId, wire);
+    } catch {
+      return;
+    }
+  }
 }
+(backend as Partial<typeof backend>).onOpen?.(() => void flushPending());
 
 function patchEntry(id: string, patch: Partial<RunHistoryEntry>): void {
-  const cur = map.get(id);
-  if (!cur) return;
-  const next: RunHistoryEntry = { ...cur, ...patch };
+  const current = find(id);
+  if (!current) return;
+  const next = { ...current, ...patch };
   if (patch.output !== undefined) next.preview = historyPreview(patch.output);
   if (patch.status && patch.status !== "running" && next.finishedAt === undefined) next.finishedAt = Date.now();
-  write(next);
+  optimistic(next);
+  mutate({
+    operation: "history-update",
+    projectId: next.projectId,
+    payload: { entryId: id, patch },
+    key: `update:${id}`
+  });
 }
 
 export const history = {
-  /**
-   * Attach IndexedDB persistence and rehydrate (called alongside
-   * `project.boot`). Idempotent. Any entry still `running` was orphaned by a
-   * reload — reconcile it so history never shows a dead run as in flight.
-   */
-  async boot(): Promise<void> {
+  async boot(projectIds: readonly string[] = []): Promise<void> {
     if (booted) return;
     booted = true;
-    persistence = new IndexeddbPersistence(HISTORY_ROOM, historyDoc);
-    await new Promise<void>((resolve) => {
-      persistence!.once("synced", () => resolve());
-    });
-    historyDoc.transact(() => {
-      map.forEach((entry) => {
-        const fixed = reconcileStale(entry);
-        if (fixed) write(fixed);
-      });
-    });
-    syncFromMap();
+    const wires = await Promise.all(
+      projectIds.map(
+        async (projectId) => [projectId, await request<HistoryWire>("history-load", { projectId })] as const
+      )
+    );
+    for (const [projectId, wire] of wires) replaceProject(projectId, wire);
+    for (const entry of [...useHistoryStore.getState().entries]) {
+      const fixed = reconcileStale(entry);
+      if (fixed) patchEntry(entry.id, fixed);
+    }
   },
 
-  /**
-   * Record a new run entry, enforcing the per-project retention cap in the
-   * same transaction. Terminal-status entries (a synthesis snapshot is done
-   * the moment it's taken) get `finishedAt` stamped immediately.
-   *
-   * @returns the new entry's id, for later {@link update}/{@link finish} calls.
-   */
   record(input: {
     projectId: string;
     type: RunHistoryType;
@@ -130,24 +139,18 @@ export const history = {
       cardCount: input.cardCount,
       scoredCount: input.type === "triage" ? 0 : undefined
     };
-    historyDoc.transact(() => {
-      write(entry);
-      const siblings: RunHistoryEntry[] = [];
-      map.forEach((e) => {
-        if (e.projectId === input.projectId) siblings.push(e);
-      });
-      for (const stale of entriesOverCap(siblings)) map.delete(stale);
-    });
+    optimistic(entry);
+    for (const stale of entriesOverCap(projectHistory(useHistoryStore.getState().entries, input.projectId))) {
+      useHistoryStore.setState((state) => ({ entries: state.entries.filter((item) => item.id !== stale) }));
+    }
+    mutate({ operation: "history-append", projectId: input.projectId, payload: { entry }, key: `append:${id}` });
     return id;
   },
 
-  /**
-   * Snapshot a synthesis run (#28 → #104). Consecutive identical snapshots
-   * are collapsed — reopening the summary panel over an unchanged board
-   * refreshes the latest entry's timestamp instead of duplicating it.
-   */
   recordSynthesis(projectId: string, output: string, cardCount: number): string {
-    const latest = useHistoryStore.getState().entries.find((e) => e.projectId === projectId && e.type === "synthesis");
+    const latest = useHistoryStore
+      .getState()
+      .entries.find((entry) => entry.projectId === projectId && entry.type === "synthesis");
     if (latest && latest.output === output) {
       const now = Date.now();
       patchEntry(latest.id, { createdAt: now, finishedAt: now, cardCount });
@@ -162,12 +165,10 @@ export const history = {
     });
   },
 
-  /** Patch a live entry (e.g. the backend-echoed spec format, artifacts). */
   update(id: string, patch: Partial<Pick<RunHistoryEntry, "format" | "artifacts" | "cardCount">>): void {
     patchEntry(id, patch);
   },
 
-  /** Finish a run: terminal status, final output, exit code; `finishedAt` stamped. */
   finish(
     id: string,
     result: {
@@ -180,34 +181,30 @@ export const history = {
     patchEntry(id, result);
   },
 
-  /**
-   * A triage score landed (#60 → #104): bump the project's most recent
-   * in-flight triage entry; once every dispatched card is scored, the run
-   * is done.
-   */
   noteTriageScore(projectId: string): void {
     const entry = useHistoryStore
       .getState()
-      .entries.find((e) => e.projectId === projectId && e.type === "triage" && e.status === "running");
+      .entries.find((item) => item.projectId === projectId && item.type === "triage" && item.status === "running");
     if (!entry) return;
     const scoredCount = (entry.scoredCount ?? 0) + 1;
     const complete = entry.cardCount !== undefined && scoredCount >= entry.cardCount;
     patchEntry(entry.id, complete ? { scoredCount, status: "done" } : { scoredCount });
   },
 
-  /** Delete a single entry (the HistoryPanel's per-row delete). */
   remove(id: string): void {
-    map.delete(id);
+    const entry = find(id);
+    if (!entry) return;
+    useHistoryStore.setState((state) => ({ entries: state.entries.filter((item) => item.id !== id) }));
+    mutate({
+      operation: "history-delete",
+      projectId: entry.projectId,
+      payload: { entryId: id },
+      key: `delete:${id}`
+    });
   },
 
-  /** Drop every entry for a project — panel "Clear history" and project deletion. */
   removeProject(projectId: string): void {
-    historyDoc.transact(() => {
-      const doomed: string[] = [];
-      map.forEach((e, key) => {
-        if (e.projectId === projectId) doomed.push(key);
-      });
-      for (const key of doomed) map.delete(key);
-    });
+    useHistoryStore.setState((state) => ({ entries: state.entries.filter((entry) => entry.projectId !== projectId) }));
+    mutate({ operation: "history-clear", projectId, key: `clear:${projectId}` });
   }
 };

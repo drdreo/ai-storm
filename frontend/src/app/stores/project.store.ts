@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import * as Y from "yjs";
-import { IndexeddbPersistence } from "y-indexeddb";
+import { backend } from "./backend.store";
 import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
@@ -16,21 +15,14 @@ import {
 } from "../core/project-portable";
 import { withSpan } from "../../lib/log";
 
-const REGISTRY_ROOM = "ai-storm-registry";
 const ACTIVE_KEY = "ai-storm.activeProject";
 
 /**
  * Multi-project registry & lifecycle (PRD §3.4, §3.5).
  *
- * Project metadata is stored in a dedicated CRDT Y.Doc persisted to its own
- * IndexedDB store, so every change (title, status) is written immediately and
- * survives crashes. The canvas content for each project is owned by the
- * {@link canvas} controller (a tldraw store per project). On boot we
- * rehydrate both layers and restore the most recently active project exactly
- * as it was left.
- *
- * This is a 1:1 port of the Angular `ProjectService`: signals → Zustand state,
- * the Y.Doc/persistence are imperative module singletons.
+ * Durable metadata is loaded and mutated through the backend state protocol.
+ * Zustand holds the optimistic UI projection; only the active-project pointer
+ * and folder-collapse preferences remain browser-local.
  */
 
 interface ProjectState {
@@ -52,99 +44,120 @@ export function selectActive(s: ProjectState): ProjectMeta | null {
   return s.activeId ? (s.projects.find((w) => w.id === s.activeId) ?? null) : null;
 }
 
-// ---- Imperative CRDT singletons (outside React) ----------------------------
-
-const registryDoc = new Y.Doc();
-let registryPersistence: IndexeddbPersistence;
-let map: Y.Map<ProjectMeta>;
-let folderMap: Y.Map<Folder>;
-
-function syncFromMap(): void {
-  const list: ProjectMeta[] = [];
-  map.forEach((meta) => list.push(meta));
-  list.sort(compareByOrder);
-  const folders: Folder[] = [];
-  folderMap.forEach((f) => folders.push(f));
-  folders.sort(compareByOrder);
-  useProjectStore.setState({ projects: list, folders });
+interface RegistryWire {
+  projects: Array<{
+    id: string;
+    title: string;
+    color?: string;
+    folderId?: string;
+    order?: string;
+    terminal: ProjectMeta["terminal"];
+    createdAt: number;
+    updatedAt: number;
+  }>;
+  folders: Array<{ id: string; title: string; createdAt: number; order?: string }>;
 }
 
-/**
- * Self-heal registries persisted before explicit ordering existed (#128 DnD):
- * if any item lacks an `order` key, re-key the whole collection in its current
- * sorted order so every later insertion can assume keyed neighbors. Runs once
- * at boot; after that all writes carry keys.
- */
-function backfillOrders(): void {
-  const { projects, folders } = useProjectStore.getState();
-  registryDoc.transact(() => {
-    if (!projects.every((w) => w.order)) {
-      const keyed: ProjectMeta[] = [];
-      for (const ws of projects) {
-        const next = { ...ws, order: orderAfterAll(keyed) };
-        write(next);
-        keyed.push(next);
-      }
-    }
-    if (!folders.every((f) => f.order)) {
-      const keyed: Folder[] = [];
-      for (const f of folders) {
-        const next = { ...f, order: orderAfterAll(keyed) };
-        writeFolder(next);
-        keyed.push(next);
-      }
-    }
-  });
-}
+const folderCollapsed = new Map<string, boolean>();
+const collapsedKey = (id: string) => `ai-storm:ui:folder:${id}:collapsed`;
 
-function write(meta: ProjectMeta): void {
-  // Structured-clone a plain object into the CRDT map (writes immediately).
-  map.set(meta.id, { ...meta, terminal: { ...meta.terminal } });
+function applyRegistry(registry: RegistryWire): void {
+  const statuses = new Map(useProjectStore.getState().projects.map((item) => [item.id, item.status]));
+  const projects: ProjectMeta[] = registry.projects
+    .map((item) => ({ ...item, status: statuses.get(item.id) ?? "idle", lastActiveAt: item.updatedAt }))
+    .sort(compareByOrder);
+  const folders: Folder[] = registry.folders
+    .map((item) => ({
+      ...item,
+      collapsed: folderCollapsed.get(item.id) ?? localStorage.getItem(collapsedKey(item.id)) === "1"
+    }))
+    .sort(compareByOrder);
+  useProjectStore.setState({ projects, folders });
 }
-
-function writeFolder(folder: Folder): void {
-  folderMap.set(folder.id, { ...folder });
+function getMeta(id: string): ProjectMeta | undefined {
+  return useProjectStore.getState().projects.find((item) => item.id === id);
+}
+function getFolder(id: string): Folder | undefined {
+  return useProjectStore.getState().folders.find((item) => item.id === id);
+}
+function optimisticProject(meta: ProjectMeta): void {
+  const projects = useProjectStore.getState().projects.filter((item) => item.id !== meta.id);
+  useProjectStore.setState({ projects: [...projects, meta].sort(compareByOrder) });
+}
+function optimisticFolder(folder: Folder): void {
+  const folders = useProjectStore.getState().folders.filter((item) => item.id !== folder.id);
+  useProjectStore.setState({ folders: [...folders, folder].sort(compareByOrder) });
+}
+async function reloadRegistry(): Promise<void> {
+  applyRegistry(await backend.request<RegistryWire>("registry-load"));
+}
+function durableProject(meta: ProjectMeta): Record<string, unknown> {
+  return {
+    title: meta.title,
+    color: meta.color,
+    folderId: meta.folderId,
+    order: meta.order,
+    terminal: { ...meta.terminal }
+  };
+}
+function patchProject(meta: ProjectMeta): void {
+  optimisticProject(meta);
+  void backend
+    .request<RegistryWire>("registry-patch-project", {
+      projectId: meta.id,
+      payload: { patch: durableProject(meta) }
+    })
+    .then(applyRegistry)
+    .catch(() => {
+      void reloadRegistry().catch(() => undefined);
+    });
+}
+function patchFolder(folder: Folder): void {
+  optimisticFolder(folder);
+  void backend
+    .request<RegistryWire>("registry-patch-folder", {
+      payload: { folderId: folder.id, patch: { title: folder.title, order: folder.order } }
+    })
+    .then(applyRegistry)
+    .catch(() => {
+      void reloadRegistry().catch(() => undefined);
+    });
 }
 
 export const project = {
-  /** Boot sequence (PRD §3.5): rehydrate CRDT stores, restore last project. */
+  /** Boot only from the backend authority. No IndexedDB fallback is attempted. */
   async boot(): Promise<void> {
     if (useProjectStore.getState().booted) return;
     await withSpan("project.boot", {}, async () => {
       await canvas.init();
-
-      map = registryDoc.getMap<ProjectMeta>("projects");
-      folderMap = registryDoc.getMap<Folder>("folders");
-      registryPersistence = new IndexeddbPersistence(REGISTRY_ROOM, registryDoc);
-      await new Promise<void>((resolve) => {
-        registryPersistence.once("synced", () => resolve());
-      });
-
-      // Keep state in sync with the CRDT registry (immediate writes §3.5).
-      map.observe(() => syncFromMap());
-      folderMap.observe(() => syncFromMap());
-      syncFromMap();
-      backfillOrders();
-
-      const projects = useProjectStore.getState().projects;
+      await reloadRegistry();
+      let projects = useProjectStore.getState().projects;
       if (projects.length === 0) {
-        // First run — stand up a starter project.
-        const id = project.create("Untitled Project");
-        project.setActive(id);
-      } else {
-        // Restore the most recently active project.
-        const stored = localStorage.getItem(ACTIVE_KEY);
-        const exists = stored && projects.some((w) => w.id === stored);
-        const fallback = [...projects].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
-        project.setActive(exists ? stored! : fallback.id);
+        const id = `ws_${crypto.randomUUID()}`;
+        const now = Date.now();
+        const meta: ProjectMeta = {
+          id,
+          title: "Untitled Project",
+          status: "idle",
+          createdAt: now,
+          lastActiveAt: now,
+          terminal: defaultTerminalConfig(),
+          color: defaultProjectColor(id),
+          order: orderAfterAll([])
+        };
+        applyRegistry(
+          await backend.request<RegistryWire>("registry-create-project", {
+            payload: { project: { id, ...durableProject(meta), createdAt: now } }
+          })
+        );
+        projects = useProjectStore.getState().projects;
       }
-
-      // Let the canvas settle before rendering the panes (PRD §3.5 boot). tldraw
-      // loads the active project's store on mount, so this is a cheap no-op kept
-      // for parity / future async restore.
-      const active = useProjectStore.getState().activeId;
-      if (active) await canvas.ensureReady(active);
-
+      const stored = localStorage.getItem(ACTIVE_KEY);
+      const active = stored && projects.some((item) => item.id === stored) ? stored : projects[0]?.id;
+      if (active) {
+        project.setActive(active);
+        await canvas.ensureReady(active);
+      }
       useProjectStore.setState({ booted: true });
     });
   },
@@ -163,24 +176,31 @@ export const project = {
       color: defaultProjectColor(id),
       order: orderAfterAll(ungrouped)
     };
-    write(meta);
+    optimisticProject(meta);
+    void backend
+      .request<RegistryWire>("registry-create-project", {
+        payload: { project: { id, ...durableProject(meta), createdAt: now } }
+      })
+      .then(applyRegistry)
+      .catch(() => {
+        void reloadRegistry().catch(() => undefined);
+      });
     return id;
   },
 
   rename(id: string, title: string): void {
-    const meta = map.get(id);
-    if (!meta) return;
-    write({ ...meta, title });
+    const meta = getMeta(id);
+    if (meta) patchProject({ ...meta, title });
   },
 
   setStatus(id: string, status: ProjectStatus): void {
-    const meta = map.get(id);
-    if (meta && meta.status !== status) write({ ...meta, status });
+    const meta = getMeta(id);
+    if (meta && meta.status !== status) optimisticProject({ ...meta, status });
   },
 
   setColor(id: string, color: string): void {
-    const meta = map.get(id);
-    if (meta && meta.color !== color) write({ ...meta, color });
+    const meta = getMeta(id);
+    if (meta && meta.color !== color) patchProject({ ...meta, color });
   },
 
   // ---- Folders (#128) ------------------------------------------------------
@@ -189,18 +209,29 @@ export const project = {
   createFolder(title: string): string {
     const id = `fld_${crypto.randomUUID()}`;
     const folders = useProjectStore.getState().folders;
-    writeFolder({ id, title, createdAt: Date.now(), order: orderAfterAll(folders) });
+    const folder = { id, title, createdAt: Date.now(), order: orderAfterAll(folders) };
+    optimisticFolder(folder);
+    void backend
+      .request<RegistryWire>("registry-create-folder", { payload: { folder } })
+      .then(applyRegistry)
+      .catch(() => {
+        void reloadRegistry().catch(() => undefined);
+      });
     return id;
   },
 
   renameFolder(id: string, title: string): void {
-    const folder = folderMap.get(id);
-    if (folder) writeFolder({ ...folder, title });
+    const folder = getFolder(id);
+    if (folder) patchFolder({ ...folder, title });
   },
 
   setFolderCollapsed(id: string, collapsed: boolean): void {
-    const folder = folderMap.get(id);
-    if (folder && !!folder.collapsed !== collapsed) writeFolder({ ...folder, collapsed });
+    const folder = getFolder(id);
+    if (folder && !!folder.collapsed !== collapsed) {
+      folderCollapsed.set(id, collapsed);
+      localStorage.setItem(collapsedKey(id), collapsed ? "1" : "0");
+      optimisticFolder({ ...folder, collapsed });
+    }
   },
 
   /**
@@ -208,12 +239,19 @@ export const project = {
    * deleted — they fall back to the sidebar's top level (folderId cleared).
    */
   removeFolder(id: string): void {
-    registryDoc.transact(() => {
-      map.forEach((meta) => {
-        if (meta.folderId === id) write({ ...meta, folderId: undefined });
-      });
-      folderMap.delete(id);
+    const state = useProjectStore.getState();
+    folderCollapsed.delete(id);
+    localStorage.removeItem(collapsedKey(id));
+    useProjectStore.setState({
+      projects: state.projects.map((meta) => (meta.folderId === id ? { ...meta, folderId: undefined } : meta)),
+      folders: state.folders.filter((folder) => folder.id !== id)
     });
+    void backend
+      .request<RegistryWire>("registry-delete-folder", { payload: { folderId: id } })
+      .then(applyRegistry)
+      .catch(() => {
+        void reloadRegistry().catch(() => undefined);
+      });
   },
 
   /**
@@ -221,44 +259,44 @@ export const project = {
    * null, appending it after its new siblings (the "Move to folder" menu path).
    */
   moveToFolder(projectId: string, folderId: string | null): void {
-    const meta = map.get(projectId);
+    const meta = getMeta(projectId);
     if (!meta) return;
     const next = folderId ?? undefined;
     if (meta.folderId === next) return;
     const siblings = useProjectStore
       .getState()
       .projects.filter((w) => (w.folderId ?? undefined) === next && w.id !== projectId);
-    write({ ...meta, folderId: next, order: orderAfterAll(siblings) });
+    patchProject({ ...meta, folderId: next, order: orderAfterAll(siblings) });
   },
 
   /**
    * Drop a project at an explicit position (#128 DnD): re-parents to
    * `folderId` (null → top level) and sets the fractional sort key in a single
-   * write, so a cross-container drag is one CRDT update.
+   * write, so a cross-container drag is one granular backend update.
    */
   moveProject(projectId: string, folderId: string | null, order: string): void {
-    const meta = map.get(projectId);
+    const meta = getMeta(projectId);
     if (!meta) return;
-    write({ ...meta, folderId: folderId ?? undefined, order });
+    patchProject({ ...meta, folderId: folderId ?? undefined, order });
   },
 
   /** Drop a folder at an explicit position among folders (#128 DnD). */
   reorderFolder(folderId: string, order: string): void {
-    const folder = folderMap.get(folderId);
-    if (folder) writeFolder({ ...folder, order });
+    const folder = getFolder(folderId);
+    if (folder) patchFolder({ ...folder, order });
   },
 
   patchTerminal(id: string, patch: Partial<ProjectMeta["terminal"]>): void {
-    const meta = map.get(id);
-    if (meta) write({ ...meta, terminal: { ...meta.terminal, ...patch } });
+    const meta = getMeta(id);
+    if (meta) patchProject({ ...meta, terminal: { ...meta.terminal, ...patch } });
   },
 
   setActive(id: string): void {
     if (useProjectStore.getState().activeId === id) return;
     useProjectStore.setState({ activeId: id });
     localStorage.setItem(ACTIVE_KEY, id);
-    const meta = map.get(id);
-    if (meta) write({ ...meta, lastActiveAt: Date.now() });
+    const meta = getMeta(id);
+    if (meta) optimisticProject({ ...meta, lastActiveAt: Date.now() });
   },
 
   async remove(id: string): Promise<void> {
@@ -267,7 +305,7 @@ export const project = {
     if (wasActive && !target) {
       // Deleting the last project — stand up a replacement to switch onto.
       const fresh = project.create("Untitled Project");
-      target = map.get(fresh) ?? null;
+      target = getMeta(fresh) ?? null;
     }
 
     // When deleting the ACTIVE project, switch the canvas onto the target
@@ -278,9 +316,10 @@ export const project = {
       canvas.switchTo(target.id);
     }
 
-    map.delete(id);
-    canvas.removeProject(id);
+    useProjectStore.setState((state) => ({ projects: state.projects.filter((item) => item.id !== id) }));
     history.removeProject(id);
+    await backend.request<RegistryWire>("registry-delete-project", { projectId: id }).then(applyRegistry);
+    canvas.removeProject(id);
   },
 
   /**
@@ -289,7 +328,7 @@ export const project = {
    * click opens/activates that project, same as clicking its sidebar row).
    */
   async exportBundle(id: string): Promise<ProjectExportBundle | null> {
-    const meta = map.get(id);
+    const meta = getMeta(id);
     if (!meta) return null;
     if (useProjectStore.getState().activeId !== id) {
       project.setActive(id);
@@ -340,7 +379,7 @@ export const project = {
    * longer exists (e.g. the card was deleted since the index was gathered).
    */
   async revealIdea(projectId: string, shapeId: string): Promise<boolean> {
-    if (!map.get(projectId)) return false;
+    if (!getMeta(projectId)) return false;
     if (useProjectStore.getState().activeId !== projectId) {
       project.setActive(projectId);
       canvas.switchTo(projectId);
@@ -358,8 +397,8 @@ export const project = {
   async importProjects(entries: ExportedProject[]): Promise<void> {
     for (const entry of entries) {
       const id = project.create(entry.title);
-      const meta = map.get(id)!;
-      write({
+      const meta = getMeta(id)!;
+      patchProject({
         ...meta,
         color: entry.color ?? meta.color,
         terminal: { ...meta.terminal, ...entry.terminal }

@@ -135,7 +135,7 @@ export function Sidebar() {
     }
   };
 
-  // Deleting a project drops its canvas + IndexedDB store for good, so the
+  // Deleting a project drops its backend canvas/history files for good, so the
   // kebab only *requests* deletion (opens a themed confirm dialog, audit H5);
   // the irreversible work runs on explicit confirm, never on window.confirm.
   const confirmDelete = () => {

@@ -6,15 +6,7 @@
 import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
 import type { Idea, IdeaRelation } from "@ai-storm/shared";
 import { normalizeKind, kindColor } from "../idea-descriptors";
-import {
-  CARD_MAX_W,
-  CARD_W,
-  ideaCardSizeForContent,
-  ideaCards,
-  maxRefIndex,
-  resolveRef,
-  type IdeaCardShape
-} from "./idea-card";
+import { CARD_MAX_W, CARD_W, ideaCardSizeForContent, ideaCards, resolveRef, type IdeaCardShape } from "./idea-card";
 
 const GRID_X = 120;
 const GRID_Y = 140;
@@ -70,9 +62,6 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
   const refToShape = new Map<string, TLShapeId>();
   const childOffset = new Map<TLShapeId, number>();
   const toGhost = new Set<TLShapeId>();
-  // Seed the ref counter from the persisted shapes (not an in-memory count) so
-  // minted refs never collide across sessions (idea-graph §4).
-  let nextRef = maxRefIndex(editor) + 1;
   const cards = ideaCards(editor);
   const gridColY = Array.from({ length: GRID_COLS }, () => GRID_Y);
   for (const card of cards) {
@@ -120,13 +109,14 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
       // duplicate would make the ref ambiguous, so remint a fresh canvas ref
       // instead: the old card keeps its identity, and the new card still lands
       // (its stale backend ref was already wrong either way).
-      let ref = idea.id ?? `a${nextRef++}`;
-      if (idea.id && (refToShape.has(idea.id) || resolveRef(editor, idea.id))) {
-        ref = `a${nextRef++}`;
-        console.warn(
-          `[ai-storm] capture ref collision: backend-stamped @${idea.id} already exists on the board; ` +
-            `reminted incoming card "${idea.title}" as @${ref} (#210)`
-        );
+      const ref = idea.id;
+      if (!ref) {
+        console.error(`[ai-storm] refused to create "${idea.title}" without a backend-reserved ref`);
+        continue;
+      }
+      if (refToShape.has(ref) || resolveRef(editor, ref)) {
+        console.error(`[ai-storm] refused duplicate backend ref @${ref} for "${idea.title}"`);
+        continue;
       }
       const id = createShapeId();
       editor.createShape<IdeaCardShape>({

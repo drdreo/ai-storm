@@ -50,18 +50,14 @@ export function cardsInOrder(editor: Editor): IdeaCardShape[] {
 }
 
 /**
- * The stable short ref of a card (idea-graph §4), minting one (`a1`, `a2`, …) on
- * first reference. `applyIdeas` mints refs for AI cards as they are created;
- * this is the lazy path for a user-drawn card the first time an edge names it.
+ * The stable backend-reserved short ref of a card (idea-graph §4). Cards are
+ * assigned canonical `iN` refs before creation; a missing ref is a failed or
+ * legacy record and is never repaired with a browser-local namespace.
  */
 export function cardRef(editor: Editor, shapeId: TLShapeId): string | undefined {
   const shape = editor.getShape(shapeId);
   if (!shape || shape.type !== "idea-card") return undefined;
-  const existing = (shape.meta as IdeaCardMeta).ref;
-  if (existing) return existing;
-  const ref = `a${maxRefIndex(editor) + 1}`;
-  editor.updateShape({ id: shapeId, type: "idea-card", meta: { ...shape.meta, ref } });
-  return ref;
+  return (shape.meta as IdeaCardMeta).ref;
 }
 
 /** Resolve a short ref back to its shape id (idea-graph §4), or undefined. */

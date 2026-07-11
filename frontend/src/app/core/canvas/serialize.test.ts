@@ -12,7 +12,7 @@ describe("serializeSelectedIdeas", () => {
     expect(serializeSelectedIdeasJson(e.asEditor())).toBeNull();
   });
 
-  it("serializes one selected card and mints a missing ref", () => {
+  it("serializes a legacy card without manufacturing a browser-local ref", () => {
     const e = new EditorFake();
     e.addShape(
       ideaCardShape("shape:1", {
@@ -26,7 +26,7 @@ describe("serializeSelectedIdeas", () => {
       version: 1,
       cards: [
         {
-          ref: "a1",
+          ref: null,
           id: "shape:1",
           kind: "feature",
           title: "Copy JSON",
@@ -41,7 +41,7 @@ describe("serializeSelectedIdeas", () => {
       ],
       edges: []
     });
-    expect(e.get("shape:1").meta.ref).toBe("a1");
+    expect(e.get("shape:1").meta.ref).toBeUndefined();
   });
 
   it("serializes selected cards in reading order with marked lifecycle and score metadata", () => {
@@ -136,7 +136,7 @@ describe("serializeBoardIdeasSnapshot", () => {
         x: 20,
         y: 10,
         props: { title: "First", body: "A" },
-        meta: { starred: true, createdAt: 1720000000000 }
+        meta: { ref: "i1", starred: true, createdAt: 1720000000000 }
       })
     );
     e.addArrow(arrowShape("arrow:1", { meta: { relation: "about" } }), "shape:a", "shape:b");
@@ -148,10 +148,10 @@ describe("serializeBoardIdeasSnapshot", () => {
       version: 1,
       pageId: "page:current",
       updatedAt: 1720000001234,
-      selection: { refs: ["a1"], ids: ["shape:a"] },
+      selection: { refs: ["i1"], ids: ["shape:a"] },
       filter: { kind: "risk" }
     });
-    expect(payload.cards.map((card) => card.ref)).toEqual(["a1", "i2"]);
+    expect(payload.cards.map((card) => card.ref)).toEqual(["i1", "i2"]);
     expect(payload.cards[0]).toMatchObject({
       title: "First",
       starred: true,
@@ -167,13 +167,13 @@ describe("serializeBoardIdeasSnapshot", () => {
     });
     expect(payload.edges).toEqual([
       {
-        from: "a1",
+        from: "i1",
         to: "i2",
         fromId: "shape:a",
         toId: "shape:b",
         relation: "about"
       }
     ]);
-    expect(e.get("shape:a").meta.ref).toBe("a1");
+    expect(e.get("shape:a").meta.ref).toBe("i1");
   });
 });

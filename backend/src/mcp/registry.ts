@@ -71,7 +71,7 @@ export interface McpSession {
   attachment: McpAttachment | null;
   boardSnapshot: BoardIdeasSnapshot | null;
   /** Mint the next session-scoped `i<n>` ref (§3.3). */
-  mintRef: () => string;
+  mintRef: () => Promise<string>;
 }
 
 interface Entry {
@@ -115,6 +115,12 @@ export class McpSessionRegistry {
   #baseUrl: string | null = null;
 
   #entries = new Map<string, Entry>();
+  #reserveRef: ((projectId: string) => Promise<string>) | null = null;
+
+  /** Use the canonical filesystem allocator for MCP captures. */
+  configureRefAllocator(reserve: (projectId: string) => Promise<string>): void {
+    this.#reserveRef = reserve;
+  }
 
   /** Hand the registry the server's reachable origin (no trailing slash). */
   configure(baseUrl: string): void {
@@ -189,7 +195,9 @@ export class McpSessionRegistry {
       get boardSnapshot() {
         return entry.boardSnapshot;
       },
-      mintRef: () => {
+      mintRef: async () => {
+        if (this.#reserveRef) return this.#reserveRef(projectId);
+        // Test/legacy fallback when no StateStore has been configured.
         entry.nextRef = skipMintedRefs(entry.nextRef, entry.boardSnapshot);
         return `i${entry.nextRef++}`;
       }

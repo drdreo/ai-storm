@@ -94,6 +94,11 @@ export function CanvasPane() {
   const projects = useProjectStore((s) => s.projects);
   const attached = useIngestionStore((s) => (active ? !!s.attached[active.id] : false));
   useCanvasStore((s) => s.ideasTick);
+  const activeStore = useCanvasStore((s) => s.activeStore);
+  const canvasLoadState = useCanvasStore((s) => s.loadState);
+  const canvasError = useCanvasStore((s) => s.error);
+  const recoveryPath = useCanvasStore((s) => s.recoveryPath);
+  const unsaved = useCanvasStore((s) => s.unsaved);
   // Convergence panel (#28): the summary is regenerated each time it opens — a
   // fresh on-demand reading of the current board, never cached stale.
   const [summary, setSummary] = useState<ConvergentSummary | null>(null);
@@ -149,7 +154,7 @@ export function CanvasPane() {
 
   // Gather the cross-project idea index whenever the palette opens (#124). A
   // stale-guard drops the result if the palette closed before the async read
-  // (persisted-board reads hit IndexedDB) resolved.
+  // (non-active board reads hit the backend store) resolved.
   useEffect(() => {
     if (!paletteOpen) return;
     let live = true;
@@ -329,16 +334,45 @@ export function CanvasPane() {
       )}
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-        {active && (
+        {active && activeStore && canvasLoadState === "ready" && (
           <ErrorBoundary name="Canvas" resetKeys={[active.id]}>
             <CanvasIsland
               key={active.id}
               projectId={active.id}
+              store={activeStore}
               bridge={canvas.bridge}
               emptyStateActions={emptyStateActions}
               sessionAttached={attached}
             />
           </ErrorBoundary>
+        )}
+        {active && canvasLoadState !== "ready" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              {canvasLoadState === "loading" ? "Loading board from backend…" : canvasError}
+            </p>
+            {canvasLoadState === "error" && (
+              <>
+                {recoveryPath && <code className="text-xs text-muted-foreground">{recoveryPath}</code>}
+                <Button onClick={() => void canvas.retryLoad(active.id)}>Retry</Button>
+              </>
+            )}
+          </div>
+        )}
+        {active && canvasLoadState === "ready" && (unsaved || canvasError) && (
+          <div className="absolute bottom-3 right-3 z-50 flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-xs shadow">
+            <span>{canvasError ?? "Changes not yet saved"}</span>
+            {canvasError && (
+              <Button size="sm" variant="outline" onClick={() => void canvas.flushPersistence()}>
+                Retry
+              </Button>
+            )}
+            {canvasError && (
+              <Button size="sm" variant="outline" onClick={() => canvas.downloadRecovery(active.id)}>
+                Recovery JSON
+              </Button>
+            )}
+          </div>
         )}
       </div>
 

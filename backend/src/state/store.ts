@@ -61,12 +61,11 @@ export type BoardWriteResult =
   | { ok: false; conflict: { revision: number; document: unknown | null } };
 
 export class StateFileError extends Error {
-  constructor(
-    message: string,
-    readonly path: string,
-    options?: ErrorOptions
-  ) {
+  readonly path: string;
+
+  constructor(message: string, path: string, options?: ErrorOptions) {
     super(`${message}: ${path}`, options);
+    this.path = path;
     this.name = "StateFileError";
   }
 }
@@ -393,7 +392,11 @@ export class StateStore {
   }
 
   async appendHistoryEntry(projectId: string, entry: Record<string, unknown>): Promise<HistoryDocument> {
-    return this.#mutateHistory(projectId, (entries) => [...entries, entry]);
+    // History files are per-project, so retaining the newest 50 here enforces
+    // the cap for every client (including interrupted/reconnecting browsers).
+    return this.#mutateHistory(projectId, (entries) =>
+      [...entries.filter((existing) => existing.id !== entry.id), entry].slice(-50)
+    );
   }
 
   async updateHistoryEntry(
@@ -412,6 +415,10 @@ export class StateStore {
 
   async deleteHistoryEntry(projectId: string, entryId: string): Promise<HistoryDocument> {
     return this.#mutateHistory(projectId, (runs) => runs.filter((run) => run.id !== entryId));
+  }
+
+  async clearHistory(projectId: string): Promise<HistoryDocument> {
+    return this.#mutateHistory(projectId, () => []);
   }
 
   async #mutateHistory(

@@ -352,7 +352,7 @@ function initializeResult(params: Record<string, unknown> | undefined) {
  * validate → dedupe via the session's shared sink → mint `i<n>` → emit through
  * the same callbacks the scanner feeds → return the ref to the model.
  */
-function handleToolCall(
+async function handleToolCall(
   id: RpcId,
   params: Record<string, unknown> | undefined,
   projectId: string,
@@ -385,7 +385,7 @@ function handleToolCall(
       if (!attachment.ideaSink.offer(idea)) {
         return toolText(id, "Already captured — an identical idea is on the canvas; nothing was added.");
       }
-      const ref = session.mintRef();
+      const ref = await session.mintRef();
       idea.id = ref; // the canvas honours Idea.id as the card's meta.ref (§3.3)
       log.info("idea.captured", {
         project: projectId,
@@ -493,7 +493,7 @@ export function mcpRoutes(registry: McpSessionRegistry): Hono {
 
     const handler = METHOD_HANDLERS[method];
     if (!handler) return c.json(rpcError(id, -32601, `Method not found: ${method}`));
-    return c.json(handler({ id, params, projectId, session }));
+    return c.json(await handler({ id, params, projectId, session }));
   });
 
   return app;
