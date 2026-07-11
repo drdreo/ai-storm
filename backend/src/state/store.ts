@@ -90,8 +90,10 @@ function assertProjectId(projectId: string): void {
 }
 
 async function ensureDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
-  if (process.platform !== "win32") await chmod(path, 0o700);
+  const created = await mkdir(path, { recursive: true, mode: 0o700 });
+  // Enforce owner-only access on directories this store creates, but preserve
+  // permissions on an existing explicit state root (and its existing parents).
+  if (created !== undefined && process.platform !== "win32") await chmod(path, 0o700);
 }
 
 async function syncParent(path: string): Promise<void> {
@@ -179,6 +181,7 @@ export class StateStore {
   readonly root: string;
   readonly registryPath: string;
   readonly projectsPath: string;
+  /** Reserved launcher paths; lifecycle and contents are managed by the CLI daemon. */
   readonly logsPath: string;
   readonly daemonPath: string;
 
@@ -310,6 +313,10 @@ export class StateStore {
         projects: registry.projects.filter((project) => project.id !== projectId)
       });
       // Registry first: a crash may leave an orphan directory, which is safe.
+      // Board writes use a separate per-file queue, so one that already passed
+      // its read can race this rm and recreate that orphan. This is intentional:
+      // the registry remains authoritative and the format explicitly tolerates
+      // orphan project directories.
       await rm(join(this.projectsPath, projectId), { recursive: true, force: true });
       return true;
     });
@@ -377,11 +384,10 @@ export class StateStore {
     return this.#serialized(path, async () => {
       const board = await readBoardFile(path);
       const refs = Array.from({ length: count }, (_, index) => `i${board.nextIdeaRef + index}`);
-      await this.#writeJson(path, {
-        ...board,
-        revision: board.revision + 1,
-        nextIdeaRef: board.nextIdeaRef + count
-      });
+      // Ref allocation changes allocator metadata, not the document snapshot.
+      // Keep the document revision stable so a client holding this revision can
+      // reserve refs, create cards, and save without manufacturing a conflict.
+      await this.#writeJson(path, { ...board, nextIdeaRef: board.nextIdeaRef + count });
       return refs;
     });
   }

@@ -1,8 +1,7 @@
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveStateDir, type StatePlatformEnv } from "@ai-storm/state";
 import { atomicWriteJson, StateFileError, StateStore } from "./store.ts";
 
 const roots: string[] = [];
@@ -19,28 +18,6 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-describe("state root resolution", () => {
-  const linux: StatePlatformEnv = { platform: "linux", env: {}, home: "/home/me" };
-
-  it("prefers only an absolute AI_STORM_STATE_DIR", () => {
-    expect(resolveStateDir({ ...linux, env: { AI_STORM_STATE_DIR: "/var/lib/storm" } })).toBe("/var/lib/storm");
-    expect(resolveStateDir({ ...linux, env: { AI_STORM_STATE_DIR: "relative", XDG_STATE_HOME: "/state" } })).toBe(
-      "/state/ai-storm"
-    );
-  });
-
-  it("uses platform defaults", () => {
-    expect(resolveStateDir(linux)).toBe("/home/me/.local/state/ai-storm");
-    expect(resolveStateDir({ ...linux, env: { XDG_STATE_HOME: "/xdg" } })).toBe("/xdg/ai-storm");
-    expect(resolveStateDir({ platform: "darwin", env: {}, home: "/Users/me" })).toBe(
-      "/Users/me/Library/Application Support/ai-storm"
-    );
-    expect(
-      resolveStateDir({ platform: "win32", env: { LOCALAPPDATA: "C:\\Users\\me\\Local" }, home: "C:\\Users\\me" })
-    ).toBe("C:\\Users\\me\\Local\\ai-storm");
-  });
-});
-
 describe("StateStore", () => {
   it("initializes only an empty valid registry with owner-only POSIX permissions", async () => {
     const value = await store();
@@ -50,6 +27,17 @@ describe("StateStore", () => {
       expect((await stat(value.root)).mode & 0o777).toBe(0o700);
       expect((await stat(value.registryPath)).mode & 0o777).toBe(0o600);
     }
+  });
+
+  it("preserves permissions on an existing explicit root", async () => {
+    if (process.platform === "win32") return;
+    const root = await mkdtemp(join(tmpdir(), "ai-storm-shared-state-"));
+    roots.push(root);
+    await chmod(root, 0o750);
+    const value = new StateStore({ root });
+    await value.initialize();
+    await value.createFolder({ id: "shared", title: "Shared", createdAt: 1 });
+    expect((await stat(root)).mode & 0o777).toBe(0o750);
   });
 
   it("creates child documents before registering a project and round trips metadata", async () => {
@@ -97,7 +85,8 @@ describe("StateStore", () => {
     const reservations = await Promise.all(Array.from({ length: 20 }, () => value.reserveIdeaRefs("p1", 2)));
     expect(reservations.flat()).toEqual(Array.from({ length: 40 }, (_, index) => `i${index + 1}`));
     expect(await value.reserveIdeaRefs("p1", 1)).toEqual(["i41"]);
-    expect((await value.readBoard("p1")).revision).toBe(21);
+    expect(await value.readBoard("p1")).toMatchObject({ revision: 0, nextIdeaRef: 42 });
+    await expect(value.writeBoard("p1", 0, { savedAfterReservation: true })).resolves.toMatchObject({ ok: true });
   });
 
   it("applies granular registry and history mutations", async () => {
