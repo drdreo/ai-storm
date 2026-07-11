@@ -20,6 +20,9 @@ importers:
       '@ai-storm/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      '@ai-storm/state':
+        specifier: workspace:*
+        version: link:../packages/state
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.23)
@@ -206,6 +209,10 @@ importers:
         version: 1.41.1
 
   packages/cli:
+    dependencies:
+      '@ai-storm/state':
+        specifier: workspace:*
+        version: link:../state
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -219,6 +226,15 @@ importers:
       typescript:
         specifier: ~6.0.0
         version: 6.0.3
+
+  packages/state:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
+      vitest:
+        specifier: ^4.1.8
+        version: 4.1.8(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.0.16(@types/node@26.1.0)(esbuild@0.28.0)(jiti@2.7.0)(sass@1.99.0)(yaml@2.9.0))
 
 packages:
 
