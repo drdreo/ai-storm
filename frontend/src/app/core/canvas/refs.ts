@@ -3,7 +3,7 @@
  *
  * Two producers mint card refs, in deliberately DISJOINT namespaces:
  *  - the canvas mints `a<n>` at card creation (`applyIdeas` / lazy `cardRef`);
- *  - the backend MCP tool path mints `i<n>` and ships it as `Idea.id`, which
+ *  - the backend MCP tool path mints `i<n>` and ships it as `CreateIdeaInput.ref`, which
  *    `applyIdeas` honours as the card's `meta.ref`.
  * The canvas's mint counter must therefore count ONLY its own `a<n>` refs — a
  * backend-minted `i<n>` (or any user-typed ref) contributes nothing, so the two

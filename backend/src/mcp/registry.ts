@@ -26,7 +26,7 @@
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { Completion, Idea, ProjectStatus, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, ProjectStatus, Reference, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -46,7 +46,7 @@ export interface McpAttachment {
   ideaSink: IdeaSink;
   /** The session's shared score dedupe authority. */
   scoreSink: ScoreSink;
-  onIdea: (idea: Idea) => void;
+  onIdea: (idea: CreateIdeaInput) => void;
   onScore: (score: Score) => void;
   /** Emit a completion-state change for an existing card (#167). Unlike ideas and
    *  scores there is no scanner producer — only the `mark_idea_done` tool feeds

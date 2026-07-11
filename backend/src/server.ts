@@ -25,7 +25,7 @@ import { fsRoutes } from "./fs/routes.ts";
 import { issueRoutes } from "./issues/routes.ts";
 import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
+import { parseClientMessage, type ClientMessage, type PortableStateBundle, type ServerMessage } from "@ai-storm/shared";
 import { encodeServerMessage } from "./ws/codec.ts";
 import { StateFileError, StateStore, type StoredFolder, type StoredProject } from "./state/store.ts";
 
@@ -487,6 +487,19 @@ export async function dispatchStateRequest(
       return store.deleteHistoryEntry(requiredProjectId(projectId), requiredString(payload.entryId, "entryId"));
     case "history-clear":
       return store.clearHistory(requiredProjectId(projectId));
+    case "state-export": {
+      const ids = payload.projectIds;
+      if (ids !== undefined && (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")))
+        throw new Error("State request requires projectIds to be strings");
+      return store.exportState(ids as string[] | undefined);
+    }
+    case "state-import": {
+      const bundle = requiredObject(payload.bundle, "bundle") as unknown as PortableStateBundle;
+      const ids = payload.projectIds;
+      if (ids !== undefined && (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")))
+        throw new Error("State request requires projectIds to be strings");
+      return store.importState(bundle, ids as string[] | undefined);
+    }
   }
 }
 

@@ -21,7 +21,7 @@
  * control. (AO's own core `tmux.ts` likewise targets by bare session name.)
  */
 
-import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -121,7 +121,7 @@ interface Poller {
    *  keeps polling (and the raw stream keeps flowing) but skips the SCAN until
    *  the repaint output has been quiet for the settle period. */
   gate: ScanGate;
-  onIdea: (idea: Idea) => void;
+  onIdea: (idea: CreateIdeaInput) => void;
   onScore: (score: Score) => void;
   onError: (message: string) => void;
   timer: NodeJS.Timeout | null;
@@ -387,7 +387,7 @@ export class TmuxSessionBackend implements SessionBackend {
   async attach(
     projectId: string,
     onData: (raw: string) => void,
-    onIdea: (idea: Idea) => void,
+    onIdea: (idea: CreateIdeaInput) => void,
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,

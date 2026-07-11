@@ -30,7 +30,7 @@ import {
   CODEX_PROFILE,
   OPENCODE_PROFILE,
   PI_EXTENSION_FILENAME,
-  type Idea,
+  type CreateIdeaInput,
   type McpLaunchContext
 } from "./extraction/index.ts";
 import { TOOLS } from "../mcp/endpoint.ts";
@@ -433,7 +433,7 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         title: "Adopt event sourcing",
         body: "replaces the snapshot approach",
         kind: "decision",
-        id: "c3",
+        ref: "c3",
         links: [{ to: "a1", relation: "supersedes" }]
       }
     ]);
@@ -739,7 +739,7 @@ describe("ideaIdentityKey — title-anchored identity (#38)", () => {
   });
 
   it("ignores the idea's own id (identity is what it's about, not the minted ref)", () => {
-    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(ideaIdentityKey({ title: "X", body: "y" }));
+    expect(ideaIdentityKey({ title: "X", body: "y", ref: "a9" })).toBe(ideaIdentityKey({ title: "X", body: "y" }));
   });
 });
 
@@ -1091,7 +1091,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
       const backend = new TmuxSessionBackend({ tmux, sleep: async () => {} });
       await backend.create({ projectId: "wsR", command: "claude", prime: PRIME });
 
-      const ideas: Idea[] = [];
+      const ideas: CreateIdeaInput[] = [];
       await backend.attach(
         "wsR",
         () => {},

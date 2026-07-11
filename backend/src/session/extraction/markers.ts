@@ -6,7 +6,7 @@
  * two-frame confirmation live in `./scanner.ts`.
  */
 
-import type { Idea, IdeaLink, IdeaRelation, Score } from "@ai-storm/shared";
+import type { CreateIdeaInput, IdeaLink, IdeaRelation, Score } from "@ai-storm/shared";
 
 /**
  * `«IDEA[:kind][@ref[!]…]»` / `<<IDEA[:kind][@ref[!]…]>>` at line start. The
@@ -49,7 +49,7 @@ const FENCE_KEY = /^(title|body|kind|id|link|parent|rel)\s*:\s*(.*)$/i;
 /**
  * A line that LOOKS like an attempted idea marker but did not parse — used to
  * diagnose a contract-following lapse: mangled guillemets (`«IDEA »`, `?IDEA?`),
- * the bare word (`Idea: …`), bracketed (`[IDEA]`), or markdown-wrapped
+ * the bare word (`CreateIdeaInput: …`), bracketed (`[IDEA]`), or markdown-wrapped
  * (`**IDEA**`). Anchored at line start so a mid-sentence "idea" is not flagged,
  * and `\bidea\b` so "Ideally"/"ideas" don't trip it.
  */
@@ -87,12 +87,12 @@ function parseRelation(value: string): IdeaRelation | undefined {
  * supersede refs (`@a1!@a2!`) is the multi-select `combine` verb folding several
  * sources into one merged idea (#62).
  */
-function ideaFromLine(kind: string | undefined, refChain: string | undefined, logical: string): Idea {
+function ideaFromLine(kind: string | undefined, refChain: string | undefined, logical: string): CreateIdeaInput {
   const rest = logical.replace(IDEA_MARKER, "$5").trim(); // remainder after marker
   const sep = rest.indexOf("::");
   const title = (sep >= 0 ? rest.slice(0, sep) : rest).trim();
   const body = (sep >= 0 ? rest.slice(sep + 2) : "").trim();
-  const idea: Idea = { title, body };
+  const idea: CreateIdeaInput = { title, body };
   if (kind) idea.kind = kind;
   const links = parseRefChain(refChain);
   if (links.length) idea.links = links;
@@ -118,7 +118,7 @@ function parseRefChain(refChain: string | undefined): IdeaLink[] {
  * line after `body:` (or every non-key line once a title exists) accumulates
  * verbatim into the body (extraction-contract §3.2 Form 2).
  */
-function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
+function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): CreateIdeaInput {
   let title: string | undefined;
   let kindV = kind;
   let id: string | undefined;
@@ -174,8 +174,8 @@ function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
 
   const finalTitle = (title ?? "").trim();
   const body = bodyParts.join("\n").trim();
-  const idea: Idea = kindV ? { title: finalTitle, body, kind: kindV } : { title: finalTitle, body };
-  if (id) idea.id = id;
+  const idea: CreateIdeaInput = kindV ? { title: finalTitle, body, kind: kindV } : { title: finalTitle, body };
+  if (id) idea.ref = id;
   if (linkTo) idea.links = [{ to: linkTo, relation: relation ?? "about" }];
   return idea;
 }
@@ -193,8 +193,8 @@ function ideaFromFence(kind: string | undefined, rawBodyLines: string[]): Idea {
  * on the following non-blank, non-marker rows until a blank line / the next
  * marker — independent of pane width.
  */
-export function scanIdeas(rawRegion: string[], final: boolean): Idea[] {
-  const ideas: Idea[] = [];
+export function scanIdeas(rawRegion: string[], final: boolean): CreateIdeaInput[] {
+  const ideas: CreateIdeaInput[] = [];
   // Strip the claude turn bullet up front so every downstream check (marker
   // match, word-wrap rejoin, hold-back tail, near-miss) sees the same lines.
   const region = rawRegion.map((l) => l.replace(TURN_BULLET, ""));

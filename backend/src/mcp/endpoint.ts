@@ -27,7 +27,7 @@
  */
 
 import { Hono } from "hono";
-import type { Completion, Idea, IdeaLink, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, IdeaLink, Reference, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
 import { deriveBoardIdeas } from "../state/board-reader.ts";
@@ -217,7 +217,7 @@ const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 // back as an `isError` tool result, and a clear "what's wrong + what to do"
 // is the retry loop that makes the channel self-correcting (§2).
 
-function parseCaptureIdea(args: Record<string, unknown>): Idea {
+function parseCaptureIdea(args: Record<string, unknown>): CreateIdeaInput {
   const { title, body, kind, links } = args;
   if (typeof title !== "string" || title.trim().length === 0) {
     throw new Error("`title` is required and must be a non-empty string (the card heading).");
@@ -255,7 +255,7 @@ function parseCaptureIdea(args: Record<string, unknown>): Idea {
       parsedLinks.push({ to, relation: relation === "supersedes" ? "supersedes" : "about" });
     }
   }
-  const idea: Idea = { title, body: typeof body === "string" ? body : "" };
+  const idea: CreateIdeaInput = { title, body: typeof body === "string" ? body : "" };
   if (typeof kind === "string") idea.kind = kind;
   if (parsedLinks.length > 0) idea.links = parsedLinks;
   return idea;
@@ -464,7 +464,7 @@ async function handleToolCall(
         return toolText(id, "Already captured — an identical idea is on the canvas; nothing was added.");
       }
       const ref = await session.mintRef();
-      idea.id = ref; // the canvas honours Idea.id as the card's meta.ref (§3.3)
+      idea.ref = ref; // the canvas honours CreateIdeaInput.ref as the card's meta.ref (§3.3)
       log.info("idea.captured", {
         project: projectId,
         ref,

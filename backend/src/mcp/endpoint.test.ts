@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 import type { BoardDocument, RegistryDocument, StateStore } from "../state/store.ts";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
@@ -50,7 +50,7 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   const target = registry.registerSession(projectId)!;
   const ideaSink = new IdeaSink();
   const scoreSink = new ScoreSink();
-  const ideas: Idea[] = [];
+  const ideas: CreateIdeaInput[] = [];
   const scores: Score[] = [];
   const completions: Completion[] = [];
   const references: Reference[] = [];
@@ -208,7 +208,7 @@ describe("capture_idea — schema validation (§9.1)", () => {
     const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Edge cache" });
     expect(textOf(body)).toBe('Captured as @i1. Link follow-up ideas to it with links:[{to:"i1"}].');
     expect(body.result!.isError).toBeUndefined();
-    expect(w.ideas).toEqual([{ title: "Edge cache", body: "", id: "i1" }]);
+    expect(w.ideas).toEqual([{ title: "Edge cache", body: "", ref: "i1" }]);
   });
 
   it("captures a maximal idea (kind, multi-line body, 8 links, both relations)", async () => {
@@ -618,10 +618,10 @@ describe("capture_idea — marker parity (§9.2)", () => {
     const w = wire(registry, "ws1");
     await callTool(app, "ws1", w.token, "capture_idea", toolArgs);
     expect(w.ideas).toHaveLength(1);
-    // The tool path stamps the minted ref into Idea.id (§3.3) — the one
-    // deliberate difference from the marker path; strip it before comparing.
-    const { id, ...toolIdea } = w.ideas[0];
-    expect(id).toBe("i1");
+    // The tool path stamps the allocated ref — the one deliberate
+    // difference from the marker path; strip it before comparing.
+    const { ref, ...toolIdea } = w.ideas[0];
+    expect(ref).toBe("i1");
     expect([toolIdea]).toEqual(ideasOf(...markerLines));
   });
 });
@@ -677,7 +677,7 @@ describe("ref round-trip (§9.4)", () => {
     const w = wire(registry, "ws1");
 
     textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Seed idea" }));
-    expect(w.ideas[0].id).toBe("i1");
+    expect(w.ideas[0].ref).toBe("i1");
 
     // Link a follow-up to the just-returned ref…
     await callTool(app, "ws1", w.token, "capture_idea", {
@@ -687,7 +687,7 @@ describe("ref round-trip (§9.4)", () => {
     expect(w.ideas[1]).toEqual({
       title: "Follow-up",
       body: "",
-      id: "i2",
+      ref: "i2",
       links: [{ to: "i1", relation: "about" }]
     });
 
@@ -704,8 +704,8 @@ describe("ref round-trip (§9.4)", () => {
     const w2 = wire(registry, "ws2");
     await callTool(app, "ws1", w1.token, "capture_idea", { title: "First in ws1" });
     await callTool(app, "ws2", w2.token, "capture_idea", { title: "First in ws2" });
-    expect(w1.ideas[0].id).toBe("i1");
-    expect(w2.ideas[0].id).toBe("i1");
+    expect(w1.ideas[0].ref).toBe("i1");
+    expect(w2.ideas[0].ref).toBe("i1");
   });
 });
 
@@ -822,7 +822,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
 
     // The old token routes again; after attach, a tool call lands on the canvas.
     const app = new Hono().route("/mcp", mcpRoutes(registry2, {} as StateStore));
-    const ideas: Idea[] = [];
+    const ideas: CreateIdeaInput[] = [];
     await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     const body = await callTool(app, "ws1", token, "capture_idea", {
       title: "Survived the restart"
@@ -844,7 +844,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
     await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
-    const ideas: Idea[] = [];
+    const ideas: CreateIdeaInput[] = [];
     await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     // The primed agent lapses back to a marker line after the attach-time seed.
     fake.setPane("  «IDEA» Lapsed marker :: the agent ignored the tool\n❯");

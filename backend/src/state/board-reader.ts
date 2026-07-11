@@ -1,3 +1,4 @@
+import type { IdeaCard, IdeaEdge, IdeaPage } from "@ai-storm/shared";
 import type { BoardDocument } from "./store.ts";
 
 interface TldrawRecord {
@@ -15,45 +16,10 @@ interface TldrawRecord {
   toId?: unknown;
 }
 
-export interface NormalizedIdeaCard {
-  id: string;
-  ref: string | null;
-  kind: string;
-  color?: string;
-  title: string;
-  body: string;
-  origin: "ai" | "user";
-  createdAt?: number;
-  editedByUser: boolean;
-  issue?: { provider: "github" | "linear"; key: string; url: string; title?: string };
-  links?: { url: string; label?: string }[];
-  starred: boolean;
-  done: boolean;
-  superseded: boolean;
-  score?: { impact: number; effort: number; confidence?: number };
-  position: { x: number; y: number };
-}
-
-export interface NormalizedIdeaEdge {
-  id: string;
-  from: string | null;
-  to: string | null;
-  fromId: string;
-  toId: string;
-  relation: "about" | "supersedes";
-}
-
-export interface NormalizedBoardPage {
-  id: string;
-  name: string;
-  cards: NormalizedIdeaCard[];
-  edges: NormalizedIdeaEdge[];
-}
-
 export interface NormalizedBoardIdeas {
   version: 1;
   revision: number;
-  pages: NormalizedBoardPage[];
+  pages: IdeaPage[];
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -80,7 +46,7 @@ function number(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function issueFrom(value: unknown): NormalizedIdeaCard["issue"] {
+function issueFrom(value: unknown): IdeaCard["issue"] {
   const issue = object(value);
   if (
     !issue ||
@@ -97,7 +63,7 @@ function issueFrom(value: unknown): NormalizedIdeaCard["issue"] {
   };
 }
 
-function linksFrom(value: unknown): NormalizedIdeaCard["links"] {
+function linksFrom(value: unknown): IdeaCard["links"] {
   if (!Array.isArray(value)) return undefined;
   const links = value.flatMap((candidate) => {
     const link = object(candidate);
@@ -107,7 +73,7 @@ function linksFrom(value: unknown): NormalizedIdeaCard["links"] {
   return links.length ? links : undefined;
 }
 
-function scoreFrom(value: unknown): NormalizedIdeaCard["score"] {
+function scoreFrom(value: unknown): IdeaCard["score"] {
   const score = object(value);
   if (!score || typeof score.impact !== "number" || typeof score.effort !== "number") return undefined;
   return {
@@ -143,23 +109,27 @@ export function deriveBoardIdeas(board: Pick<BoardDocument, "revision" | "docume
     return undefined;
   };
 
-  const cardsByPage = new Map<string, NormalizedIdeaCard[]>();
+  const cardsByPage = new Map<string, IdeaCard[]>();
   const cardPage = new Map<string, string>();
-  const refs = new Map<string, string | null>();
+  const refs = new Map<string, string>();
   for (const record of records) {
     if (record.typeName !== "shape" || record.type !== "idea-card" || typeof record.id !== "string") continue;
     const pageId = pageOf(record);
     if (!pageId) continue;
     const props = object(record.props) ?? {};
     const meta = object(record.meta) ?? {};
-    const card: NormalizedIdeaCard = {
+    // Canonical cards are addressable. A malformed raw card without a ref stays
+    // in the authoritative tldraw document but is not exposed as an IdeaCard.
+    if (typeof meta.ref !== "string" || !meta.ref) continue;
+    const card: IdeaCard = {
       id: record.id,
-      ref: typeof meta.ref === "string" ? meta.ref : null,
+      ref: meta.ref,
+      pageId,
       kind: string(props.kind),
       color: typeof props.color === "string" ? props.color : undefined,
       title: string(props.title),
       body: string(props.body),
-      origin: props.origin === "ai" ? "ai" : "user",
+      origin: props.origin === "ai" ? "agent" : "user",
       createdAt: typeof meta.createdAt === "number" ? meta.createdAt : undefined,
       editedByUser: meta.editedByUser === true,
       issue: issueFrom(meta.issue),
@@ -188,23 +158,19 @@ export function deriveBoardIdeas(board: Pick<BoardDocument, "revision" | "docume
     bindingsByArrow.set(record.fromId, endpoints);
   }
 
-  const edgesByPage = new Map<string, NormalizedIdeaEdge[]>();
+  const edgesByPage = new Map<string, IdeaEdge[]>();
   for (const record of records) {
     if (record.typeName !== "shape" || record.type !== "arrow" || typeof record.id !== "string") continue;
     const endpoints = bindingsByArrow.get(record.id);
     if (!endpoints?.start || !endpoints.end) continue;
     const pageId = cardPage.get(endpoints.start);
     if (!pageId || cardPage.get(endpoints.end) !== pageId) continue;
+    const from = refs.get(endpoints.start);
+    const to = refs.get(endpoints.end);
+    if (!from || !to) continue;
     const relation = object(record.meta)?.relation === "supersedes" ? "supersedes" : "about";
     const edges = edgesByPage.get(pageId) ?? [];
-    edges.push({
-      id: record.id,
-      from: refs.get(endpoints.start) ?? null,
-      to: refs.get(endpoints.end) ?? null,
-      fromId: endpoints.start,
-      toId: endpoints.end,
-      relation
-    });
+    edges.push({ id: record.id, pageId, from, to, relation });
     edgesByPage.set(pageId, edges);
   }
 

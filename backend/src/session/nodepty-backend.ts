@@ -19,7 +19,7 @@
 import { rmSync } from "node:fs";
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
-import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/resolve.ts";
 import { ScanGate } from "./scan-gate.ts";
@@ -71,7 +71,7 @@ interface Session {
    *  + instructions), if the profile set `fileLaunch`. Removed on kill(). */
   fileLaunchDir: string | null;
   onData: ((raw: string) => void) | null;
-  onIdea: ((idea: Idea) => void) | null;
+  onIdea: ((idea: CreateIdeaInput) => void) | null;
   onScore: ((score: Score) => void) | null;
   onError: ((message: string) => void) | null;
   closed: boolean;
@@ -275,7 +275,7 @@ export class NodePtySessionBackend implements SessionBackend {
   async attach(
     projectId: string,
     onData: (raw: string) => void,
-    onIdea: (idea: Idea) => void,
+    onIdea: (idea: CreateIdeaInput) => void,
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,

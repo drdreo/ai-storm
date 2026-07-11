@@ -12,7 +12,6 @@
  * - `canvas/focus`      — focus-mode's related-cluster computation (#131)
  * - `canvas/layout`     — arrange/grid re-flows + triage score + mark (#16/#60/#29)
  * - `canvas/edges`      — the typed edge graph shared by reads and layouts
- * - `canvas/portable`   — board ↔ portable JSON for project export/import (#105)
  * - `canvas/CardVerbBar`, `canvas/menus` — the in-canvas UI
  *
  * "As close to native tldraw as possible": native arrows for edges, the native styles
@@ -51,7 +50,6 @@ export {
   selectedText
 } from "./canvas/serialize";
 export { applyScore, applyCompletion, applyIssueLinks, applyReference } from "./canvas/layout";
-export { exportBoard, exportTldrawPages, importBoard, importTldrawPages } from "./canvas/portable";
 
 const SHAPE_UTILS = [IdeaCardShapeUtil];
 

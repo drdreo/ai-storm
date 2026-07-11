@@ -1,221 +1,78 @@
-/**
- * Project export/import bundle (#105) — a portable, ref-keyed JSON snapshot of a
- * project's metadata and board, independent of the browser profile. The board
- * itself is described by {@link PortableBoard} (see `canvas/portable.ts` for the
- * editor-facing read/write side); this module owns the bundle envelope, its
- * validation, and the filename convention, so it stays pure and unit-testable
- * (no tldraw `Editor` involved).
- */
-import type { TLContent } from "tldraw";
-import type { TerminalConfig, ProjectMeta } from "@ai-storm/shared";
+import type { PortableStateBundle } from "@ai-storm/shared";
 
-export interface PortableCard {
-  ref: string;
-  kind: string;
+export interface ImportableProject {
+  id: string;
   title: string;
-  body: string;
-  origin: "ai" | "user";
-  superseded: boolean;
-  starred: boolean;
+  cardCount: number;
 }
 
-export interface PortableEdge {
-  from: string;
-  to: string;
-  relation: "about" | "supersedes";
+export interface ParsedStateImport {
+  bundle: PortableStateBundle;
+  projects: ImportableProject[];
 }
 
-export interface PortableBoard {
-  cards: PortableCard[];
-  edges: PortableEdge[];
+const UNRECOGNIZED = "Not a recognizable ai-storm state export.";
+
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
-/**
- * One tldraw page in a full-fidelity snapshot: its user-visible name plus its
- * content (absent for an empty page). `TLContent` embeds its own serialized
- * schema, so tldraw migrates old snapshots on import.
- */
-export interface TldrawPage {
-  name: string;
-  content?: TLContent;
+function cardCount(document: unknown): number {
+  const root = object(document);
+  const records = object(root?.store);
+  if (!records) return 0;
+  return Object.values(records).filter((value) => {
+    const record = object(value);
+    return record?.typeName === "shape" && record.type === "idea-card";
+  }).length;
 }
 
-export interface ProjectExportBundle {
-  version: 1;
-  exportedAt: number;
-  project: {
-    title: string;
-    color?: string;
-    terminal: TerminalConfig;
-  };
-  board: PortableBoard;
-  /** Full-fidelity tldraw snapshot, one entry per page (shapes, positions, assets). */
-  tldraw?: TldrawPage[];
-}
-
-/** One project inside a whole-state export: its portable meta plus its board. */
-export interface ExportedProject {
-  title: string;
-  color?: string;
-  terminal: TerminalConfig;
-  /** Sidebar folder title (folders are matched/recreated by title on import). */
-  folder?: string;
-  board: PortableBoard;
-  /**
-   * Full-fidelity tldraw snapshot, one entry per page (shapes, positions,
-   * assets, page names). Preferred on import when present; `board` is the
-   * validated, page-less fallback for files that lack it (or whose snapshot
-   * fails to restore).
-   */
-  tldraw?: TldrawPage[];
-}
-
-/** Whole-state export: every project (with board) in one file. */
-export interface FullExportBundle {
-  version: 1;
-  exportedAt: number;
-  projects: ExportedProject[];
-}
-
-const CURRENT_VERSION = 1;
-
-/**
- * Portable copy of a project's terminal config. `cwd` (#152) is a local
- * filesystem path — meaningless (or worse, wrong) on whatever machine imports
- * the bundle, so it's dropped rather than round-tripped.
- */
-function portableTerminal(terminal: TerminalConfig): TerminalConfig {
-  const { cwd: _cwd, ...rest } = terminal;
-  return rest;
-}
-
-/** Portable entry for one project — the building block of both bundle kinds. */
-export function exportProjectEntry(
-  meta: ProjectMeta,
-  board: PortableBoard,
-  folder?: string,
-  tldraw?: TldrawPage[]
-): ExportedProject {
-  return { title: meta.title, color: meta.color, terminal: portableTerminal(meta.terminal), folder, board, tldraw };
-}
-
-/** Wrap a project's meta + board into the portable envelope. */
-export function buildExportBundle(meta: ProjectMeta, board: PortableBoard, tldraw?: TldrawPage[]): ProjectExportBundle {
-  return {
-    version: CURRENT_VERSION,
-    exportedAt: Date.now(),
-    project: { title: meta.title, color: meta.color, terminal: portableTerminal(meta.terminal) },
-    board,
-    tldraw
-  };
-}
-
-/** Wrap every project's portable entry into the whole-state envelope. */
-export function buildFullExportBundle(projects: ExportedProject[]): FullExportBundle {
-  return { version: CURRENT_VERSION, exportedAt: Date.now(), projects };
-}
-
-const UNRECOGNIZED = "Not a recognizable ai-storm project file.";
-
-function isValidBoard(board: unknown): boolean {
-  const b = board as Record<string, unknown> | undefined;
-  return !!b && typeof b === "object" && Array.isArray(b.cards) && Array.isArray(b.edges);
-}
-
-/**
- * The optional full-fidelity snapshot is a list of named tldraw pages; each
- * page's content is tldraw's own format — only its outer shell is checked
- * here (tldraw validates/migrates the rest on import).
- */
-function isValidTldraw(pages: unknown): boolean {
-  if (pages === undefined) return true;
-  if (!Array.isArray(pages)) return false;
-  return pages.every((page) => {
-    const p = page as Record<string, unknown> | undefined;
-    if (!p || typeof p !== "object" || typeof p.name !== "string") return false;
-    if (p.content === undefined) return true;
-    const c = p.content as Record<string, unknown>;
-    return typeof c === "object" && !!c && Array.isArray(c.shapes) && !!c.schema && typeof c.schema === "object";
-  });
-}
-
-function assertVersion(bundle: Record<string, unknown>): void {
-  if (bundle.version !== CURRENT_VERSION) {
-    throw new Error(
-      `Unsupported project file version (got ${JSON.stringify(bundle.version)}, expected ${CURRENT_VERSION}).`
-    );
-  }
-}
-
-/**
- * Parse and validate a project export file (acceptance criterion: invalid or
- * incompatible files show clear errors). Throws a descriptive `Error` — never
- * returns a partially-valid bundle.
- */
-export function parseExportBundle(json: string): ProjectExportBundle {
+/** Parse only the backend-owned v2 subset. Legacy portable-card bundles are intentionally unsupported. */
+export function parseImportFile(json: string): ParsedStateImport {
   let data: unknown;
   try {
     data = JSON.parse(json);
   } catch {
     throw new Error("That file is not valid JSON.");
   }
-  if (!data || typeof data !== "object") {
-    throw new Error(UNRECOGNIZED);
+  const bundle = object(data);
+  if (!bundle) throw new Error(UNRECOGNIZED);
+  if (bundle.version !== 2) {
+    throw new Error(`Unsupported state export version (got ${JSON.stringify(bundle.version)}, expected 2).`);
   }
-  const bundle = data as Record<string, unknown>;
-  assertVersion(bundle);
-  const ws = bundle.project as Record<string, unknown> | undefined;
-  if (!ws || typeof ws.title !== "string" || !ws.terminal || typeof ws.terminal !== "object") {
+  const registry = object(bundle.registry);
+  const boards = object(bundle.boards);
+  const histories = object(bundle.histories);
+  if (
+    registry?.version !== 1 ||
+    !Array.isArray(registry.projects) ||
+    !Array.isArray(registry.folders) ||
+    !boards ||
+    !histories
+  )
     throw new Error(UNRECOGNIZED);
-  }
-  if (!isValidBoard(bundle.board) || !isValidTldraw(bundle.tldraw)) {
-    throw new Error(UNRECOGNIZED);
-  }
-  return bundle as unknown as ProjectExportBundle;
-}
+  if (registry.projects.length === 0) throw new Error("That export file contains no projects.");
 
-/**
- * Parse either kind of export file — a single-project bundle or a whole-state
- * bundle — into a normalized list of importable project entries. Throws a
- * descriptive `Error` on anything invalid; never returns a partial list.
- */
-export function parseImportFile(json: string): ExportedProject[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(json);
-  } catch {
-    throw new Error("That file is not valid JSON.");
-  }
-  if (!data || typeof data !== "object") {
-    throw new Error(UNRECOGNIZED);
-  }
-  const bundle = data as Record<string, unknown>;
-  if (!Array.isArray(bundle.projects)) {
-    // Single-project bundle — normalize to a one-entry list.
-    const single = parseExportBundle(json);
-    return [{ ...single.project, board: single.board, tldraw: single.tldraw }];
-  }
-  assertVersion(bundle);
-  if (bundle.projects.length === 0) {
-    throw new Error("That export file contains no projects.");
-  }
-  for (const entry of bundle.projects as Record<string, unknown>[]) {
+  const projects = registry.projects.map((value) => {
+    const project = object(value);
+    if (!project || typeof project.id !== "string" || typeof project.title !== "string") throw new Error(UNRECOGNIZED);
+    const board = object(boards[project.id]);
+    const history = object(histories[project.id]);
     if (
-      !entry ||
-      typeof entry !== "object" ||
-      typeof entry.title !== "string" ||
-      !entry.terminal ||
-      typeof entry.terminal !== "object" ||
-      !isValidBoard(entry.board) ||
-      !isValidTldraw(entry.tldraw)
-    ) {
+      board?.version !== 1 ||
+      !Object.hasOwn(board, "document") ||
+      history?.version !== 1 ||
+      !Array.isArray(history.runs)
+    )
       throw new Error(UNRECOGNIZED);
-    }
-  }
-  return bundle.projects as unknown as ExportedProject[];
+    return { id: project.id, title: project.title, cardCount: cardCount(board.document) };
+  });
+  return { bundle: data as PortableStateBundle, projects };
 }
 
-/** Filesystem-safe base filename (no extension) for a project export. */
+/** Filesystem-safe base filename (no extension). */
 export function exportFileSlug(title: string): string {
   const slug = title
     .trim()

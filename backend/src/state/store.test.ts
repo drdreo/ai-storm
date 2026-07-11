@@ -89,6 +89,40 @@ describe("StateStore", () => {
     await expect(value.writeBoard("p1", 0, { savedAfterReservation: true })).resolves.toMatchObject({ ok: true });
   });
 
+  it("exports the canonical subset and clones selected state without ref reuse", async () => {
+    const source = await store();
+    await source.createFolder({ id: "f1", title: "Folder", createdAt: 1 });
+    await source.createProject({ id: "p1", title: "One", folderId: "f1", terminal: {} });
+    await source.createProject({ id: "p2", title: "Two", terminal: {} });
+    await source.reserveIdeaRefs("p1", 4);
+    await source.writeBoard("p1", 0, { store: { "shape:1": { typeName: "shape", type: "idea-card" } } });
+    await source.appendHistoryEntry("p1", { id: "run1", projectId: "p1" });
+
+    const bundle = await source.exportState(["p1"]);
+    expect(bundle).toMatchObject({
+      version: 2,
+      registry: { projects: [{ id: "p1" }], folders: [{ id: "f1" }] },
+      boards: { p1: { nextIdeaRef: 5 } },
+      histories: { p1: { runs: [{ id: "run1" }] } }
+    });
+    expect(bundle).not.toHaveProperty("logs");
+    expect(bundle).not.toHaveProperty("daemon");
+
+    const emptyTarget = await store();
+    await emptyTarget.importState(bundle);
+    expect((await emptyTarget.readRegistry()).projects[0]).toMatchObject({ id: "p1", folderId: "f1" });
+    expect(await emptyTarget.reserveIdeaRefs("p1", 1)).toEqual(["i5"]);
+
+    const existingTarget = await store();
+    await existingTarget.createProject({ id: "existing", title: "Existing", terminal: {} });
+    const imported = await existingTarget.importState(bundle);
+    const clone = imported.projects.find((project) => project.id !== "existing")!;
+    expect(clone.id).not.toBe("p1");
+    expect(clone.folderId).not.toBe("f1");
+    expect((await existingTarget.readHistory(clone.id)).runs[0]).toMatchObject({ projectId: clone.id });
+    expect(await existingTarget.reserveIdeaRefs(clone.id, 1)).toEqual(["i5"]);
+  });
+
   it("applies granular registry and history mutations", async () => {
     let now = 10;
     const value = await store({ now: () => ++now });

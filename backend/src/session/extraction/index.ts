@@ -1,5 +1,5 @@
 /**
- * Idea scanner (extraction-contract §3) — the robust 20% we keep after dropping
+ * CreateIdeaInput scanner (extraction-contract §3) — the robust 20% we keep after dropping
  * server-side chat extraction.
  *
  * The conversation surface is now a real terminal: raw PTY bytes are streamed to
@@ -39,4 +39,4 @@ export {
 export { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.ts";
 export { scanIdeas, scanScores } from "./markers.ts";
 export { IdeaScanner, IdeaSink, ScoreScanner, ScoreSink } from "./scanner.ts";
-export type { Idea, Score } from "@ai-storm/shared";
+export type { CreateIdeaInput, Score } from "@ai-storm/shared";

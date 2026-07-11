@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Idea, ServerMessage, TerminalConfig } from "@ai-storm/shared";
+import type { CreateIdeaInput, ServerMessage, TerminalConfig } from "@ai-storm/shared";
 import { backend } from "./backend.store";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
@@ -11,7 +11,7 @@ export type { TerminalSink } from "./terminal-binding";
 
 /** Live streaming machinery (exists only while a session is attached). */
 interface Pipeline {
-  scheduler: RenderScheduler<Idea>;
+  scheduler: RenderScheduler<CreateIdeaInput>;
   unsubscribe: () => void;
   /** The attach message, re-sent on socket reopen to resume the session (§3.5). */
   reattach: () => void;
@@ -25,7 +25,7 @@ interface Pipeline {
  * (docs/design/ai-response-extraction-contract.md):
  *
  *   `data` → raw PTY bytes → the project's xterm.js terminal.
- *   `idea` → RenderScheduler<Idea> → canvas.applyIdeas — one discrete card per
+ *   `idea` → RenderScheduler<CreateIdeaInput> → canvas.applyIdeas — one discrete card per
  *            idea, with ideas arriving in the same paint frame collapsed into a
  *            single batched mutation.
  *
@@ -164,7 +164,7 @@ export const ingestion = {
     // Pre-create the terminal binding so a sink can register immediately.
     terminal(projectId);
 
-    const scheduler = new RenderScheduler<Idea>({
+    const scheduler = new RenderScheduler<CreateIdeaInput>({
       sink: (batch) => canvas.applyIdeas(projectId, batch),
       // Ideas are low-frequency and deduped one-per-marker; a small cap still
       // collapses multiple ideas in one frame into a single applyIdeas call.
