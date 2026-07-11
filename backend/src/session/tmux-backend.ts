@@ -236,6 +236,9 @@ export class TmuxSessionBackend implements SessionBackend {
     // stamped tmux-natively at create(), so the launch URL the harness is still
     // holding keeps working with the fresh in-memory registry.
     for (const projectId of projects) {
+      // A surviving process is live even before a browser reattaches; discovery
+      // derives that as active rather than persisting runtime state.
+      this.#mcp.setRuntimeState(projectId, "attached");
       try {
         const token = (await this.#tmux("show-options", "-t", this.#target(projectId), "-v", MCP_TOKEN_OPTION)).trim();
         if (token) this.#mcp.restoreSession(projectId, token);
@@ -480,6 +483,7 @@ export class TmuxSessionBackend implements SessionBackend {
         log.warn("session.lost", { project: projectId });
         poller.onError(`Session for project "${projectId}" is no longer alive.`);
         this.detach(projectId);
+        this.#mcp.removeSession(projectId);
         return;
       }
       // Transient error; retry on the same cadence.

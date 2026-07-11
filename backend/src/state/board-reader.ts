@@ -19,10 +19,14 @@ export interface NormalizedIdeaCard {
   id: string;
   ref: string | null;
   kind: string;
+  color?: string;
   title: string;
   body: string;
   origin: "ai" | "user";
   createdAt?: number;
+  editedByUser: boolean;
+  issue?: { provider: "github" | "linear"; key: string; url: string; title?: string };
+  links?: { url: string; label?: string }[];
   starred: boolean;
   done: boolean;
   superseded: boolean;
@@ -31,6 +35,7 @@ export interface NormalizedIdeaCard {
 }
 
 export interface NormalizedIdeaEdge {
+  id: string;
   from: string | null;
   to: string | null;
   fromId: string;
@@ -39,7 +44,7 @@ export interface NormalizedIdeaEdge {
 }
 
 export interface NormalizedBoardPage {
-  pageId: string;
+  id: string;
   name: string;
   cards: NormalizedIdeaCard[];
   edges: NormalizedIdeaEdge[];
@@ -73,6 +78,33 @@ function string(value: unknown, fallback = ""): string {
 
 function number(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function issueFrom(value: unknown): NormalizedIdeaCard["issue"] {
+  const issue = object(value);
+  if (
+    !issue ||
+    (issue.provider !== "github" && issue.provider !== "linear") ||
+    typeof issue.key !== "string" ||
+    typeof issue.url !== "string"
+  )
+    return undefined;
+  return {
+    provider: issue.provider,
+    key: issue.key,
+    url: issue.url,
+    ...(typeof issue.title === "string" ? { title: issue.title } : {})
+  };
+}
+
+function linksFrom(value: unknown): NormalizedIdeaCard["links"] {
+  if (!Array.isArray(value)) return undefined;
+  const links = value.flatMap((candidate) => {
+    const link = object(candidate);
+    if (!link || typeof link.url !== "string") return [];
+    return [{ url: link.url, ...(typeof link.label === "string" ? { label: link.label } : {}) }];
+  });
+  return links.length ? links : undefined;
 }
 
 function scoreFrom(value: unknown): NormalizedIdeaCard["score"] {
@@ -124,10 +156,14 @@ export function deriveBoardIdeas(board: Pick<BoardDocument, "revision" | "docume
       id: record.id,
       ref: typeof meta.ref === "string" ? meta.ref : null,
       kind: string(props.kind),
+      color: typeof props.color === "string" ? props.color : undefined,
       title: string(props.title),
       body: string(props.body),
       origin: props.origin === "ai" ? "ai" : "user",
       createdAt: typeof meta.createdAt === "number" ? meta.createdAt : undefined,
+      editedByUser: meta.editedByUser === true,
+      issue: issueFrom(meta.issue),
+      links: linksFrom(meta.links),
       starred: meta.starred === true,
       done: meta.done === true,
       superseded: props.superseded === true,
@@ -162,6 +198,7 @@ export function deriveBoardIdeas(board: Pick<BoardDocument, "revision" | "docume
     const relation = object(record.meta)?.relation === "supersedes" ? "supersedes" : "about";
     const edges = edgesByPage.get(pageId) ?? [];
     edges.push({
+      id: record.id,
       from: refs.get(endpoints.start) ?? null,
       to: refs.get(endpoints.end) ?? null,
       fromId: endpoints.start,
@@ -179,7 +216,7 @@ export function deriveBoardIdeas(board: Pick<BoardDocument, "revision" | "docume
       const cards = cardsByPage.get(id) ?? [];
       cards.sort((a, b) => a.position.y - b.position.y || a.position.x - b.position.x || a.id.localeCompare(b.id));
       return {
-        pageId: id,
+        id,
         name: string(object(page.props)?.name, string(page.name, "Page")),
         cards,
         edges: edgesByPage.get(id) ?? []

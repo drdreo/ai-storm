@@ -48,8 +48,7 @@ export {
   serializeForTriage,
   serializeForHandoff,
   collectBoard,
-  selectedText,
-  serializeBoardIdeasSnapshot
+  selectedText
 } from "./canvas/serialize";
 export { applyScore, applyCompletion, applyIssueLinks, applyReference } from "./canvas/layout";
 export { exportBoard, exportTldrawPages, importBoard, importTldrawPages } from "./canvas/portable";

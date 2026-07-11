@@ -249,6 +249,7 @@ export class NodePtySessionBackend implements SessionBackend {
     });
     term.onExit(({ exitCode }) => {
       session.closed = true;
+      this.#mcp.removeSession(projectId);
       log.info("session.pty_exit", { project: projectId, code: exitCode });
     });
 
