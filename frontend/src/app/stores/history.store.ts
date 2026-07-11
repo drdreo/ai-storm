@@ -30,7 +30,9 @@ interface PendingMutation {
   projectId: string;
   payload?: Record<string, unknown>;
   key: string;
+  sequence: number;
 }
+let mutationSequence = 0;
 const pendingMutations = new Map<string, PendingMutation>();
 function replaceProject(projectId: string, wire: HistoryWire): void {
   useHistoryStore.setState((state) => ({
@@ -47,14 +49,21 @@ function optimistic(entry: RunHistoryEntry): void {
 function find(id: string): RunHistoryEntry | undefined {
   return useHistoryStore.getState().entries.find((entry) => entry.id === id);
 }
-function mutate(command: PendingMutation): void {
+function mutate(input: Omit<PendingMutation, "sequence">): void {
+  const command: PendingMutation = { ...input, sequence: ++mutationSequence };
   void backend
     .request<HistoryWire>(command.operation, { projectId: command.projectId, payload: command.payload })
     .then((wire) => {
-      pendingMutations.delete(command.key);
-      replaceProject(command.projectId, wire);
+      const pending = pendingMutations.get(command.key);
+      if (!pending || pending.sequence <= command.sequence) {
+        pendingMutations.delete(command.key);
+        replaceProject(command.projectId, wire);
+      }
     })
-    .catch(() => pendingMutations.set(command.key, command));
+    .catch(() => {
+      const existing = pendingMutations.get(command.key);
+      if (!existing || existing.sequence < command.sequence) pendingMutations.set(command.key, command);
+    });
 }
 
 async function flushPending(): Promise<void> {
