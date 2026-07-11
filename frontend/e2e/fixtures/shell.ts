@@ -116,6 +116,7 @@ const BACKEND_OFFLINE_NOISE = /websocket|ws:\/\/|\/pty|failed to fetch|\/health|
 
 export const test = base.extend<{
   toursEnabled: boolean;
+  fakeStateBackend: boolean;
   stateBackend: FakeStateBackend;
   shell: Shell;
   consoleErrors: string[];
@@ -133,10 +134,15 @@ export const test = base.extend<{
    * protocol from per-test memory — fresh isolated state per test, surviving
    * reloads within one — while PTY/session traffic stays absent, keeping the
    * suite's backend-free premise for everything session-shaped.
+   *
+   * Backend-dependent specs (`e2e/backend/**`) need the real `/pty` socket —
+   * the fake swallows session traffic, so a PTY spec can never pass through
+   * it. They opt out via `test.use({ fakeStateBackend: false })`.
    */
-  stateBackend: async ({ page }, use) => {
+  fakeStateBackend: [true, { option: true }],
+  stateBackend: async ({ page, fakeStateBackend }, use) => {
     const fake = new FakeStateBackend();
-    await fake.install(page);
+    if (fakeStateBackend) await fake.install(page);
     await use(fake);
   },
   page: async ({ page, toursEnabled }, use) => {

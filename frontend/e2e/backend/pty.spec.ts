@@ -10,6 +10,10 @@ import { test, expect } from "../fixtures/shell";
  *   - a real PTY session round-trips through ConPTY (data → xterm → input)
  *   - hot-switch preserves a project's terminal scrollback (PRD §3.4)
  */
+// Talk to the real backend on :8787 — the fixtures' fake state backend serves
+// only the state protocol and swallows PTY/session traffic.
+test.use({ fakeStateBackend: false });
+
 test.describe("PTY session", () => {
   test("round-trips terminal output and survives hot-switch", async ({ shell, page }) => {
     test.slow(); // a real shell spawn + echo takes several seconds.
