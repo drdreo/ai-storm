@@ -85,12 +85,20 @@ describe("backend board synchronization", () => {
     let revision = 0;
     let serverDocument: unknown = null;
     let disconnected = false;
+    let holdNextSave = false;
+    let releaseSave: (() => void) | null = null;
     harness.request.mockImplementation(async (operation: string, options: { payload?: Record<string, unknown> }) => {
       if (operation === "board-load") return { revision, document: serverDocument };
       if (operation === "reserve-idea-refs")
         return { refs: Array.from({ length: Number(options.payload?.count) }, (_, i) => `i${i + 1}`) };
       if (operation === "board-save") {
         if (disconnected) throw new Error("Backend connection lost");
+        if (holdNextSave) {
+          holdNextSave = false;
+          await new Promise<void>((resolve) => {
+            releaseSave = resolve;
+          });
+        }
         revision++;
         serverDocument = options.payload?.document;
         return { ok: true, board: { revision } };
@@ -112,8 +120,27 @@ describe("backend board synchronization", () => {
       getSelectedShapeIds: () => []
     };
     canvas.bridge.onEditorMount(editor as never);
+
+    await canvas.collectSearchIdeas([
+      { id: "p1", title: "Active" },
+      { id: "p2", title: "Background" }
+    ]);
+    expect(useCanvasStore.getState().loadState).toBe("ready");
+    expect(
+      harness.request.mock.calls.some(
+        ([operation, options]) => operation === "reserve-idea-refs" && options.projectId === "p2"
+      )
+    ).toBe(false);
+
+    holdNextSave = true;
     canvas.bridge.onBoardChanged?.();
     await vi.advanceTimersByTimeAsync(500);
+    // Queue a newer snapshot behind the held request. flushPersistence must
+    // wait for both writes, not just the one already in flight.
+    canvas.bridge.onBoardChanged?.();
+    const flushed = canvas.flushPersistence();
+    releaseSave?.();
+    await flushed;
     expect(harness.request).toHaveBeenCalledWith(
       "board-save",
       expect.objectContaining({
@@ -121,6 +148,7 @@ describe("backend board synchronization", () => {
         payload: expect.objectContaining({ expectedRevision: 0, document: getSnapshot(store).document })
       })
     );
+    expect(harness.request.mock.calls.filter(([operation]) => operation === "board-save")).toHaveLength(2);
     expect(useCanvasStore.getState().unsaved).toBe(false);
 
     disconnected = true;
@@ -128,6 +156,11 @@ describe("backend board synchronization", () => {
     canvas.bridge.onBoardChanged?.();
     await vi.advanceTimersByTimeAsync(500);
     expect(useCanvasStore.getState().unsaved).toBe(true);
+
+    // Switching away and back must retain this project's failed/queued save.
+    canvas.switchTo("p2");
+    canvas.switchTo("p1");
+    await vi.waitFor(() => expect(useCanvasStore.getState().unsaved).toBe(true));
 
     revision = 2;
     serverDocument = getSnapshot(store).document;

@@ -73,7 +73,9 @@ async function bootStore() {
     flushPersistence: vi.fn(async () => {})
   };
   vi.doMock("./canvas.store", () => ({ canvas: canvasMock }));
-  vi.doMock("./backend.store", () => ({ backend: { request: vi.fn(stateRequest) } }));
+  vi.doMock("./backend.store", () => ({
+    backend: { request: vi.fn(stateRequest), onOpen: vi.fn(() => () => {}) }
+  }));
   const mod = await import("./project.store");
   await mod.project.boot();
   return { ...mod, canvasMock };

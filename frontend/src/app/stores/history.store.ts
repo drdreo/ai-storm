@@ -47,19 +47,9 @@ function optimistic(entry: RunHistoryEntry): void {
 function find(id: string): RunHistoryEntry | undefined {
   return useHistoryStore.getState().entries.find((entry) => entry.id === id);
 }
-function request<T>(...args: Parameters<typeof backend.request>): Promise<T> {
-  const method = (backend as Partial<typeof backend>).request;
-  if (!method) {
-    const projectId = (args[1] as { projectId?: string } | undefined)?.projectId;
-    return Promise.resolve({
-      revision: 0,
-      runs: useHistoryStore.getState().entries.filter((entry) => entry.projectId === projectId)
-    } as T);
-  }
-  return method.call(backend, ...args) as Promise<T>;
-}
 function mutate(command: PendingMutation): void {
-  void request<HistoryWire>(command.operation, { projectId: command.projectId, payload: command.payload })
+  void backend
+    .request<HistoryWire>(command.operation, { projectId: command.projectId, payload: command.payload })
     .then((wire) => {
       pendingMutations.delete(command.key);
       replaceProject(command.projectId, wire);
@@ -68,20 +58,25 @@ function mutate(command: PendingMutation): void {
 }
 
 async function flushPending(): Promise<void> {
-  for (const command of [...pendingMutations.values()]) {
+  const failedProjects = new Set<string>();
+  for (const command of pendingMutations.values()) {
+    if (failedProjects.has(command.projectId)) continue;
     try {
-      const wire = await request<HistoryWire>(command.operation, {
+      const wire = await backend.request<HistoryWire>(command.operation, {
         projectId: command.projectId,
         payload: command.payload
       });
       pendingMutations.delete(command.key);
       replaceProject(command.projectId, wire);
     } catch {
-      return;
+      // One deleted/corrupt project must not poison the queue for every other
+      // project's durable history. Keep this project ordered for a later retry,
+      // while allowing unrelated projects to continue flushing.
+      failedProjects.add(command.projectId);
     }
   }
 }
-(backend as Partial<typeof backend>).onOpen?.(() => void flushPending());
+backend.onOpen(() => void flushPending());
 
 function patchEntry(id: string, patch: Partial<RunHistoryEntry>): void {
   const current = find(id);
@@ -93,7 +88,9 @@ function patchEntry(id: string, patch: Partial<RunHistoryEntry>): void {
   mutate({
     operation: "history-update",
     projectId: next.projectId,
-    payload: { entryId: id, patch },
+    // Send the fully merged entry. Replacing an older pending update for this
+    // id can no longer lose fields from that older patch.
+    payload: { entryId: id, patch: { ...next } },
     key: `update:${id}`
   });
 }
@@ -104,11 +101,11 @@ export const history = {
     booted = true;
     const wires = await Promise.all(
       projectIds.map(
-        async (projectId) => [projectId, await request<HistoryWire>("history-load", { projectId })] as const
+        async (projectId) => [projectId, await backend.request<HistoryWire>("history-load", { projectId })] as const
       )
     );
     for (const [projectId, wire] of wires) replaceProject(projectId, wire);
-    for (const entry of [...useHistoryStore.getState().entries]) {
+    for (const entry of useHistoryStore.getState().entries) {
       const fixed = reconcileStale(entry);
       if (fixed) patchEntry(entry.id, fixed);
     }
@@ -203,8 +200,11 @@ export const history = {
     });
   },
 
-  removeProject(projectId: string): void {
+  removeProject(projectId: string, persist = true): void {
     useHistoryStore.setState((state) => ({ entries: state.entries.filter((entry) => entry.projectId !== projectId) }));
-    mutate({ operation: "history-clear", projectId, key: `clear:${projectId}` });
+    for (const [key, command] of pendingMutations) {
+      if (command.projectId === projectId) pendingMutations.delete(key);
+    }
+    if (persist) mutate({ operation: "history-clear", projectId, key: `clear:${projectId}` });
   }
 };

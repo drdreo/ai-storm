@@ -64,7 +64,13 @@ const collapsedKey = (id: string) => `ai-storm:ui:folder:${id}:collapsed`;
 function applyRegistry(registry: RegistryWire): void {
   const statuses = new Map(useProjectStore.getState().projects.map((item) => [item.id, item.status]));
   const projects: ProjectMeta[] = registry.projects
-    .map((item) => ({ ...item, status: statuses.get(item.id) ?? "idle", lastActiveAt: item.updatedAt }))
+    .map((item) => ({
+      ...item,
+      status: statuses.get(item.id) ?? "idle",
+      // Compatibility field only: backend `updatedAt` tracks registry edits,
+      // not actual UI activity. Active-project restoration uses localStorage.
+      lastActiveAt: item.updatedAt
+    }))
     .sort(compareByOrder);
   const folders: Folder[] = registry.folders
     .map((item) => ({
@@ -123,6 +129,13 @@ function patchFolder(folder: Folder): void {
       void reloadRegistry().catch(() => undefined);
     });
 }
+
+// Registry mutations intentionally do not queue offline. On reconnect, replace
+// optimistic ghosts with the authoritative registry so the UI cannot imply
+// durability that never happened.
+backend.onOpen(() => {
+  if (useProjectStore.getState().booted) void reloadRegistry().catch(() => undefined);
+});
 
 export const project = {
   /** Boot only from the backend authority. No IndexedDB fallback is attempted. */
@@ -317,7 +330,7 @@ export const project = {
     }
 
     useProjectStore.setState((state) => ({ projects: state.projects.filter((item) => item.id !== id) }));
-    history.removeProject(id);
+    history.removeProject(id, false);
     await backend.request<RegistryWire>("registry-delete-project", { projectId: id }).then(applyRegistry);
     canvas.removeProject(id);
   },

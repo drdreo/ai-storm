@@ -40,23 +40,42 @@ test("backend board survives reload with canonical refs and inline assets", asyn
   );
   expect(ref).toMatch(/^i\d+$/);
 
-  // Board writes debounce for 500 ms; wait past the debounce/ack before reload.
-  await page.waitForTimeout(900);
+  // Overflow the synchronous reservation pool. Cards beyond the pool are held
+  // unsaved until the async repair path gives every one a canonical ref.
+  const bulkIds = Array.from({ length: 40 }, (_, index) => `shape:bulk-${suffix}-${index}`);
+  await page.evaluate((ids) => {
+    const editor = (window as unknown as { __editor: any }).__editor;
+    editor.createShapes(
+      ids.map((id, index) => ({ id, type: "idea-card", x: index * 20, y: 300, props: { title: `Bulk ${index}` } }))
+    );
+  }, bulkIds);
+  await page.waitForFunction((ids) => {
+    const editor = (window as unknown as { __editor: any }).__editor;
+    return ids.every((id) => /^i\d+$/.test(editor.getShape(id)?.meta.ref ?? ""));
+  }, bulkIds);
+
+  // Observe the debounced write enter and leave the unsaved state before reload.
+  const unsaved = page.getByText("Changes not yet saved", { exact: true });
+  await expect(unsaved).toBeVisible();
+  await expect(unsaved).toHaveCount(0, { timeout: 5_000 });
   await page.reload();
   await page.waitForFunction(() => !!(window as unknown as { __editor?: unknown }).__editor);
 
   const restored = await page.evaluate(
-    ({ shapeId, imageId, assetId }) => {
+    ({ shapeId, imageId, assetId, bulkIds }) => {
       const editor = (window as unknown as { __editor: any }).__editor;
       return {
         card: editor.getShape(shapeId),
         image: editor.getShape(imageId),
-        asset: editor.getAsset(assetId)
+        asset: editor.getAsset(assetId),
+        bulkRefs: bulkIds.map((id: string) => editor.getShape(id)?.meta.ref)
       };
     },
-    { shapeId, imageId, assetId }
+    { shapeId, imageId, assetId, bulkIds }
   );
   expect(restored.card.meta.ref).toBe(ref);
   expect(restored.image.props.assetId).toBe(assetId);
   expect(restored.asset.props.src).toBe(dataUrl);
+  expect(restored.bulkRefs).toHaveLength(40);
+  expect(restored.bulkRefs.every((bulkRef: string) => /^i\d+$/.test(bulkRef))).toBe(true);
 });

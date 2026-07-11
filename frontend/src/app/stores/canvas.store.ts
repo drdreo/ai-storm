@@ -70,6 +70,7 @@ interface CanvasState {
   loadState: "idle" | "loading" | "ready" | "error";
   error: string | null;
   recoveryPath: string | null;
+  notice: string | null;
   unsaved: boolean;
   /**
    * Monotonic counter bumped whenever the mounted canvas gains cards (a fresh
@@ -85,6 +86,7 @@ export const useCanvasStore = create<CanvasState>(() => ({
   loadState: "idle",
   error: null,
   recoveryPath: null,
+  notice: null,
   unsaved: false,
   ideasTick: 0
 }));
@@ -118,14 +120,54 @@ const stores = new Map<string, TLStore>();
 const refPools = new Map<string, string[]>();
 const refPoolRefills = new Set<string>();
 const revisions = new Map<string, number>();
-let queuedDocument: BoardDocumentSnapshot | null = null;
-let saveTimer: number | null = null;
-let maxSaveTimer: number | null = null;
-let saveInFlight: Promise<void> | null = null;
+interface ProjectSaveState {
+  queued: BoardDocumentSnapshot | null;
+  inFlight: Promise<boolean> | null;
+  debounceTimer: number | null;
+  maxTimer: number | null;
+  error: string | null;
+  recoveryPath: string | null;
+}
+const saveStates = new Map<string, ProjectSaveState>();
+const pendingRefRepairs = new Map<string, Set<string>>();
+const refRepairsInFlight = new Set<string>();
 let suppressSaves = false;
 
 function sessionKey(projectId: string): string {
   return `ai-storm:ui:${projectId}`;
+}
+
+function projectSaveState(projectId: string): ProjectSaveState {
+  let state = saveStates.get(projectId);
+  if (!state) {
+    state = {
+      queued: null,
+      inFlight: null,
+      debounceTimer: null,
+      maxTimer: null,
+      error: null,
+      recoveryPath: null
+    };
+    saveStates.set(projectId, state);
+  }
+  return state;
+}
+
+function syncActiveSaveUi(projectId: string): void {
+  if (activeId !== projectId) return;
+  const state = projectSaveState(projectId);
+  useCanvasStore.setState({
+    unsaved: !!state.queued || !!state.inFlight,
+    error: state.error,
+    recoveryPath: state.recoveryPath
+  });
+}
+
+function setProjectError(projectId: string, error: unknown): void {
+  const state = projectSaveState(projectId);
+  state.error = error instanceof Error ? error.message : String(error);
+  state.recoveryPath = (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`;
+  syncActiveSaveUi(projectId);
 }
 
 async function reserveCanonicalRefs(projectId: string, count: number): Promise<string[]> {
@@ -152,6 +194,7 @@ function refillRefPool(projectId: string): void {
   void backend
     .request<{ refs: string[] }>("reserve-idea-refs", { projectId, payload: { count: 32 } })
     .then(({ refs }) => pool.push(...refs))
+    .catch((error) => setProjectError(projectId, error))
     .finally(() => refPoolRefills.delete(projectId));
 }
 
@@ -168,22 +211,64 @@ function installRefGuard(projectId: string, store: TLStore): void {
         );
     if (meta.ref && !duplicate) return record;
     const ref = refPools.get(projectId)?.shift();
-    if (!ref) {
-      console.error("[ai-storm] canonical ref pool exhausted; idea creation was not assigned a ref");
-      return record;
-    }
+    if (!ref) return record;
     refillRefPool(projectId);
     return { ...record, meta: { ...record.meta, ref } };
   });
+
+  // A synchronous before-create hook cannot await the backend. If a paste is
+  // larger than the reserved pool, repair those overflow cards immediately and
+  // hold their board save until every card has a canonical ref.
+  store.sideEffects.registerAfterCreateHandler("shape", (record) => {
+    if (record.type !== "idea-card" || (record.meta as IdeaCardMeta).ref) return;
+    let repairs = pendingRefRepairs.get(projectId);
+    if (!repairs) {
+      repairs = new Set();
+      pendingRefRepairs.set(projectId, repairs);
+    }
+    repairs.add(record.id);
+    void repairMissingRefs(projectId, store);
+  });
 }
 
-function buildStore(projectId: string, board: LoadedBoard, refs: string[]): TLStore {
+async function repairMissingRefs(projectId: string, store: TLStore): Promise<void> {
+  const pending = pendingRefRepairs.get(projectId);
+  if (!pending?.size || refRepairsInFlight.has(projectId)) return;
+  refRepairsInFlight.add(projectId);
+  const ids = [...pending];
+  let repaired = false;
+  try {
+    const refs = await reserveCanonicalRefs(projectId, ids.length);
+    ids.forEach((id, index) => {
+      const current = store.get(id as TLShapeId);
+      if (current?.typeName === "shape" && current.type === "idea-card") {
+        store.put([{ ...current, meta: { ...current.meta, ref: refs[index] } }]);
+      }
+      pending.delete(id);
+    });
+    if (pending.size === 0) pendingRefRepairs.delete(projectId);
+    repaired = true;
+    queueStoreDocument(projectId, store);
+  } catch (error) {
+    // Keep the ids queued; reconnect retries before any board flush.
+    setProjectError(projectId, error);
+  } finally {
+    refRepairsInFlight.delete(projectId);
+    if (repaired && pending.size > 0) void repairMissingRefs(projectId, store);
+  }
+}
+
+function buildStore(
+  projectId: string,
+  board: LoadedBoard,
+  options: { refs?: string[]; register?: boolean; restoreSession?: boolean } = {}
+): TLStore {
   const store = createTLStore({
     shapeUtils: [...defaultShapeUtils, IdeaCardShapeUtil],
     bindingUtils: [...defaultBindingUtils]
   });
   try {
-    const rawSession = localStorage.getItem(sessionKey(projectId));
+    const rawSession = options.restoreSession === false ? null : localStorage.getItem(sessionKey(projectId));
     const session = rawSession ? JSON.parse(rawSession) : undefined;
     if (board.document || session) loadSnapshot(store, { document: board.document ?? undefined, session });
   } catch (error) {
@@ -193,49 +278,63 @@ function buildStore(projectId: string, board: LoadedBoard, refs: string[]): TLSt
     (wrapped as Error & { path?: string }).path = `projects/${projectId}/board.json`;
     throw wrapped;
   }
-  refPools.set(projectId, refs);
-  installRefGuard(projectId, store);
-  stores.set(projectId, store);
-  revisions.set(projectId, board.revision);
+  if (options.register !== false) {
+    refPools.set(projectId, options.refs ?? []);
+    installRefGuard(projectId, store);
+    stores.set(projectId, store);
+    revisions.set(projectId, board.revision);
+  }
   return store;
 }
 
 async function loadProject(projectId: string): Promise<TLStore> {
-  useCanvasStore.setState({ loadState: "loading", error: null, recoveryPath: null });
+  if (activeId === projectId) useCanvasStore.setState({ loadState: "loading", error: null, recoveryPath: null });
   try {
     const board = await backend.request<LoadedBoard>("board-load", { projectId });
     const { refs } = await backend.request<{ refs: string[] }>("reserve-idea-refs", {
       projectId,
       payload: { count: 32 }
     });
-    const store = buildStore(projectId, board, refs);
-    if (activeId === projectId) useCanvasStore.setState({ activeStore: store, loadState: "ready" });
+    const store = buildStore(projectId, board, { refs });
+    if (activeId === projectId) {
+      useCanvasStore.setState({ activeStore: store, loadState: "ready", notice: null });
+      syncActiveSaveUi(projectId);
+    }
     return store;
   } catch (error) {
-    const path = (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`;
-    useCanvasStore.setState({
-      loadState: "error",
-      error: error instanceof Error ? error.message : String(error),
-      recoveryPath: path
-    });
+    if (activeId === projectId) {
+      const path = (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`;
+      useCanvasStore.setState({
+        loadState: "error",
+        error: error instanceof Error ? error.message : String(error),
+        recoveryPath: path
+      });
+    }
     throw error;
   }
 }
 
-function clearSaveTimers(): void {
-  if (saveTimer !== null) clearTimeout(saveTimer);
-  if (maxSaveTimer !== null) clearTimeout(maxSaveTimer);
-  saveTimer = maxSaveTimer = null;
+async function loadSearchStore(projectId: string): Promise<TLStore> {
+  const board = await backend.request<LoadedBoard>("board-load", { projectId });
+  return buildStore(projectId, board, { register: false, restoreSession: false });
 }
 
-async function saveQueued(): Promise<void> {
-  clearSaveTimers();
-  if (saveInFlight || !activeId || !queuedDocument) return;
-  const projectId = activeId;
-  const document = queuedDocument;
-  queuedDocument = null;
+function clearSaveTimers(state: ProjectSaveState): void {
+  if (state.debounceTimer !== null) clearTimeout(state.debounceTimer);
+  if (state.maxTimer !== null) clearTimeout(state.maxTimer);
+  state.debounceTimer = state.maxTimer = null;
+}
+
+async function saveQueued(projectId: string): Promise<boolean> {
+  const state = projectSaveState(projectId);
+  clearSaveTimers(state);
+  if (state.inFlight) return false;
+  if (!state.queued) return true;
+  const document = state.queued;
+  state.queued = null;
+  syncActiveSaveUi(projectId);
   const expectedRevision = revisions.get(projectId) ?? 0;
-  saveInFlight = backend
+  state.inFlight = backend
     .request<{ ok: boolean; board?: { revision: number }; conflict?: LoadedBoard }>("board-save", {
       projectId,
       payload: { expectedRevision, document }
@@ -243,10 +342,13 @@ async function saveQueued(): Promise<void> {
     .then((result) => {
       if (result.ok && result.board) {
         revisions.set(projectId, result.board.revision);
-        useCanvasStore.setState({ error: null, recoveryPath: null });
-      } else if (result.conflict) {
+        state.error = state.recoveryPath = null;
+        return true;
+      }
+      if (result.conflict) {
         revisions.set(projectId, result.conflict.revision);
-        if (activeId === projectId) queuedDocument = null;
+        state.queued = null;
+        state.error = state.recoveryPath = null;
         const store = stores.get(projectId);
         if (store) {
           suppressSaves = true;
@@ -256,31 +358,41 @@ async function saveQueued(): Promise<void> {
             suppressSaves = false;
           }
         }
+        if (activeId === projectId) {
+          bumpIdeasTick();
+          useCanvasStore.setState({
+            notice:
+              "The backend board changed while you were offline. Local unsaved edits were discarded and the latest board was loaded."
+          });
+        }
+        return true;
       }
+      return false;
     })
     .catch((error) => {
-      // If the user switched while this flush was in flight, the old project's
-      // live store still retains its document; never put that snapshot into the
-      // newly active project's queue.
-      if (activeId === projectId) queuedDocument = document;
-      useCanvasStore.setState({
-        error: error instanceof Error ? error.message : String(error),
-        recoveryPath: (error as Error & { path?: string }).path ?? `projects/${projectId}/board.json`
-      });
+      // A newer queued snapshot already contains these edits; otherwise restore
+      // this attempt so reconnect/switching can retry the same project later.
+      if (!state.queued) state.queued = document;
+      setProjectError(projectId, error);
+      return false;
     })
     .finally(() => {
-      saveInFlight = null;
-      useCanvasStore.setState({ unsaved: queuedDocument !== null });
-      if (queuedDocument && useBackendStore.getState().state === "open") scheduleSave();
+      state.inFlight = null;
+      syncActiveSaveUi(projectId);
+      if (state.queued && useBackendStore.getState().state === "open") scheduleSave(projectId);
     });
-  await saveInFlight;
+  syncActiveSaveUi(projectId);
+  return state.inFlight;
 }
 
-function scheduleSave(): void {
-  useCanvasStore.setState({ unsaved: true });
-  if (saveTimer !== null) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => void saveQueued(), 500) as unknown as number;
-  if (maxSaveTimer === null) maxSaveTimer = setTimeout(() => void saveQueued(), 2000) as unknown as number;
+function scheduleSave(projectId: string): void {
+  const state = projectSaveState(projectId);
+  syncActiveSaveUi(projectId);
+  if (state.debounceTimer !== null) clearTimeout(state.debounceTimer);
+  state.debounceTimer = setTimeout(() => void saveQueued(projectId), 500) as unknown as number;
+  if (state.maxTimer === null) {
+    state.maxTimer = setTimeout(() => void saveQueued(projectId), 2000) as unknown as number;
+  }
 }
 
 function saveLocalSession(): void {
@@ -291,36 +403,76 @@ function saveLocalSession(): void {
     /* browser-only best effort */
   }
 }
+
+function queueStoreDocument(projectId: string, store: TLStore): void {
+  if (suppressSaves) return;
+  const state = projectSaveState(projectId);
+  state.queued = getSnapshot(store).document;
+  syncActiveSaveUi(projectId);
+  if (!pendingRefRepairs.get(projectId)?.size) scheduleSave(projectId);
+}
+
 function queueDocumentSave(): void {
-  if (suppressSaves || !editor || !activeId) return;
-  queuedDocument = getSnapshot(editor.store).document;
+  if (!editor || !activeId) return;
+  queueStoreDocument(activeId, editor.store);
   saveLocalSession();
-  scheduleSave();
+}
+
+async function flushProjectPersistence(projectId: string): Promise<void> {
+  const state = projectSaveState(projectId);
+  clearSaveTimers(state);
+  while (state.queued || state.inFlight) {
+    if (state.inFlight) {
+      const saved = await state.inFlight;
+      if (!saved && state.queued) return;
+    } else if (!(await saveQueued(projectId))) {
+      return;
+    }
+  }
+}
+
+async function reconcileProject(projectId: string): Promise<void> {
+  const state = projectSaveState(projectId);
+  if (!state.queued || pendingRefRepairs.get(projectId)?.size) return;
+  try {
+    const latest = await backend.request<LoadedBoard>("board-load", { projectId });
+    if (latest.revision === revisions.get(projectId)) {
+      await flushProjectPersistence(projectId);
+      return;
+    }
+    state.queued = null;
+    state.error = state.recoveryPath = null;
+    revisions.set(projectId, latest.revision);
+    const store = stores.get(projectId);
+    if (store) {
+      suppressSaves = true;
+      try {
+        loadSnapshot(store, { document: latest.document ?? undefined });
+      } finally {
+        suppressSaves = false;
+      }
+    }
+    if (activeId === projectId) {
+      bumpIdeasTick();
+      useCanvasStore.setState({
+        notice:
+          "The backend board changed while you were offline. Local unsaved edits were discarded and the latest board was loaded."
+      });
+    }
+    syncActiveSaveUi(projectId);
+  } catch {
+    /* retain this project's in-memory recovery snapshot */
+  }
 }
 
 async function reconcileOnReconnect(): Promise<void> {
-  if (!activeId || !queuedDocument) return;
-  const projectId = activeId;
-  try {
-    const latest = await backend.request<LoadedBoard>("board-load", { projectId });
-    if (latest.revision === revisions.get(projectId)) await saveQueued();
-    else {
-      queuedDocument = null;
-      revisions.set(projectId, latest.revision);
+  await Promise.all(
+    [...pendingRefRepairs.keys()].map(async (projectId) => {
       const store = stores.get(projectId);
-      if (store) {
-        suppressSaves = true;
-        try {
-          loadSnapshot(store, { document: latest.document ?? undefined });
-        } finally {
-          suppressSaves = false;
-        }
-      }
-      useCanvasStore.setState({ unsaved: false });
-    }
-  } catch {
-    /* retain the in-memory recovery snapshot */
-  }
+      if (store) await repairMissingRefs(projectId, store);
+    })
+  );
+  await Promise.all([...saveStates.entries()].filter(([, state]) => state.queued).map(([id]) => reconcileProject(id)));
 }
 
 function bumpIdeasTick(): void {
@@ -377,7 +529,9 @@ function onEditorMount(ed: Editor): void {
 
 backend.onOpen(() => void reconcileOnReconnect());
 if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => void saveQueued());
+  window.addEventListener("beforeunload", () => {
+    for (const projectId of saveStates.keys()) void saveQueued(projectId);
+  });
 }
 
 export const canvas = {
@@ -423,8 +577,13 @@ export const canvas = {
     if (!stores.has(projectId)) await loadProject(projectId);
   },
 
+  dismissNotice(): void {
+    useCanvasStore.setState({ notice: null });
+  },
+
   retryLoad(projectId: string): Promise<void> {
     stores.delete(projectId);
+    refPools.delete(projectId);
     return loadProject(projectId).then(() => undefined);
   },
 
@@ -448,12 +607,20 @@ export const canvas = {
    */
   switchTo(projectId: string): void {
     if (projectId === activeId) return;
-    void saveQueued();
+    const previousId = activeId;
+    if (previousId) void flushProjectPersistence(previousId);
     activeId = projectId;
     editor = null;
-    queuedDocument = null;
     const store = stores.get(projectId);
-    useCanvasStore.setState({ activeStore: store ?? null, loadState: store ? "ready" : "loading", unsaved: false });
+    const saveState = projectSaveState(projectId);
+    useCanvasStore.setState({
+      activeStore: store ?? null,
+      loadState: store ? "ready" : "loading",
+      unsaved: !!saveState.queued || !!saveState.inFlight,
+      error: saveState.error,
+      recoveryPath: saveState.recoveryPath,
+      notice: null
+    });
     if (!store) void loadProject(projectId);
   },
 
@@ -657,8 +824,7 @@ export const canvas = {
 
   /** Flush the coalesced backend board write before a switch/export completes. */
   async flushPersistence(): Promise<void> {
-    if (queuedDocument) await saveQueued();
-    if (saveInFlight) await saveInFlight;
+    if (activeId) await flushProjectPersistence(activeId);
   },
 
   /** Full-fidelity tldraw snapshot of every mounted page (names, shapes, assets), or `undefined` if unmounted. */
@@ -691,7 +857,7 @@ export const canvas = {
           return allIdeaCards(editor).map((c) => toSearchableIdea(id, title, c.id, c.props, c.meta as IdeaCardMeta));
         }
         try {
-          const store = stores.get(id) ?? (await loadProject(id));
+          const store = stores.get(id) ?? (await loadSearchStore(id));
           return store
             .allRecords()
             .filter((record) => record.typeName === "shape" && (record as { type?: string }).type === "idea-card")
@@ -761,6 +927,11 @@ export const canvas = {
     stores.delete(projectId);
     refPools.delete(projectId);
     revisions.delete(projectId);
+    pendingRefRepairs.delete(projectId);
+    refRepairsInFlight.delete(projectId);
+    const saveState = saveStates.get(projectId);
+    if (saveState) clearSaveTimers(saveState);
+    saveStates.delete(projectId);
     localStorage.removeItem(sessionKey(projectId));
   }
 };

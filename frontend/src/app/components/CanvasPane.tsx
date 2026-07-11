@@ -98,6 +98,7 @@ export function CanvasPane() {
   const canvasLoadState = useCanvasStore((s) => s.loadState);
   const canvasError = useCanvasStore((s) => s.error);
   const recoveryPath = useCanvasStore((s) => s.recoveryPath);
+  const canvasNotice = useCanvasStore((s) => s.notice);
   const unsaved = useCanvasStore((s) => s.unsaved);
   // Convergence panel (#28): the summary is regenerated each time it opens — a
   // fresh on-demand reading of the current board, never cached stale.
@@ -359,9 +360,9 @@ export function CanvasPane() {
             )}
           </div>
         )}
-        {active && canvasLoadState === "ready" && (unsaved || canvasError) && (
-          <div className="absolute bottom-3 right-3 z-50 flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-xs shadow">
-            <span>{canvasError ?? "Changes not yet saved"}</span>
+        {active && canvasLoadState === "ready" && (unsaved || canvasError || canvasNotice) && (
+          <div className="absolute bottom-3 right-3 z-50 flex max-w-md items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-xs shadow">
+            <span>{canvasError ?? canvasNotice ?? "Changes not yet saved"}</span>
             {canvasError && (
               <Button size="sm" variant="outline" onClick={() => void canvas.flushPersistence()}>
                 Retry
@@ -370,6 +371,11 @@ export function CanvasPane() {
             {canvasError && (
               <Button size="sm" variant="outline" onClick={() => canvas.downloadRecovery(active.id)}>
                 Recovery JSON
+              </Button>
+            )}
+            {canvasNotice && !canvasError && (
+              <Button size="sm" variant="ghost" onClick={() => canvas.dismissNotice()}>
+                Dismiss
               </Button>
             )}
           </div>
