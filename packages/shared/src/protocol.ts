@@ -27,6 +27,9 @@
 
 export * from "./modes.js";
 export * from "./project.js";
+export * from "./idea.js";
+
+import type { CreateIdeaInput } from "./idea.js";
 
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =
@@ -56,7 +59,9 @@ export type StateOperation =
   | "history-append"
   | "history-update"
   | "history-delete"
-  | "history-clear";
+  | "history-clear"
+  | "state-export"
+  | "state-import";
 
 const STATE_OPERATIONS: ReadonlySet<string> = new Set<StateOperation>([
   "registry-load",
@@ -73,7 +78,9 @@ const STATE_OPERATIONS: ReadonlySet<string> = new Set<StateOperation>([
   "history-append",
   "history-update",
   "history-delete",
-  "history-clear"
+  "history-clear",
+  "state-export",
+  "state-import"
 ]);
 
 export interface StateRequestMessage {
@@ -237,48 +244,7 @@ export interface SessionStatusMessage {
 }
 
 /**
- * The relationship an {@link IdeaLink} edge carries (idea-graph design §2.3).
- * `'about'` is the generic default — "this card is about that card"; the source
- * card's `kind` carries the flavour (a risk-of edge is just a `kind: 'risk'`
- * card with an `about` link). `'supersedes'` is the one structural relation that
- * isn't derivable from the source's kind — the card replaces its target
- * (decision capture / lifecycle, #22/#20). Extensible, but deliberately tiny.
- */
-export type IdeaRelation = "about" | "supersedes";
-
-/** A typed edge from one idea to another card (idea-graph design §3.1). */
-export interface IdeaLink {
-  /** Short ref of the target card this idea links to (see idea-graph §4). */
-  to: string;
-  /** Defaults to `'about'`; `'supersedes'` means this card replaces the target. */
-  relation?: IdeaRelation;
-}
-
-/**
- * A single extracted brainstorming idea destined for the canvas.
- *
- * `id`/`links` are additive (idea-graph design §3.1) and OPTIONAL — nothing that
- * produces today's `{title, body, kind}` breaks. They are dormant until the
- * idea-graph consumers (#40/#19/#22/#16) turn them on; until then the frontend
- * ignores `links` and mints its own card identity.
- */
-export interface Idea {
-  /** Short title — the card heading. */
-  title: string;
-  /** One-line (or, for fenced ideas, multi-line) description — the card body. */
-  body: string;
-  /** Optional kind/tag, e.g. "risk" | "feature" | "question" | "decision" | "heuristic". */
-  kind?: string;
-  /** This idea's own short ref, when the agent stamped one (fenced `id:`). Usually
-   *  minted by the canvas at card creation instead (idea-graph §4). */
-  id?: string;
-  /** 0..n edges to other cards (idea-graph §3.1). A verb-spawned idea usually
-   *  carries one (its originating edge) or none. */
-  links?: IdeaLink[];
-}
-
-/**
- * Canonical identity key for an {@link Idea} — the key the backend scanner uses
+ * Canonical identity key for a {@link CreateIdeaInput} — the key the backend scanner uses
  * to track which ideas it has already emitted this session, so a marker the
  * terminal re-renders every frame is sent to the canvas exactly once (#38).
  *
@@ -293,10 +259,10 @@ export interface Idea {
  * `kind` + `links` stay in the key so a same-titled risk vs. feature, or an idea
  * pointed at a different card, stay distinct (idea-graph design §5.1; links are
  * order-independent). The title's whitespace is normalized for safety; the
- * idea's own `id` is excluded (identity is what the idea is about, not the ref a
+ * idea's own `ref` is excluded (identity is what the idea is about, not the ref a
  * producer minted).
  */
-export function ideaIdentityKey(idea: Idea): string {
+export function ideaIdentityKey(idea: CreateIdeaInput): string {
   const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
   const links = (idea.links ?? [])
     .map((l) => `${l.to}:${l.relation ?? "about"}`)
@@ -307,7 +273,7 @@ export function ideaIdentityKey(idea: Idea): string {
 }
 
 /**
- * An AI triage score for one EXISTING card (#60). Unlike an {@link Idea} (which
+ * An AI triage score for one EXISTING card (#60). Unlike a {@link CreateIdeaInput} (which
  * creates a card), a score *updates* a card already on the board: it targets the
  * card's short ref (idea-graph §4) and carries the agent's impact / effort /
  * confidence rating on a 1..5 scale. Extracted from the `«SCORE@ref»` marker the
@@ -418,7 +384,7 @@ export interface DataMessage {
 export interface IdeaMessage {
   type: "idea";
   projectId: string;
-  idea: Idea;
+  idea: CreateIdeaInput;
 }
 
 /** The durable session ended unexpectedly (e.g. killed externally). */

@@ -1,28 +1,28 @@
 /**
  * Unit tests for `applyIdeas` (#135), the one AI write-path that renders extracted
- * {@link Idea}s as cards + typed edges. Runs against the shared {@link EditorFake}
+ * {@link CreateIdeaInput}s as cards + typed edges. Runs against the shared {@link EditorFake}
  * so the real ref-minting, link resolution, grid/anchor placement, and supersede
  * ghosting are what's under test, not a mock of them.
  */
 import { describe, it, expect } from "vitest";
-import type { Idea } from "@ai-storm/shared";
+import type { CreateIdeaInput } from "@ai-storm/shared";
 import { EditorFake } from "../../../testing";
 import { CARD_H, CARD_W } from "./idea-card";
 import { applyIdeas as applyCanonicalIdeas } from "./ingest";
 
 /** Unit seam mirroring canvas.store's backend reservation before ingestion. */
-function applyIdeas(editor: ReturnType<EditorFake["asEditor"]>, ideas: Idea[]): void {
+function applyIdeas(editor: ReturnType<EditorFake["asEditor"]>, ideas: CreateIdeaInput[]): void {
   let next =
     [
       ...editor.getCurrentPageShapes().map((shape) => (shape.type === "idea-card" ? String(shape.meta.ref ?? "") : "")),
-      ...ideas.map((idea) => idea.id ?? "")
+      ...ideas.map((idea) => idea.ref ?? "")
     ].reduce((max, ref) => {
       const match = /^i(\d+)$/.exec(ref);
       return match ? Math.max(max, Number(match[1])) : max;
     }, 0) + 1;
   applyCanonicalIdeas(
     editor,
-    ideas.map((idea) => (idea.id ? idea : { ...idea, id: `i${next++}` }))
+    ideas.map((idea) => (idea.ref ? idea : { ...idea, ref: `i${next++}` }))
   );
 }
 
@@ -73,7 +73,7 @@ describe("applyIdeas", () => {
   it("honours producer-stamped canonical ids", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
-      { id: "i7", title: "MCP card", body: "" },
+      { ref: "i7", title: "MCP card", body: "" },
       { title: "canvas card", body: "" }
     ]);
     const refs = e.cards().map((c) => c.meta.ref);
@@ -82,16 +82,16 @@ describe("applyIdeas", () => {
 
   it("refuses a canonical id that collides with a card already on the board", () => {
     const e = new EditorFake();
-    applyIdeas(e.asEditor(), [{ id: "i1", title: "Original", body: "" }]);
-    applyIdeas(e.asEditor(), [{ id: "i1", title: "Impostor", body: "" }]);
+    applyIdeas(e.asEditor(), [{ ref: "i1", title: "Original", body: "" }]);
+    applyIdeas(e.asEditor(), [{ ref: "i1", title: "Impostor", body: "" }]);
     expect(e.cards().map((card) => card.props.title)).toEqual(["Original"]);
   });
 
   it("refuses duplicate canonical ids within the same batch", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
-      { id: "i1", title: "First", body: "" },
-      { id: "i1", title: "Second", body: "" }
+      { ref: "i1", title: "First", body: "" },
+      { ref: "i1", title: "Second", body: "" }
     ]);
     expect(e.cards().map((c) => c.meta.ref)).toEqual(["i1"]);
   });
@@ -99,7 +99,7 @@ describe("applyIdeas", () => {
   it("anchors a linked card beside its resolved target and draws a relation arrow", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
-      { id: "i1", title: "Target", body: "" },
+      { ref: "i1", title: "Target", body: "" },
       { title: "Child", body: "", links: [{ to: "i1", relation: "about" }] }
     ]);
 
@@ -118,7 +118,7 @@ describe("applyIdeas", () => {
   it("ghosts the target of a supersedes link and styles the arrow red/dashed", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
-      { id: "i1", title: "Old", body: "" },
+      { ref: "i1", title: "Old", body: "" },
       { title: "New", body: "", links: [{ to: "i1", relation: "supersedes" }] }
     ]);
 
@@ -153,8 +153,8 @@ describe("applyIdeas", () => {
   it("connects every resolved link of a merge, not just the first", () => {
     const e = new EditorFake();
     applyIdeas(e.asEditor(), [
-      { id: "i1", title: "A", body: "" },
-      { id: "i2", title: "B", body: "" },
+      { ref: "i1", title: "A", body: "" },
+      { ref: "i2", title: "B", body: "" },
       {
         title: "Merged",
         body: "",

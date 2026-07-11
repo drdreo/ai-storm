@@ -12,7 +12,7 @@ describe("serializeSelectedIdeas", () => {
     expect(serializeSelectedIdeasJson(e.asEditor())).toBeNull();
   });
 
-  it("serializes a legacy card without manufacturing a browser-local ref", () => {
+  it("omits a malformed legacy card without a canonical ref", () => {
     const e = new EditorFake();
     e.addShape(
       ideaCardShape("shape:1", {
@@ -22,25 +22,7 @@ describe("serializeSelectedIdeas", () => {
     );
     e.select("shape:1");
 
-    expect(serializeSelectedIdeas(e.asEditor())).toEqual({
-      version: 1,
-      cards: [
-        {
-          ref: null,
-          id: "shape:1",
-          kind: "feature",
-          title: "Copy JSON",
-          body: "Use normalized payload",
-          origin: "user",
-          createdAt: 1720000000000,
-          starred: false,
-          done: false,
-          superseded: false,
-          score: undefined
-        }
-      ],
-      edges: []
-    });
+    expect(serializeSelectedIdeas(e.asEditor())).toEqual({ version: 2, cards: [], edges: [] });
     expect(e.get("shape:1").meta.ref).toBeUndefined();
   });
 
@@ -70,7 +52,7 @@ describe("serializeSelectedIdeas", () => {
     expect(payload?.cards[0]).toMatchObject({ title: "First", starred: true, done: false, superseded: false });
     expect(payload?.cards[1]).toMatchObject({
       title: "Second",
-      origin: "ai",
+      origin: "agent",
       starred: false,
       done: true,
       superseded: true,
@@ -89,10 +71,10 @@ describe("serializeSelectedIdeas", () => {
 
     expect(serializeSelectedIdeas(e.asEditor())?.edges).toEqual([
       {
+        id: "arrow:selected",
+        pageId: "page:current",
         from: "a1",
         to: "a2",
-        fromId: "shape:a",
-        toId: "shape:b",
         relation: "supersedes"
       }
     ]);
@@ -109,13 +91,15 @@ describe("serializeSelectedIdeas", () => {
 
   it("returns compact JSON without raw tldraw props or clipboard data", () => {
     const e = new EditorFake();
-    e.addShape(ideaCardShape("shape:card", { props: { title: "Plain data", body: "No shape blob" } }));
+    e.addShape(
+      ideaCardShape("shape:card", { props: { title: "Plain data", body: "No shape blob" }, meta: { ref: "i1" } })
+    );
     e.select("shape:card");
 
     const json = serializeSelectedIdeasJson(e.asEditor());
 
     expect(json).not.toContain("props");
     expect(json).not.toContain("base64");
-    expect(JSON.parse(json!)).toMatchObject({ version: 1, cards: [{ title: "Plain data" }] });
+    expect(JSON.parse(json!)).toMatchObject({ version: 2, cards: [{ title: "Plain data" }] });
   });
 });

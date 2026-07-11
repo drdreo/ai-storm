@@ -8,7 +8,7 @@
  * contract — see `docs/design/ai-response-extraction-contract.md`.
  */
 
-import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
@@ -74,7 +74,7 @@ export interface SessionBackend {
   attach(
     projectId: string,
     onData: (raw: string) => void,
-    onIdea: (idea: Idea) => void,
+    onIdea: (idea: CreateIdeaInput) => void,
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,

@@ -71,7 +71,8 @@ describe("deriveBoardIdeas", () => {
     expect(result.pages[0].cards[1]).toMatchObject({
       id: "shape:a",
       title: "Title i1",
-      origin: "ai",
+      origin: "agent",
+      pageId: "page:1",
       color: "blue",
       editedByUser: true,
       issue: { provider: "github", key: "owner/repo#1" },
@@ -84,10 +85,9 @@ describe("deriveBoardIdeas", () => {
     expect(result.pages[0].edges).toEqual([
       {
         id: "shape:arrow1",
+        pageId: "page:1",
         from: "i1",
         to: "i2",
-        fromId: "shape:a",
-        toId: "shape:b",
         relation: "supersedes"
       }
     ]);

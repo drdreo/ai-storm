@@ -2,14 +2,10 @@
  * Tests for the project registry lifecycle (create / rename / restore).
  *
  * Ported from the Angular `ProjectService` spec to the Zustand store. The
- * store is a module singleton (Y.Doc created at import time), so each test gets
- * a fresh module instance via `vi.resetModules()` + dynamic import, paired with
- * a fresh IDBFactory + localStorage stub for isolation. The canvas controller is
- * mocked (it would otherwise pull in tldraw + a DOM).
+ * store is a module singleton, so each test gets a fresh module instance via
+ * `vi.resetModules()` + dynamic import and a localStorage stub for isolation.
+ * The canvas controller is mocked (it would otherwise pull in tldraw + a DOM).
  */
-
-import "fake-indexeddb/auto";
-import { IDBFactory } from "fake-indexeddb";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /** Minimal synchronous localStorage for the active-project pointer. */
@@ -34,7 +30,44 @@ let registry = { projects: [] as Array<Record<string, any>>, folders: [] as Arra
 async function stateRequest(operation: string, options: { projectId?: string; payload?: Record<string, any> } = {}) {
   const payload = options.payload ?? {};
   if (operation === "registry-load") return structuredClone(registry);
-  if (operation === "registry-create-project") {
+  if (operation === "state-export") {
+    const selected = new Set(payload.projectIds ?? registry.projects.map((project) => project.id));
+    const projects = registry.projects.filter((project) => selected.has(project.id));
+    const folderIds = new Set(projects.map((project) => project.folderId).filter(Boolean));
+    return {
+      version: 2,
+      exportedAt: 1,
+      registry: {
+        version: 1,
+        revision: registry.revision,
+        projects,
+        folders: registry.folders.filter((f) => folderIds.has(f.id))
+      },
+      boards: Object.fromEntries(
+        projects.map((project) => [project.id, { version: 1, revision: 0, nextIdeaRef: 1, document: null }])
+      ),
+      histories: Object.fromEntries(projects.map((project) => [project.id, { version: 1, revision: 0, runs: [] }]))
+    };
+  }
+  if (operation === "state-import") {
+    const bundle = payload.bundle;
+    const selected = new Set(payload.projectIds ?? bundle.registry.projects.map((project: any) => project.id));
+    const projects = bundle.registry.projects.filter((project: any) => selected.has(project.id));
+    const sourceFolderIds = new Set(projects.map((project: any) => project.folderId).filter(Boolean));
+    const folderMap = new Map<string, string>();
+    for (const folder of bundle.registry.folders.filter((item: any) => sourceFolderIds.has(item.id))) {
+      const id = `fld_import_${folderMap.size}`;
+      folderMap.set(folder.id, id);
+      registry.folders.push({ ...folder, id });
+    }
+    for (const source of projects) {
+      registry.projects.push({
+        ...source,
+        id: `ws_import_${registry.projects.length}`,
+        folderId: source.folderId ? folderMap.get(source.folderId) : undefined
+      });
+    }
+  } else if (operation === "registry-create-project") {
     const project = payload.project;
     registry.projects.push({ ...project, updatedAt: project.createdAt });
   } else if (operation === "registry-patch-project") {
@@ -84,7 +117,6 @@ async function bootStore() {
 describe("project store — registry lifecycle", () => {
   beforeEach(() => {
     // Fresh backend authority + active pointer for each test.
-    (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
   });
@@ -128,7 +160,6 @@ describe("project store — registry lifecycle", () => {
 
 describe("project store — folders (#128)", () => {
   beforeEach(() => {
-    (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
   });
@@ -258,52 +289,41 @@ describe("project store — folders (#128)", () => {
     expect(folders.every((f) => f.order)).toBe(true);
   });
 
-  it("importProjects() creates new projects and matches/recreates folders by title", async () => {
-    const { project, useProjectStore, canvasMock } = await bootStore();
-    const existingFolder = project.createFolder("Research");
-    const board = { cards: [], edges: [] };
+  it("importProjects() clones selected backend state with fresh project/folder ids", async () => {
+    const { project, useProjectStore } = await bootStore();
+    const bundle = {
+      version: 2 as const,
+      exportedAt: 1,
+      registry: {
+        version: 1 as const,
+        revision: 1,
+        projects: [
+          { id: "p1", title: "Imported A", folderId: "f1", terminal: {}, createdAt: 1, updatedAt: 1 },
+          { id: "p2", title: "Skipped", terminal: {}, createdAt: 1, updatedAt: 1 }
+        ],
+        folders: [{ id: "f1", title: "Research", createdAt: 1 }]
+      },
+      boards: {
+        p1: { version: 1 as const, revision: 0, nextIdeaRef: 7, document: null },
+        p2: { version: 1 as const, revision: 0, nextIdeaRef: 1, document: null }
+      },
+      histories: {
+        p1: { version: 1 as const, revision: 0, runs: [] },
+        p2: { version: 1 as const, revision: 0, runs: [] }
+      }
+    };
 
-    await project.importProjects([
-      { title: "Imported A", terminal: {}, folder: "Research", board },
-      { title: "Imported B", terminal: {}, folder: "Brand New", board },
-      { title: "Imported C", terminal: {}, board }
-    ]);
-
+    await project.importProjects(bundle, ["p1"]);
     const state = useProjectStore.getState();
-    const byTitle = (t: string) => state.projects.find((w) => w.title === t)!;
-    expect(byTitle("Imported A").folderId).toBe(existingFolder);
-    const newFolder = state.folders.find((f) => f.title === "Brand New");
-    expect(newFolder).toBeDefined();
-    expect(byTitle("Imported B").folderId).toBe(newFolder!.id);
-    expect(byTitle("Imported C").folderId).toBeUndefined();
-    // Each imported board is written onto its freshly-mounted canvas.
-    expect(canvasMock.importBoard).toHaveBeenCalledTimes(3);
-    // The last imported project ends up active.
-    expect(state.activeId).toBe(byTitle("Imported C").id);
+    const imported = state.projects.find((item) => item.title === "Imported A")!;
+    expect(imported.id).not.toBe("p1");
+    expect(imported.folderId).toBeTruthy();
+    expect(state.folders.find((folder) => folder.id === imported.folderId)?.title).toBe("Research");
+    expect(state.projects.some((item) => item.title === "Skipped")).toBe(false);
+    expect(state.activeId).toBe(imported.id);
   });
 
-  it("importProjects() prefers the full-fidelity tldraw snapshot and falls back to the board", async () => {
-    const { project, canvasMock } = await bootStore();
-    const board = { cards: [], edges: [] };
-    const content = { shapes: [], bindings: [], rootShapeIds: [], assets: [], schema: {} } as never;
-    const tldraw = [{ name: "Page 1", content }];
-
-    await project.importProjects([
-      { title: "With snapshot", terminal: {}, board, tldraw },
-      { title: "Board only", terminal: {}, board }
-    ]);
-    expect(canvasMock.importTldraw).toHaveBeenCalledTimes(1);
-    expect(canvasMock.importBoard).toHaveBeenCalledTimes(1);
-
-    // A snapshot that fails to restore falls back to the board.
-    canvasMock.importTldraw.mockImplementationOnce(() => {
-      throw new Error("migration failed");
-    });
-    await project.importProjects([{ title: "Broken snapshot", terminal: {}, board, tldraw }]);
-    expect(canvasMock.importBoard).toHaveBeenCalledTimes(2);
-  });
-
-  it("exportAll() snapshots every project with its folder title and restores the active one", async () => {
+  it("exportAll() reads the backend state subset without switching projects", async () => {
     const { project, useProjectStore } = await bootStore();
     const starterId = useProjectStore.getState().activeId!;
     const b = project.create("Boxed");
@@ -312,9 +332,9 @@ describe("project store — folders (#128)", () => {
 
     const bundle = await project.exportAll();
 
-    expect(bundle.projects.map((e) => e.title)).toEqual(["Untitled Project", "Boxed"]);
-    expect(bundle.projects[0].folder).toBeUndefined();
-    expect(bundle.projects[1].folder).toBe("Group");
+    expect(bundle.registry.projects.map((entry) => entry.title)).toEqual(["Untitled Project", "Boxed"]);
+    expect(bundle.registry.folders.map((folder) => folder.title)).toEqual(["Group"]);
+    expect(Object.keys(bundle.boards)).toHaveLength(2);
     expect(useProjectStore.getState().activeId).toBe(starterId);
   });
 

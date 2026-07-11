@@ -1,18 +1,10 @@
 import { create } from "zustand";
 import { backend } from "./backend.store";
-import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
+import type { Folder, PortableStateBundle, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
 import { defaultTerminalConfig, defaultProjectColor } from "../core/models";
 import { compareByOrder, orderAfterAll } from "../core/sidebar-order";
-import {
-  buildExportBundle,
-  buildFullExportBundle,
-  exportProjectEntry,
-  type ExportedProject,
-  type FullExportBundle,
-  type ProjectExportBundle
-} from "../core/project-portable";
 import { withSpan } from "../../lib/log";
 
 const ACTIVE_KEY = "ai-storm.activeProject";
@@ -335,53 +327,17 @@ export const project = {
     canvas.removeProject(id);
   },
 
-  /**
-   * Export a project to a portable bundle (#105). Reading the board requires a
-   * live editor, so a non-active project is switched onto first (an export
-   * click opens/activates that project, same as clicking its sidebar row).
-   */
-  async exportBundle(id: string): Promise<ProjectExportBundle | null> {
-    const meta = getMeta(id);
-    if (!meta) return null;
-    if (useProjectStore.getState().activeId !== id) {
-      project.setActive(id);
-      canvas.switchTo(id);
-    }
-    await canvas.waitForMount(id);
-    const board = canvas.exportBoard(id);
-    if (!board) return null;
-    return buildExportBundle(meta, board, await canvas.exportTldraw(id));
+  /** Export one project directly from the backend-owned durable state. */
+  async exportBundle(id: string): Promise<PortableStateBundle | null> {
+    if (!getMeta(id)) return null;
+    await canvas.flushPersistence();
+    return backend.request<PortableStateBundle>("state-export", { payload: { projectIds: [id] } });
   },
 
-  /**
-   * Export every project into one whole-state bundle. Boards can only be read
-   * from the mounted editor, so this walks the projects sequentially (switch →
-   * wait for mount → snapshot) and restores the originally active project when
-   * done — the canvas visibly flips through the projects while it runs.
-   */
-  async exportAll(): Promise<FullExportBundle> {
-    const { projects, folders, activeId } = useProjectStore.getState();
-    // The walk unmounts the current editor; make sure the user's freshest
-    // edits are persisted before the first switch drops them.
+  /** Export registry, every board, and every history; logs/daemon state stay local. */
+  async exportAll(): Promise<PortableStateBundle> {
     await canvas.flushPersistence();
-    const entries: ExportedProject[] = [];
-    for (const meta of projects) {
-      if (useProjectStore.getState().activeId !== meta.id) {
-        project.setActive(meta.id);
-        canvas.switchTo(meta.id);
-      }
-      await canvas.waitForMount(meta.id);
-      const board = canvas.exportBoard(meta.id);
-      if (!board) continue;
-      const folder = meta.folderId ? folders.find((f) => f.id === meta.folderId)?.title : undefined;
-      entries.push(exportProjectEntry(meta, board, folder, await canvas.exportTldraw(meta.id)));
-    }
-    if (activeId && useProjectStore.getState().activeId !== activeId) {
-      project.setActive(activeId);
-      canvas.switchTo(activeId);
-      await canvas.waitForMount(activeId);
-    }
-    return buildFullExportBundle(entries);
+    return backend.request<PortableStateBundle>("state-export");
   },
 
   /**
@@ -401,43 +357,20 @@ export const project = {
     return canvas.focusIdea(projectId, shapeId);
   },
 
-  /**
-   * Import portable entries as brand-new projects (#105) — never overwrites an
-   * existing one. Each entry is stood up and activated in turn (writing a board
-   * needs its fresh editor mounted); the last imported project stays active.
-   * Folder titles are matched against existing folders, or recreated.
-   */
-  async importProjects(entries: ExportedProject[]): Promise<void> {
-    for (const entry of entries) {
-      const id = project.create(entry.title);
-      const meta = getMeta(id)!;
-      patchProject({
-        ...meta,
-        color: entry.color ?? meta.color,
-        terminal: { ...meta.terminal, ...entry.terminal }
-      });
-      if (entry.folder) {
-        const existing = useProjectStore.getState().folders.find((f) => f.title === entry.folder);
-        project.moveToFolder(id, existing ? existing.id : project.createFolder(entry.folder));
-      }
-      project.setActive(id);
-      canvas.switchTo(id);
-      await canvas.waitForMount(id);
-      // Prefer the full-fidelity tldraw snapshot (positions, drawings, assets);
-      // fall back to the ref-keyed board if it's absent or fails to restore
-      // (e.g. a snapshot whose schema tldraw can no longer migrate).
-      let restored = false;
-      if (entry.tldraw) {
-        try {
-          restored = canvas.importTldraw(id, entry.tldraw);
-        } catch {
-          restored = false;
-        }
-      }
-      if (!restored) canvas.importBoard(id, entry.board);
-      // Switching to the next entry unmounts this editor, and tldraw drops any
-      // not-yet-persisted changes on unmount — flush before moving on.
-      await canvas.flushPersistence();
+  /** Clone selected projects/folders through the backend; existing state is never overwritten. */
+  async importProjects(bundle: PortableStateBundle, projectIds?: readonly string[]): Promise<void> {
+    await canvas.flushPersistence();
+    const existingIds = new Set(useProjectStore.getState().projects.map((item) => item.id));
+    const registry = await backend.request<RegistryWire>("state-import", {
+      payload: { bundle, ...(projectIds ? { projectIds: [...projectIds] } : {}) }
+    });
+    applyRegistry(registry);
+    const imported = registry.projects.filter((item) => !existingIds.has(item.id));
+    const target = imported.at(-1) ?? registry.projects.at(-1);
+    if (target) {
+      project.setActive(target.id);
+      canvas.switchTo(target.id);
+      await canvas.ensureReady(target.id);
     }
   }
 };

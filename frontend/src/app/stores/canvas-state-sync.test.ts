@@ -73,6 +73,38 @@ describe("backend board synchronization", () => {
     (globalThis as { localStorage: StorageStub }).localStorage = new StorageStub();
   });
 
+  it("passes a backend-reserved ref through the real marker-ingestion seam", async () => {
+    harness.request.mockImplementation(async (operation: string, options: { payload?: Record<string, unknown> }) => {
+      if (operation === "board-load") return { revision: 0, document: null };
+      if (operation === "reserve-idea-refs")
+        return { refs: Array.from({ length: Number(options.payload?.count) }, (_, index) => `i${index + 1}`) };
+      throw new Error(`Unexpected ${operation}`);
+    });
+
+    const { canvas, useCanvasStore } = await import("./canvas.store");
+    const island = await import("../core/canvas-island");
+    const applyIdeas = vi.mocked(island.applyIdeas);
+    applyIdeas.mockClear();
+    await canvas.init();
+    await canvas.ensureReady("p1");
+    canvas.switchTo("p1");
+    const editor = {
+      store: useCanvasStore.getState().activeStore!,
+      getCurrentPageId: () => "page:page",
+      getCurrentPageShapes: () => [],
+      getSelectedShapeIds: () => []
+    };
+    canvas.bridge.onEditorMount(editor as never);
+
+    canvas.applyIdeas("p1", [{ title: "Marker fallback", body: "No producer-stamped ref" }]);
+
+    await vi.waitFor(() =>
+      expect(applyIdeas).toHaveBeenCalledWith(editor, [
+        { title: "Marker fallback", body: "No producer-stamped ref", ref: "i1" }
+      ])
+    );
+  });
+
   it("loads before mount, acknowledges a debounced document save, and drops a stale queued snapshot on reconnect", async () => {
     let revision = 0;
     let serverDocument: unknown = null;

@@ -27,6 +27,8 @@ export interface LayoutCard {
  * replaces (which renders as the greyed ghost) — see `connect()` in the island.
  */
 export interface LayoutEdge {
+  /** Opaque arrow shape id when read from tldraw. */
+  id?: string;
   from: string;
   to: string;
   relation: LayoutRelation;

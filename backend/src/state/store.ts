@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm, chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { resolveStateDir } from "@ai-storm/state";
+import type { PortableStateBundle } from "@ai-storm/shared";
 
 export const STATE_FORMAT_VERSION = 1 as const;
 
@@ -373,6 +374,114 @@ export class StateStore {
       const next = { ...board, revision: board.revision + 1, document };
       await this.#writeJson(path, next);
       return { ok: true, board: next };
+    });
+  }
+
+  /** Export the directly-copyable durable subset; logs and daemon state are excluded. */
+  async exportState(projectIds?: readonly string[]): Promise<PortableStateBundle> {
+    const registry = await this.readRegistry();
+    const selected = projectIds ? new Set(projectIds) : new Set(registry.projects.map((project) => project.id));
+    const projects = registry.projects.filter((project) => selected.has(project.id));
+    if (projects.length === 0) throw new Error("State export contains no projects");
+    if (projects.length !== selected.size) throw new Error("State export references an unknown project");
+    const folderIds = new Set(projects.flatMap((project) => (project.folderId ? [project.folderId] : [])));
+    const folders = registry.folders.filter((folder) => folderIds.has(folder.id));
+    const pairs = await Promise.all(
+      projects.map(
+        async (project) => [project.id, await this.readBoard(project.id), await this.readHistory(project.id)] as const
+      )
+    );
+    return {
+      version: 2,
+      exportedAt: this.#now(),
+      registry: { ...registry, projects, folders },
+      boards: Object.fromEntries(pairs.map(([id, board]) => [id, board])),
+      histories: Object.fromEntries(pairs.map(([id, , history]) => [id, history]))
+    };
+  }
+
+  /** Import selected projects. Existing state is never overwritten: IDs are cloned. */
+  async importState(bundle: PortableStateBundle, projectIds?: readonly string[]): Promise<RegistryDocument> {
+    if (bundle.version !== 2 || bundle.registry?.version !== STATE_FORMAT_VERSION)
+      throw new Error("Unsupported state export version");
+    if (
+      !bundle.boards ||
+      typeof bundle.boards !== "object" ||
+      Array.isArray(bundle.boards) ||
+      !bundle.histories ||
+      typeof bundle.histories !== "object" ||
+      Array.isArray(bundle.histories)
+    )
+      throw new Error("State import requires board and history documents");
+    return this.#serialized(this.registryPath, async () => {
+      const registry = await readRegistryFile(this.registryPath);
+      const selected = new Set(projectIds ?? bundle.registry.projects.map((project) => project.id));
+      const sourceProjects = bundle.registry.projects.filter((project) => selected.has(project.id));
+      if (sourceProjects.length === 0) throw new Error("State import contains no selected projects");
+      if (sourceProjects.length !== selected.size) throw new Error("State import references an unknown project");
+      for (const project of sourceProjects) {
+        assertProjectId(project.id);
+        if (typeof project.title !== "string" || !project.terminal || typeof project.terminal !== "object")
+          throw new Error(`State import contains invalid project metadata: ${project.id}`);
+        const board = bundle.boards[project.id];
+        const history = bundle.histories[project.id];
+        if (
+          !board ||
+          board.version !== STATE_FORMAT_VERSION ||
+          !validRevision(board.revision) ||
+          !Number.isSafeInteger(board.nextIdeaRef) ||
+          board.nextIdeaRef < 1 ||
+          !Object.hasOwn(board, "document") ||
+          !history ||
+          history.version !== STATE_FORMAT_VERSION ||
+          !validRevision(history.revision) ||
+          !Array.isArray(history.runs)
+        )
+          throw new Error(`State import is missing or has invalid project documents: ${project.id}`);
+      }
+
+      const preserveIds = registry.projects.length === 0 && registry.folders.length === 0;
+      const sourceFolderIds = new Set(
+        sourceProjects.flatMap((project) => (project.folderId ? [project.folderId] : []))
+      );
+      const sourceFolders = bundle.registry.folders.filter((folder) => sourceFolderIds.has(folder.id));
+      if (sourceFolders.length !== sourceFolderIds.size) throw new Error("State import is missing a selected folder");
+      for (const folder of sourceFolders) {
+        assertProjectId(folder.id);
+        if (typeof folder.title !== "string") throw new Error(`State import contains an invalid folder: ${folder.id}`);
+      }
+      const folderIds = new Map(
+        sourceFolders.map((folder) => [folder.id, preserveIds ? folder.id : `fld_${randomUUID()}`])
+      );
+      const projectIdsBySource = new Map(
+        sourceProjects.map((project) => [project.id, preserveIds ? project.id : `ws_${randomUUID()}`])
+      );
+      const folders = sourceFolders.map((folder) => ({ ...folder, id: folderIds.get(folder.id)! }));
+      const projects = sourceProjects.map((project) => ({
+        ...project,
+        id: projectIdsBySource.get(project.id)!,
+        folderId: project.folderId ? folderIds.get(project.folderId) : undefined,
+        ...(preserveIds ? {} : { createdAt: this.#now(), updatedAt: this.#now() })
+      }));
+
+      // Children first, matching createProject's crash-safe ordering.
+      for (const source of sourceProjects) {
+        const id = projectIdsBySource.get(source.id)!;
+        await this.#writeJson(this.boardPath(id), bundle.boards[source.id]);
+        const history = bundle.histories[source.id];
+        await this.#writeJson(this.historyPath(id), {
+          ...history,
+          runs: history.runs.map((run) => ({ ...run, projectId: id }))
+        });
+      }
+      const next = {
+        ...registry,
+        revision: registry.revision + 1,
+        projects: [...registry.projects, ...projects],
+        folders: [...registry.folders, ...folders]
+      };
+      await this.#writeJson(this.registryPath, next);
+      return next;
     });
   }
 

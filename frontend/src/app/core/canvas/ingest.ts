@@ -1,10 +1,10 @@
 /**
  * `applyIdeas` — the tldraw port of `CanvasService.applyIdeas`: render a batch of
- * extracted {@link Idea}s as AI-origin cards + typed edges. The one write-path the
+ * extracted {@link CreateIdeaInput}s as AI-origin cards + typed edges. The one write-path the
  * ingestion pipeline drives; everything else on the canvas is user-or-agent action.
  */
 import { createShapeId, type Editor, type TLDefaultColorStyle, type TLShapeId } from "tldraw";
-import type { Idea, IdeaRelation } from "@ai-storm/shared";
+import type { CreateIdeaInput, IdeaRelation } from "@ai-storm/shared";
 import { normalizeKind, kindColor } from "../idea-descriptors";
 import { CARD_MAX_W, CARD_W, ideaCardSizeForContent, ideaCards, resolveRef, type IdeaCardShape } from "./idea-card";
 
@@ -50,14 +50,14 @@ function connect(editor: Editor, fromId: TLShapeId, toId: TLShapeId, relation: I
 }
 
 /**
- * Render a batch of extracted {@link Idea}s as cards + typed edges — the tldraw
+ * Render a batch of extracted {@link CreateIdeaInput}s as cards + typed edges — the tldraw
  * port of `CanvasService.applyIdeas`. Each idea becomes an AI-origin `idea-card`
  * colored by its kind (a shared StyleProp); the first link whose target ref
  * already exists places the card near its target and draws a relation-styled
- * arrow; a `supersedes` link ghosts the target (#20, PD-012). Refs (`a1`, `a2`,
- * …) live in `shape.meta.ref` so identity survives reload (idea-graph §4).
+ * arrow; a `supersedes` link ghosts the target (#20, PD-012). Backend-reserved
+ * refs (`i1`, `i2`, …) live in `shape.meta.ref` so identity survives reload.
  */
-export function applyIdeas(editor: Editor, ideas: Idea[]): void {
+export function applyIdeas(editor: Editor, ideas: CreateIdeaInput[]): void {
   if (ideas.length === 0) return;
   const refToShape = new Map<string, TLShapeId>();
   const childOffset = new Map<TLShapeId, number>();
@@ -100,16 +100,10 @@ export function applyIdeas(editor: Editor, ideas: Idea[]): void {
         gridColY[col] += size.h + GRID_ROW_GAP;
       }
 
-      // Honour a producer-stamped ref (mcp-idea-capture §3.3): the backend MCP
-      // tool path mints `i<n>` and already returned it to the agent, so the
-      // card MUST carry it for follow-up links/scores to resolve. The `i<n>`
-      // namespace is disjoint from our `a<n>` mint (see core/canvas/refs.ts),
-      // so honouring it never advances `nextRef` — but a restarted backend can
-      // re-issue an `i<n>` that is already on the board (#210). Honouring the
-      // duplicate would make the ref ambiguous, so remint a fresh canvas ref
-      // instead: the old card keeps its identity, and the new card still lands
-      // (its stale backend ref was already wrong either way).
-      const ref = idea.id;
+      // Honour the backend-reserved project-global ref. A duplicate would make
+      // addressing ambiguous, so never remint in the browser: the backend
+      // allocator is the sole authority.
+      const ref = idea.ref;
       if (!ref) {
         console.error(`[ai-storm] refused to create "${idea.title}" without a backend-reserved ref`);
         continue;

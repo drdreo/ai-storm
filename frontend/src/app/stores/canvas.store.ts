@@ -1,4 +1,4 @@
-import type { AgentArtifact, Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { AgentArtifact, Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 import {
   createTLStore,
   defaultBindingUtils,
@@ -19,10 +19,6 @@ import {
   applyReference as islandApplyReference,
   type CanvasBridge,
   collectBoard,
-  exportBoard as islandExportBoard,
-  exportTldrawPages as islandExportTldrawPages,
-  importBoard as islandImportBoard,
-  importTldrawPages as islandImportTldrawPages,
   selectedText,
   serializeEditor,
   serializeForHandoff,
@@ -41,7 +37,6 @@ import { toSearchableIdea } from "../core/canvas/search-index";
 import type { PromptIntent, ReferencedIdea } from "../core/prompt-framing";
 import { type BoardStats, computeBoardStats } from "../core/board-stats.ts";
 import { type ConvergentSummary, summarizeBoard } from "../core/summarize.ts";
-import type { PortableBoard, TldrawPage } from "../core/project-portable";
 
 /**
  * tldraw canvas controller (PRD §3.1, §3.3, §3.6) — the imperative seam over the
@@ -96,7 +91,7 @@ let editor: Editor | null = null;
 /** Project id the mounted editor currently shows (guards background applies). */
 let activeId: string | null = null;
 /** Ideas streamed to a non-mounted project, drained on its next mount. */
-const pending = new Map<string, Idea[]>();
+const pending = new Map<string, CreateIdeaInput[]>();
 /** Resolvers waiting on a given project's editor to mount (export/import #105). */
 const mountWaiters = new Map<string, Array<() => void>>();
 /** Fired when a card verb (#13 Discuss / #15 expand/challenge/find-risks) is picked. */
@@ -595,13 +590,13 @@ export const canvas = {
    * to the live editor when the target project is the mounted one; otherwise
    * queued and drained when that project next mounts.
    */
-  applyIdeas(projectId: string, ideas: Idea[]): void {
+  applyIdeas(projectId: string, ideas: CreateIdeaInput[]): void {
     if (ideas.length === 0) return;
     void (async () => {
-      const missing = ideas.filter((idea) => !idea.id).length;
+      const missing = ideas.filter((idea) => !idea.ref).length;
       const refs = missing ? await reserveCanonicalRefs(projectId, missing) : [];
       let index = 0;
-      const canonical = ideas.map((idea) => (idea.id ? idea : { ...idea, id: refs[index++] }));
+      const canonical = ideas.map((idea) => (idea.ref ? idea : { ...idea, ref: refs[index++] }));
       if (editor && projectId === activeId) {
         islandApplyIdeas(editor, canonical);
         bumpIdeasTick();
@@ -760,37 +755,9 @@ export const canvas = {
     });
   },
 
-  /** Snapshot the mounted board into its portable JSON form (#105), or `null` if unmounted. */
-  exportBoard(projectId: string): PortableBoard | null {
-    if (!editor || projectId !== activeId) return null;
-    return islandExportBoard(editor);
-  },
-
-  /** Render an imported board onto the mounted (normally empty) canvas (#105). */
-  importBoard(projectId: string, board: PortableBoard): boolean {
-    if (!editor || projectId !== activeId) return false;
-    islandImportBoard(editor, board);
-    bumpIdeasTick();
-    return true;
-  },
-
-  /** Flush the coalesced backend board write before a switch/export completes. */
+  /** Flush the coalesced backend board write before an export/import completes. */
   async flushPersistence(): Promise<void> {
     if (activeId) await flushProjectPersistence(activeId);
-  },
-
-  /** Full-fidelity tldraw snapshot of every mounted page (names, shapes, assets), or `undefined` if unmounted. */
-  async exportTldraw(projectId: string): Promise<TldrawPage[] | undefined> {
-    if (!editor || projectId !== activeId) return undefined;
-    return islandExportTldrawPages(editor);
-  },
-
-  /** Restore a full-fidelity tldraw snapshot onto the mounted (normally empty) canvas. */
-  importTldraw(projectId: string, pages: TldrawPage[]): boolean {
-    if (!editor || projectId !== activeId) return false;
-    islandImportTldrawPages(editor, pages);
-    bumpIdeasTick();
-    return true;
   },
 
   /**
