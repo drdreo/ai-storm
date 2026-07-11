@@ -1,0 +1,12 @@
+{
+  "name": "@ai-storm/state",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0"
+  }
+}

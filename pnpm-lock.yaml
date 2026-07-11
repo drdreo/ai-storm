@@ -20,6 +20,9 @@ importers:
       '@ai-storm/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      '@ai-storm/state':
+        specifier: workspace:*
+        version: link:../packages/state
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.23)
@@ -206,6 +209,10 @@ importers:
         version: 1.41.1
 
   packages/cli:
+    dependencies:
+      '@ai-storm/state':
+        specifier: workspace:*
+        version: link:../state
     devDependencies:
       '@types/node':
         specifier: ^26.1.0
@@ -219,6 +226,12 @@ importers:
       typescript:
         specifier: ~6.0.0
         version: 6.0.3
+
+  packages/state:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
 
 packages:
 
