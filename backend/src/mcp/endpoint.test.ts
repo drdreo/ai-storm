@@ -452,6 +452,47 @@ describe("durable MCP read tools (#234)", () => {
     });
   });
 
+  it("keeps every registry project discoverable when one board is unreadable", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    setRegistry({
+      version: 1,
+      revision: 2,
+      projects: [storedProject("healthy", "Healthy"), storedProject("broken", "Broken")],
+      folders: []
+    });
+    boards.set("healthy", storedBoard(page("page:healthy", "Ideas", "a")));
+
+    const body = await callTool(app, "route", target.token, "get_projects", {});
+    const payload = JSON.parse(textOf(body));
+
+    expect(payload.projects).toEqual([
+      expect.objectContaining({ id: "healthy", pages: ["Ideas"], ideaCount: 0 }),
+      expect.objectContaining({ id: "broken", status: "error", pages: [], ideaCount: 0 })
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "mcp.read_failed",
+      expect.objectContaining({ tool: "get_projects", project: "broken", message: "missing board" })
+    );
+  });
+
+  it("logs board read failures while returning a path-free tool error", async () => {
+    const { registry, app, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    setRegistry({ version: 1, revision: 1, projects: [storedProject("broken", "Broken")], folders: [] });
+
+    const body = await callTool(app, "route", target.token, "get_board_ideas", { projectId: "broken" });
+
+    expect(body.result!.isError).toBe(true);
+    expect(textOf(body)).toBe("Unable to read the requested project board.");
+    expect(warn).toHaveBeenCalledWith(
+      "mcp.read_failed",
+      expect.objectContaining({ tool: "get_board_ideas", project: "broken", message: "missing board" })
+    );
+  });
+
   it("returns Project not found for unknown/deleted ids without leaking filesystem paths", async () => {
     const { registry, app, setRegistry } = setup();
     const target = registry.registerSession("route")!;

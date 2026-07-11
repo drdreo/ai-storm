@@ -71,10 +71,10 @@ export interface McpSession {
 interface Entry {
   token: string;
   attachment: McpAttachment | null;
-  /** Session-manager state used only to derive the read-only project status. */
-  state: "idle" | "attached" | "responding" | "error";
   nextRef: number;
 }
+
+type RuntimeState = "idle" | "attached" | "responding" | "error";
 
 /** Constant-time token comparison (the token is the only auth on the endpoint). */
 function tokenMatches(expected: string, given: string): boolean {
@@ -90,7 +90,7 @@ export class McpSessionRegistry {
   #baseUrl: string | null = null;
 
   #entries = new Map<string, Entry>();
-  #runtimeStates = new Map<string, Entry["state"]>();
+  #runtimeStates = new Map<string, RuntimeState>();
   #responseTimers = new Map<string, ReturnType<typeof setTimeout>>();
   #reserveRef: ((projectId: string) => Promise<string>) | null = null;
 
@@ -114,7 +114,7 @@ export class McpSessionRegistry {
     if (!this.#baseUrl) return undefined;
     let entry = this.#entries.get(projectId);
     if (!entry) {
-      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, state: "idle", nextRef: 1 };
+      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
       this.#entries.set(projectId, entry);
     }
     if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
@@ -128,7 +128,7 @@ export class McpSessionRegistry {
    */
   restoreSession(projectId: string, token: string): void {
     if (this.#entries.has(projectId)) return; // live entry wins
-    this.#entries.set(projectId, { token, attachment: null, state: "idle", nextRef: 1 });
+    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
     if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
   }
 
@@ -136,20 +136,14 @@ export class McpSessionRegistry {
    *  project was never MCP-registered — a markers-only session). */
   attachSession(projectId: string, attachment: McpAttachment): void {
     const entry = this.#entries.get(projectId);
-    if (entry) {
-      entry.attachment = attachment;
-      entry.state = "attached";
-    }
+    if (entry) entry.attachment = attachment;
     this.#runtimeStates.set(projectId, "attached");
   }
 
   /** Detach: keep the token (the durable session lives on), drop the plumbing. */
   detachSession(projectId: string): void {
     const entry = this.#entries.get(projectId);
-    if (entry) {
-      entry.attachment = null;
-      entry.state = "idle";
-    }
+    if (entry) entry.attachment = null;
     if (this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
   }
 
@@ -158,8 +152,6 @@ export class McpSessionRegistry {
     const existingTimer = this.#responseTimers.get(projectId);
     if (existingTimer) clearTimeout(existingTimer);
     this.#responseTimers.delete(projectId);
-    const entry = this.#entries.get(projectId);
-    if (entry) entry.state = state;
     this.#runtimeStates.set(projectId, state);
     // Raw PTY output is the session manager's responding signal. Return to the
     // live/active state after output quiesces; every chunk extends the window.
@@ -168,14 +160,14 @@ export class McpSessionRegistry {
         this.#responseTimers.delete(projectId);
         if (this.#runtimeStates.get(projectId) !== "responding") return;
         this.#runtimeStates.set(projectId, "attached");
-        const current = this.#entries.get(projectId);
-        if (current) current.state = "attached";
       }, 750);
       timer.unref?.();
       this.#responseTimers.set(projectId, timer);
     }
   }
 
+  /** A live but quiescent/detached internal session is publicly `active`;
+   * only absent/killed sessions are `idle`. */
   runtimeStatus(projectId: string): ProjectStatus {
     const state = this.#runtimeStates.get(projectId);
     if (!state) return "idle";

@@ -31,7 +31,7 @@ import type { Completion, Idea, IdeaLink, Reference, Score } from "@ai-storm/sha
 import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
 import { deriveBoardIdeas } from "../state/board-reader.ts";
-import type { StateStore } from "../state/store.ts";
+import { StateFileError, type StateStore } from "../state/store.ts";
 
 /** Protocol revision implemented (and the fallback offer in negotiation). */
 const PROTOCOL_VERSION = "2025-03-26";
@@ -353,6 +353,17 @@ function toolError(id: RpcId, text: string) {
   return rpcResult(id, { content: [{ type: "text", text }], isError: true });
 }
 
+function logReadFailure(tool: "get_projects" | "get_board_ideas", error: unknown, projectId?: string): void {
+  const cause = error instanceof Error ? error.cause : undefined;
+  log.warn("mcp.read_failed", {
+    tool,
+    project: projectId,
+    message: error instanceof Error ? error.message : String(error),
+    path: error instanceof StateFileError ? error.path : undefined,
+    cause: cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause)
+  });
+}
+
 function initializeResult(params: Record<string, unknown> | undefined) {
   const requested = typeof params?.protocolVersion === "string" ? params.protocolVersion : undefined;
   return {
@@ -391,21 +402,33 @@ async function handleToolCall(
       const folders = new Map(state.folders.map((folder) => [folder.id, folder.title]));
       const projects = await Promise.all(
         state.projects.map(async (project) => {
-          const board = deriveBoardIdeas(await stateStore.readBoard(project.id));
-          return {
+          const metadata = {
             id: project.id,
             title: project.title,
             ...(project.folderId && folders.has(project.folderId) ? { folder: folders.get(project.folderId) } : {}),
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
-            status: registry.runtimeStatus(project.id),
-            pages: board.pages.map((page) => page.name),
-            ideaCount: board.pages.reduce((count, page) => count + page.cards.length, 0)
+            status: registry.runtimeStatus(project.id)
           };
+          try {
+            const board = deriveBoardIdeas(await stateStore.readBoard(project.id));
+            return {
+              ...metadata,
+              pages: board.pages.map((page) => page.name),
+              ideaCount: board.pages.reduce((count, page) => count + page.cards.length, 0)
+            };
+          } catch (error) {
+            // The registry remains authoritative during corruption and delete
+            // races. Preserve complete discovery while degrading only this
+            // project's board-derived metadata.
+            logReadFailure("get_projects", error, project.id);
+            return { ...metadata, status: "error" as const, pages: [], ideaCount: 0 };
+          }
         })
       );
       return toolText(id, JSON.stringify({ version: 1, revision: state.revision, projects }));
-    } catch {
+    } catch (error) {
+      logReadFailure("get_projects", error);
       return toolError(id, "Unable to read the project registry.");
     }
   }
@@ -418,7 +441,8 @@ async function handleToolCall(
       const state = await stateStore.readRegistry();
       if (!state.projects.some((project) => project.id === targetId)) return toolError(id, "Project not found");
       return toolText(id, JSON.stringify(deriveBoardIdeas(await stateStore.readBoard(targetId))));
-    } catch {
+    } catch (error) {
+      logReadFailure("get_board_ideas", error, targetId);
       return toolError(id, "Unable to read the requested project board.");
     }
   }
