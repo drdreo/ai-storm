@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ClientMessage, ServerMessage } from "@ai-storm/shared";
+import type { ClientMessage, ServerMessage, StateOperation } from "@ai-storm/shared";
 import { log } from "../../lib/log";
 
 export type ServerMessageHandler = (msg: ServerMessage) => void;
@@ -28,8 +28,9 @@ function setState(s: ConnectionState): void {
   useBackendStore.setState({ state: s });
 }
 
-const proto = location.protocol === "https:" ? "wss" : "ws";
-const url = `${proto}://${location.host}/pty`;
+const pageLocation = typeof location === "undefined" ? { protocol: "http:", host: "localhost" } : location;
+const proto = pageLocation.protocol === "https:" ? "wss" : "ws";
+const url = `${proto}://${pageLocation.host}/pty`;
 
 let socket: WebSocket | null = null;
 const handlers = new Map<string, Set<ServerMessageHandler>>();
@@ -39,6 +40,10 @@ let outbox: ClientMessage[] = [];
 let reconnectDelay = 500;
 let reconnectTimer: number | null = null;
 let shouldRun = false;
+const stateRequests = new Map<
+  string,
+  { resolve: (data: unknown) => void; reject: (error: Error) => void; timer: number }
+>();
 
 function open(): void {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
@@ -71,6 +76,11 @@ function open(): void {
 
   s.onclose = () => {
     log.info("ws.close", { willReconnect: shouldRun });
+    for (const [id, pending] of stateRequests) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error("Backend connection lost"));
+      stateRequests.delete(id);
+    }
     setState("closed");
     socket = null;
     if (shouldRun) scheduleReconnect();
@@ -92,6 +102,19 @@ function scheduleReconnect(): void {
 }
 
 function dispatch(msg: ServerMessage): void {
+  if (msg.type === "state-response") {
+    const pending = stateRequests.get(msg.requestId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      stateRequests.delete(msg.requestId);
+      if (msg.ok) pending.resolve(msg.data);
+      else {
+        const error = new Error(msg.error ?? "Backend state request failed") as Error & { path?: string };
+        error.path = msg.path;
+        pending.reject(error);
+      }
+    }
+  }
   for (const h of globalHandlers) h(msg);
   const id = "projectId" in msg ? msg.projectId : undefined;
   if (id) {
@@ -138,6 +161,43 @@ export const backend = {
   onOpen(handler: () => void): () => void {
     openHandlers.add(handler);
     return () => openHandlers.delete(handler);
+  },
+
+  async waitUntilOpen(timeoutMs = 10_000): Promise<void> {
+    if (socket?.readyState === WebSocket.OPEN) return;
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        reject(new Error("Backend unavailable"));
+      }, timeoutMs);
+      const unsubscribe = backend.onOpen(() => {
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve();
+      });
+    });
+  },
+
+  request<T>(
+    operation: StateOperation,
+    options: { projectId?: string; payload?: Record<string, unknown> } = {}
+  ): Promise<T> {
+    if (socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Backend unavailable"));
+    const requestId = crypto.randomUUID();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        stateRequests.delete(requestId);
+        reject(new Error(`Backend ${operation} timed out`));
+      }, 15_000) as unknown as number;
+      stateRequests.set(requestId, { resolve: resolve as (data: unknown) => void, reject, timer });
+      try {
+        socket!.send(JSON.stringify({ type: "state-request", requestId, operation, ...options }));
+      } catch {
+        clearTimeout(timer);
+        stateRequests.delete(requestId);
+        reject(new Error("Backend connection lost"));
+      }
+    });
   },
 
   send(msg: ClientMessage): void {

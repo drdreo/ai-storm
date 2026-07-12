@@ -8,7 +8,7 @@
  * contract — see `docs/design/ai-response-extraction-contract.md`.
  */
 
-import type { Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 
 /** Identifies a durable, connection-independent agent session. */
 export interface SessionHandle {
@@ -74,7 +74,7 @@ export interface SessionBackend {
   attach(
     projectId: string,
     onData: (raw: string) => void,
-    onIdea: (idea: Idea) => void,
+    onIdea: (idea: CreateIdeaInput) => void,
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,
@@ -89,12 +89,15 @@ export interface SessionBackend {
   sendInput(projectId: string, data: string): Promise<void>;
 
   /**
-   * Submit a complete prompt PROGRAMMATICALLY (priming, canvas-context
-   * injection) — clears any partial input, delivers the (possibly multi-line)
-   * text, then submits it. Distinct from {@link sendInput} because a real
-   * terminal's keystrokes must NOT be line-edited or auto-submitted.
+   * Deliver a complete prompt PROGRAMMATICALLY (priming, canvas-context
+   * injection, triage) — clears any partial input, then delivers the (possibly
+   * multi-line) text through a paste-safe path so embedded newlines never act
+   * as Enter. Submits it unless `options.submit` is `false`, in which case the
+   * text is left editable in the input line for the user to send. Distinct from
+   * {@link sendInput} because a real terminal's keystrokes must NOT be
+   * line-edited or auto-submitted.
    */
-  submitPrompt(projectId: string, text: string): Promise<void>;
+  submitPrompt(projectId: string, text: string, options?: { submit?: boolean }): Promise<void>;
 
   /** Inform the session of a new viewport size (cols/rows). */
   resize(projectId: string, cols: number, rows: number): Promise<void>;

@@ -36,6 +36,7 @@ function restoreHubCollapsed(): boolean {
 export function App() {
   const booted = useProjectStore((s) => s.booted);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [bootAttempt, setBootAttempt] = useState(0);
   const focusMode = useUiStore((s) => s.focusMode);
 
   const [hubWidth, setHubWidth] = useState(restoreHubWidth);
@@ -52,24 +53,26 @@ export function App() {
     });
   }
 
-  // Boot sequence (PRD §3.5), run once on mount. Run history (#104) rehydrates
-  // alongside the project registry — same CRDT-in-IndexedDB pattern.
+  // The backend is the sole durable authority: editing cannot mount until the
+  // socket, registry, active board, and per-project history have loaded.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([project.boot(), history.boot()])
-      .then(() => {
-        if (!cancelled) backend.connect();
-      })
-      .catch((err: unknown) => {
+    setBootError(null);
+    backend.connect();
+    void (async () => {
+      try {
+        await backend.waitUntilOpen();
+        await project.boot();
+        await history.boot(useProjectStore.getState().projects.map((item) => item.id));
+      } catch (err) {
         log.error("app.boot_failed", { message: err instanceof Error ? err.message : String(err) });
-        if (!cancelled) {
-          setBootError("Failed to restore local storage: " + (err instanceof Error ? err.message : String(err)));
-        }
-      });
+        if (!cancelled) setBootError(err instanceof Error ? err.message : String(err));
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bootAttempt]);
 
   function startResize(ev: React.PointerEvent): void {
     ev.preventDefault();
@@ -93,8 +96,13 @@ export function App() {
   if (!booted) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
-        <Loader2 className="size-7 animate-spin" />
-        <p className="text-sm">{bootError ?? "Restoring projects…"}</p>
+        {!bootError && <Loader2 className="size-7 animate-spin" />}
+        <p className="text-sm">{bootError ?? "Loading projects from backend…"}</p>
+        {bootError && (
+          <Button variant="outline" onClick={() => setBootAttempt((attempt) => attempt + 1)}>
+            Retry backend
+          </Button>
+        )}
       </div>
     );
   }

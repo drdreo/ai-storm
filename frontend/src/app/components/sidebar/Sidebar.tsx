@@ -24,9 +24,9 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { Folder, ProjectMeta } from "@ai-storm/shared";
+import type { Folder, PortableStateBundle, ProjectMeta } from "@ai-storm/shared";
 import { downloadFile } from "../../core/download-file";
-import { exportFileSlug, parseImportFile, type ExportedProject } from "../../core/project-portable";
+import { exportFileSlug, parseImportFile, type ImportableProject } from "../../core/project-portable";
 import { ingestion } from "../../stores/ingestion.store";
 import { ui, useUiStore } from "../../stores/ui.store";
 import { useProjectStore, project } from "../../stores/project.store";
@@ -60,7 +60,10 @@ export function Sidebar() {
   const [deleteTarget, setDeleteTarget] = useState<ProjectMeta | null>(null);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<Folder | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const [importEntries, setImportEntries] = useState<ExportedProject[] | null>(null);
+  const [importState, setImportState] = useState<{
+    bundle: PortableStateBundle;
+    projects: ImportableProject[];
+  } | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const dnd = useSidebarDnd(projects, folders);
 
@@ -135,7 +138,7 @@ export function Sidebar() {
     }
   };
 
-  // Deleting a project drops its canvas + IndexedDB store for good, so the
+  // Deleting a project drops its backend canvas/history files for good, so the
   // kebab only *requests* deletion (opens a themed confirm dialog, audit H5);
   // the irreversible work runs on explicit confirm, never on window.confirm.
   const confirmDelete = () => {
@@ -179,18 +182,23 @@ export function Sidebar() {
     e.target.value = "";
     if (!file) return;
     try {
-      const entries = parseImportFile(await file.text());
-      if (entries.length === 1) await project.importProjects(entries);
-      else setImportEntries(entries);
+      const parsed = parseImportFile(await file.text());
+      if (parsed.projects.length === 1) await project.importProjects(parsed.bundle);
+      else setImportState(parsed);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     }
   };
 
-  const confirmImport = async (selected: ExportedProject[]) => {
-    setImportEntries(null);
+  const confirmImport = async (selected: ImportableProject[]) => {
+    const bundle = importState?.bundle;
+    setImportState(null);
+    if (!bundle) return;
     try {
-      await project.importProjects(selected);
+      await project.importProjects(
+        bundle,
+        selected.map((entry) => entry.id)
+      );
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     }
@@ -346,11 +354,11 @@ export function Sidebar() {
         onImportProjects={importProject}
       />
 
-      {importEntries && (
+      {importState && (
         <ImportProjectsDialog
-          entries={importEntries}
+          entries={importState.projects}
           existingTitles={new Set(projects.map((w) => w.title))}
-          onCancel={() => setImportEntries(null)}
+          onCancel={() => setImportState(null)}
           onConfirm={(selected) => void confirmImport(selected)}
         />
       )}

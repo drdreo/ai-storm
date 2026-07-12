@@ -10,6 +10,7 @@ import { serve } from "@hono/node-server";
 import { buildApp, type ServerConfig } from "./server.ts";
 import { getRuntime } from "./session/runtime.ts";
 import { log } from "./log.ts";
+import { StateStore } from "./state/store.ts";
 
 function parseArgs(): ServerConfig {
   const env = process.env;
@@ -69,7 +70,15 @@ if (survivors.length > 0) {
   log.info("backend.sessions_recovered", { count: survivors.length });
 }
 
-const { app, injectWebSocket } = buildApp(config);
+const stateStore = new StateStore();
+try {
+  await stateStore.initialize();
+} catch (err) {
+  log.error("state.initialize_failed", { message: err instanceof Error ? err.message : String(err) });
+  process.exit(1);
+}
+
+const { app, injectWebSocket } = buildApp(config, stateStore);
 
 const server = serve({ fetch: app.fetch, hostname: config.hostname, port: config.port }, () => {
   log.info("backend.listening", {

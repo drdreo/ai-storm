@@ -27,9 +27,11 @@
  */
 
 import { Hono } from "hono";
-import type { Completion, Idea, IdeaLink, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, IdeaLink, Reference, Score } from "@ai-storm/shared";
 import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
+import { deriveBoardIdeas } from "../state/board-reader.ts";
+import { StateFileError, type StateStore } from "../state/store.ts";
 
 /** Protocol revision implemented (and the fallback offer in negotiation). */
 const PROTOCOL_VERSION = "2025-03-26";
@@ -45,6 +47,7 @@ const SERVER_INFO = { name: "ai-storm", version: "3.0.0" };
 const KIND_PATTERN = /^[a-z][\w-]*$/;
 /** Ref charset — the marker grammar's injection guard, applied to tool input too (§10). */
 const REF_PATTERN = /^[\w-]+$/;
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /** Exported for the pi-extension parity test (extraction.test.ts): the
  *  generated pi extension must register every tool this endpoint dispatches. */
@@ -181,13 +184,27 @@ export const TOOLS = [
   {
     name: "get_board_ideas",
     description:
-      "Read the active canvas board for this attached project/session. Returns the current page's idea " +
-      "cards, relevant edges, selection, filter, and card positions as compact JSON. It never reads other projects.",
+      "Read every page of a project's durable canvas board without requiring an attached browser. " +
+      "Pass a project id returned by get_projects. Returns normalized idea cards and typed edges only.",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        projectId: {
+          type: "string",
+          pattern: PROJECT_ID_PATTERN.source,
+          description: "The project id returned by get_projects."
+        }
+      },
+      required: ["projectId"],
       additionalProperties: false
     }
+  },
+  {
+    name: "get_projects",
+    description:
+      "List all brainstorming projects from the durable backend registry. Returns discovery metadata, " +
+      "runtime status, page names, and idea counts, but never terminal configuration or board contents.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false }
   }
 ] as const;
 
@@ -200,7 +217,7 @@ const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 // back as an `isError` tool result, and a clear "what's wrong + what to do"
 // is the retry loop that makes the channel self-correcting (§2).
 
-function parseCaptureIdea(args: Record<string, unknown>): Idea {
+function parseCaptureIdea(args: Record<string, unknown>): CreateIdeaInput {
   const { title, body, kind, links } = args;
   if (typeof title !== "string" || title.trim().length === 0) {
     throw new Error("`title` is required and must be a non-empty string (the card heading).");
@@ -238,7 +255,7 @@ function parseCaptureIdea(args: Record<string, unknown>): Idea {
       parsedLinks.push({ to, relation: relation === "supersedes" ? "supersedes" : "about" });
     }
   }
-  const idea: Idea = { title, body: typeof body === "string" ? body : "" };
+  const idea: CreateIdeaInput = { title, body: typeof body === "string" ? body : "" };
   if (typeof kind === "string") idea.kind = kind;
   if (parsedLinks.length > 0) idea.links = parsedLinks;
   return idea;
@@ -336,6 +353,17 @@ function toolError(id: RpcId, text: string) {
   return rpcResult(id, { content: [{ type: "text", text }], isError: true });
 }
 
+function logReadFailure(tool: "get_projects" | "get_board_ideas", error: unknown, projectId?: string): void {
+  const cause = error instanceof Error ? error.cause : undefined;
+  log.warn("mcp.read_failed", {
+    tool,
+    project: projectId,
+    message: error instanceof Error ? error.message : String(error),
+    path: error instanceof StateFileError ? error.path : undefined,
+    cause: cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause)
+  });
+}
+
 function initializeResult(params: Record<string, unknown> | undefined) {
   const requested = typeof params?.protocolVersion === "string" ? params.protocolVersion : undefined;
   return {
@@ -352,17 +380,73 @@ function initializeResult(params: Record<string, unknown> | undefined) {
  * validate → dedupe via the session's shared sink → mint `i<n>` → emit through
  * the same callbacks the scanner feeds → return the ref to the model.
  */
-function handleToolCall(
+async function handleToolCall(
   id: RpcId,
   params: Record<string, unknown> | undefined,
   projectId: string,
-  session: McpSession
+  session: McpSession,
+  registry: McpSessionRegistry,
+  stateStore: StateStore
 ) {
   const name = params?.name;
   const args = (params?.arguments ?? {}) as Record<string, unknown>;
   if (typeof name !== "string" || !TOOL_NAMES.has(name)) {
     return rpcError(id, -32602, `Unknown tool: ${String(name)}`);
   }
+  // Durable read tools answer independently of browser attachment. Authenticate
+  // via the route token, then authorize target ids against the registry so an
+  // orphan directory can never be read as a deleted project.
+  if (name === "get_projects") {
+    try {
+      const state = await stateStore.readRegistry();
+      const folders = new Map(state.folders.map((folder) => [folder.id, folder.title]));
+      const projects = await Promise.all(
+        state.projects.map(async (project) => {
+          const metadata = {
+            id: project.id,
+            title: project.title,
+            ...(project.folderId && folders.has(project.folderId) ? { folder: folders.get(project.folderId) } : {}),
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            status: registry.runtimeStatus(project.id)
+          };
+          try {
+            const board = deriveBoardIdeas(await stateStore.readBoard(project.id));
+            return {
+              ...metadata,
+              pages: board.pages.map((page) => page.name),
+              ideaCount: board.pages.reduce((count, page) => count + page.cards.length, 0)
+            };
+          } catch (error) {
+            // The registry remains authoritative during corruption and delete
+            // races. Preserve complete discovery while degrading only this
+            // project's board-derived metadata.
+            logReadFailure("get_projects", error, project.id);
+            return { ...metadata, status: "error" as const, pages: [], ideaCount: 0 };
+          }
+        })
+      );
+      return toolText(id, JSON.stringify({ version: 1, revision: state.revision, projects }));
+    } catch (error) {
+      logReadFailure("get_projects", error);
+      return toolError(id, "Unable to read the project registry.");
+    }
+  }
+  if (name === "get_board_ideas") {
+    const targetId = args.projectId;
+    if (typeof targetId !== "string" || !PROJECT_ID_PATTERN.test(targetId)) {
+      return toolError(id, "`projectId` is required and must be an id returned by get_projects.");
+    }
+    try {
+      const state = await stateStore.readRegistry();
+      if (!state.projects.some((project) => project.id === targetId)) return toolError(id, "Project not found");
+      return toolText(id, JSON.stringify(deriveBoardIdeas(await stateStore.readBoard(targetId))));
+    } catch (error) {
+      logReadFailure("get_board_ideas", error, targetId);
+      return toolError(id, "Unable to read the requested project board.");
+    }
+  }
+
   const attachment = session.attachment;
   if (!attachment) {
     // Token is valid but no client is attached (detached durable session):
@@ -371,12 +455,6 @@ function handleToolCall(
     return toolError(id, "Session not attached — no live canvas connection; nothing was captured.");
   }
   try {
-    if (name === "get_board_ideas") {
-      if (!session.boardSnapshot) {
-        return toolError(id, "No active board snapshot is available yet. Open this project's board and try again.");
-      }
-      return toolText(id, JSON.stringify(session.boardSnapshot));
-    }
     if (name === "capture_idea") {
       const idea = parseCaptureIdea(args);
       // Shared dedupe BEFORE minting (§6): if the scanner (or an earlier tool
@@ -385,8 +463,8 @@ function handleToolCall(
       if (!attachment.ideaSink.offer(idea)) {
         return toolText(id, "Already captured — an identical idea is on the canvas; nothing was added.");
       }
-      const ref = session.mintRef();
-      idea.id = ref; // the canvas honours Idea.id as the card's meta.ref (§3.3)
+      const ref = await session.mintRef();
+      idea.ref = ref; // the canvas honours CreateIdeaInput.ref as the card's meta.ref (§3.3)
       log.info("idea.captured", {
         project: projectId,
         ref,
@@ -442,8 +520,7 @@ interface MethodContext {
 const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
   initialize: ({ id, params }) => rpcResult(id, initializeResult(params)),
   ping: ({ id }) => rpcResult(id, {}),
-  "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS }),
-  "tools/call": ({ id, params, projectId, session }) => handleToolCall(id, params, projectId, session)
+  "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS })
 };
 
 /**
@@ -451,7 +528,7 @@ const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
  * registry; tests mount it with private registries and drive it via
  * `app.request()` — no real server or harness needed (§9).
  */
-export function mcpRoutes(registry: McpSessionRegistry): Hono {
+export function mcpRoutes(registry: McpSessionRegistry, stateStore: StateStore): Hono {
   const app = new Hono();
 
   // No server-initiated stream in sessionless mode — 405 per Streamable HTTP.
@@ -491,9 +568,12 @@ export function mcpRoutes(registry: McpSessionRegistry): Hono {
       return c.json(rpcError(id, -32600, "Invalid request: missing `method`"), 400);
     }
 
+    if (method === "tools/call") {
+      return c.json(await handleToolCall(id, params, projectId, session, registry, stateStore));
+    }
     const handler = METHOD_HANDLERS[method];
     if (!handler) return c.json(rpcError(id, -32601, `Method not found: ${method}`));
-    return c.json(handler({ id, params, projectId, session }));
+    return c.json(await handler({ id, params, projectId, session }));
   });
 
   return app;

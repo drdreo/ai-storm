@@ -21,17 +21,12 @@
  *   reconcile() (tmux) → {@link restoreSession} re-registers a token read back
  *               from the durable session's `@ai_storm_mcp_token` option (§4.2).
  *
- * Ref minting (§3.3) also lives here: `i1`, `i2`, … per session, a namespace
- * disjoint from the canvas's `a<n>` mint, surviving attach/detach cycles and
- * resetting with the session. A backend restart resets the counter too, and a
- * re-issued `i<n>` is NOT harmless: the agent holds the old ref, so follow-up
- * links become ambiguous and lineage corrupts (#210). `mintRef` therefore
- * fast-forwards past every `i<n>` visible in the board snapshot before
- * issuing, and the canvas remints on collision as a last-resort guard.
+ * Ref minting delegates to the canonical filesystem allocator. The in-memory
+ * counter remains only as a test/legacy fallback when no StateStore is wired.
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, ProjectStatus, Reference, Score } from "@ai-storm/shared";
 import type { IdeaSink, ScoreSink } from "../session/extraction/index.ts";
 
 /** Logical MCP server name; harness tool ids derive from it (`mcp__ai-storm__…`). */
@@ -51,7 +46,7 @@ export interface McpAttachment {
   ideaSink: IdeaSink;
   /** The session's shared score dedupe authority. */
   scoreSink: ScoreSink;
-  onIdea: (idea: Idea) => void;
+  onIdea: (idea: CreateIdeaInput) => void;
   onScore: (score: Score) => void;
   /** Emit a completion-state change for an existing card (#167). Unlike ideas and
    *  scores there is no scanner producer — only the `mark_idea_done` tool feeds
@@ -69,37 +64,17 @@ export interface McpAttachment {
 export interface McpSession {
   /** The current attachment, or null while detached ("session not attached"). */
   attachment: McpAttachment | null;
-  boardSnapshot: BoardIdeasSnapshot | null;
-  /** Mint the next session-scoped `i<n>` ref (§3.3). */
-  mintRef: () => string;
+  /** Mint the next globally reserved `i<n>` ref. */
+  mintRef: () => Promise<string>;
 }
 
 interface Entry {
   token: string;
   attachment: McpAttachment | null;
-  boardSnapshot: BoardIdeasSnapshot | null;
-  /** Next `i<n>` index — session-scoped, survives reattach, dies with kill(). */
   nextRef: number;
 }
 
-/** Backend-minted ref pattern — the `i<n>` namespace (§3.3). */
-const MCP_MINT_REF = /^i(\d+)$/;
-
-/**
- * Fast-forward a (possibly restart-reset) `nextRef` counter past every `i<n>`
- * ref already on the board (#210): a re-issued ref would collide with a card
- * the agent already holds a handle to, corrupting follow-up links. The snapshot
- * covers the current page only, so this is best-effort — the canvas keeps a
- * remint guard for anything it can't see.
- */
-function skipMintedRefs(nextRef: number, snapshot: BoardIdeasSnapshot | null): number {
-  if (!snapshot) return nextRef;
-  for (const card of snapshot.cards) {
-    const m = card.ref ? MCP_MINT_REF.exec(card.ref) : null;
-    if (m) nextRef = Math.max(nextRef, Number(m[1]) + 1);
-  }
-  return nextRef;
-}
+type RuntimeState = "idle" | "attached" | "responding" | "error";
 
 /** Constant-time token comparison (the token is the only auth on the endpoint). */
 function tokenMatches(expected: string, given: string): boolean {
@@ -115,6 +90,14 @@ export class McpSessionRegistry {
   #baseUrl: string | null = null;
 
   #entries = new Map<string, Entry>();
+  #runtimeStates = new Map<string, RuntimeState>();
+  #responseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  #reserveRef: ((projectId: string) => Promise<string>) | null = null;
+
+  /** Use the canonical filesystem allocator for MCP captures. */
+  configureRefAllocator(reserve: (projectId: string) => Promise<string>): void {
+    this.#reserveRef = reserve;
+  }
 
   /** Hand the registry the server's reachable origin (no trailing slash). */
   configure(baseUrl: string): void {
@@ -131,9 +114,10 @@ export class McpSessionRegistry {
     if (!this.#baseUrl) return undefined;
     let entry = this.#entries.get(projectId);
     if (!entry) {
-      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, boardSnapshot: null, nextRef: 1 };
+      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
       this.#entries.set(projectId, entry);
     }
+    if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
     return { token: entry.token, url: `${this.#baseUrl}/mcp/${projectId}/${entry.token}` };
   }
 
@@ -144,7 +128,8 @@ export class McpSessionRegistry {
    */
   restoreSession(projectId: string, token: string): void {
     if (this.#entries.has(projectId)) return; // live entry wins
-    this.#entries.set(projectId, { token, attachment: null, boardSnapshot: null, nextRef: 1 });
+    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
+    if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
   }
 
   /** Route the tool path into this attachment's sinks/callbacks (no-op if the
@@ -152,22 +137,52 @@ export class McpSessionRegistry {
   attachSession(projectId: string, attachment: McpAttachment): void {
     const entry = this.#entries.get(projectId);
     if (entry) entry.attachment = attachment;
+    this.#runtimeStates.set(projectId, "attached");
   }
 
   /** Detach: keep the token (the durable session lives on), drop the plumbing. */
   detachSession(projectId: string): void {
     const entry = this.#entries.get(projectId);
     if (entry) entry.attachment = null;
+    if (this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
   }
 
-  updateBoardSnapshot(projectId: string, snapshot: BoardIdeasSnapshot): void {
-    const entry = this.#entries.get(projectId);
-    if (entry) entry.boardSnapshot = snapshot;
+  /** Session output/error hooks keep discovery status derived, never persisted. */
+  setRuntimeState(projectId: string, state: "attached" | "responding" | "error"): void {
+    const existingTimer = this.#responseTimers.get(projectId);
+    if (existingTimer) clearTimeout(existingTimer);
+    this.#responseTimers.delete(projectId);
+    this.#runtimeStates.set(projectId, state);
+    // Raw PTY output is the session manager's responding signal. Return to the
+    // live/active state after output quiesces; every chunk extends the window.
+    if (state === "responding") {
+      const timer = setTimeout(() => {
+        this.#responseTimers.delete(projectId);
+        if (this.#runtimeStates.get(projectId) !== "responding") return;
+        this.#runtimeStates.set(projectId, "attached");
+      }, 750);
+      timer.unref?.();
+      this.#responseTimers.set(projectId, timer);
+    }
+  }
+
+  /** A live but quiescent/detached internal session is publicly `active`;
+   * only absent/killed sessions are `idle`. */
+  runtimeStatus(projectId: string): ProjectStatus {
+    const state = this.#runtimeStates.get(projectId);
+    if (!state) return "idle";
+    if (state === "responding") return "streaming";
+    if (state === "error") return "error";
+    return "active";
   }
 
   /** Kill: forget the project — its URL 404s and its `i<n>` counter resets. */
   removeSession(projectId: string): void {
     this.#entries.delete(projectId);
+    this.#runtimeStates.delete(projectId);
+    const timer = this.#responseTimers.get(projectId);
+    if (timer) clearTimeout(timer);
+    this.#responseTimers.delete(projectId);
   }
 
   /** True when this session launched MCP-wired (used to flag `idea.fallback_scan`). */
@@ -186,11 +201,8 @@ export class McpSessionRegistry {
       get attachment() {
         return entry.attachment;
       },
-      get boardSnapshot() {
-        return entry.boardSnapshot;
-      },
-      mintRef: () => {
-        entry.nextRef = skipMintedRefs(entry.nextRef, entry.boardSnapshot);
+      mintRef: async () => {
+        if (this.#reserveRef) return this.#reserveRef(projectId);
         return `i${entry.nextRef++}`;
       }
     };

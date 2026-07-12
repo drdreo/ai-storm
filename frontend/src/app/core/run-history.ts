@@ -3,13 +3,12 @@ import type { AgentArtifact, SpecFormat } from "@ai-storm/shared";
 /**
  * Run history for convergence operations (#104) — the pure model behind the
  * {@link history} store and the HistoryPanel. Every convergence run (a spec
- * hand-off, a synthesis snapshot, a triage pass) leaves a compact, local-first
+ * hand-off, a synthesis snapshot, a triage pass) leaves a compact, durable
  * record so users can revisit prior generations, compare runs, and recover an
  * earlier artifact after the brainstorm moved on.
  *
  * This module is framework-free: entry shape, preview derivation, and the
- * per-project retention cap. Persistence (a Y.Doc in IndexedDB, mirroring the
- * project registry pattern) lives in `stores/history.store.ts`.
+ * per-project retention cap. Backend persistence lives in `stores/history.store.ts`.
  */
 
 /** Which convergence operation produced the entry. */

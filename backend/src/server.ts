@@ -25,8 +25,9 @@ import { fsRoutes } from "./fs/routes.ts";
 import { issueRoutes } from "./issues/routes.ts";
 import { killAgentTree, runAgent } from "./agent/executor.ts";
 import { log } from "./log.ts";
-import { parseClientMessage, type ClientMessage, type ServerMessage } from "@ai-storm/shared";
+import { parseClientMessage, type ClientMessage, type PortableStateBundle, type ServerMessage } from "@ai-storm/shared";
 import { encodeServerMessage } from "./ws/codec.ts";
+import { StateFileError, StateStore, type StoredFolder, type StoredProject } from "./state/store.ts";
 
 let connectionSeq = 0;
 
@@ -74,7 +75,7 @@ export interface ServerConfig {
   agentTimeoutMs?: number;
 }
 
-export function buildApp(config: ServerConfig) {
+export function buildApp(config: ServerConfig, stateStore = new StateStore()) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
   const backend = getRuntime();
@@ -86,7 +87,8 @@ export function buildApp(config: ServerConfig) {
   // and the session backends feed it tokens/attachments per session. The bind
   // stays loopback; "0.0.0.0" is normalized so a baked launch URL is dialable.
   mcpRegistry.configure(`http://${config.hostname === "0.0.0.0" ? "127.0.0.1" : config.hostname}:${config.port}`);
-  app.route("/mcp", mcpRoutes(mcpRegistry));
+  mcpRegistry.configureRefAllocator(async (projectId) => (await stateStore.reserveIdeaRefs(projectId, 1))[0]);
+  app.route("/mcp", mcpRoutes(mcpRegistry, stateStore));
   app.route("/api/fs", fsRoutes());
   app.route("/api/issues", issueRoutes());
 
@@ -101,6 +103,9 @@ export function buildApp(config: ServerConfig) {
       const attached = new Set<string>();
       // Agent subprocesses spawned by this connection, torn down on disconnect.
       const agents = new Set<ChildProcess>();
+      // State commands from one browser are ordered. This makes optimistic
+      // create→patch→board-load sequences deterministic while PTY traffic stays live.
+      let stateQueue = Promise.resolve();
 
       // `socket` is captured on open so message handlers can push to the client.
       let socket: { send: (data: string) => void; readyState: number } | null = null;
@@ -143,7 +148,14 @@ export function buildApp(config: ServerConfig) {
             send({ type: "error", message: m });
             return;
           }
-          void dispatch(msg, backend, conn, send, attached, agents, config);
+          if (msg.type === "state-request") {
+            stateQueue = stateQueue.then(
+              () => dispatch(msg, backend, stateStore, conn, send, attached, agents, config),
+              () => dispatch(msg, backend, stateStore, conn, send, attached, agents, config)
+            );
+          } else {
+            void dispatch(msg, backend, stateStore, conn, send, attached, agents, config);
+          }
         },
         onClose() {
           log.info("ws.close", { conn, attached: attached.size, liveAgents: agents.size });
@@ -173,6 +185,7 @@ export function buildApp(config: ServerConfig) {
 async function dispatch(
   msg: ClientMessage,
   backend: SessionBackend,
+  stateStore: StateStore,
   conn: string,
   send: (msg: ServerMessage) => void,
   attached: Set<string>,
@@ -180,6 +193,35 @@ async function dispatch(
   config: ServerConfig
 ): Promise<void> {
   switch (msg.type) {
+    case "state-request": {
+      try {
+        // Runtime session state is intentionally not persisted in the registry:
+        // probe the process-wide backend so a freshly loaded browser can tell
+        // which durable sessions should be reattached.
+        let data: unknown;
+        if (msg.operation === "session-probe") {
+          if (!msg.projectId) throw new Error("session-probe requires projectId");
+          const exists = await backend.hasSession(msg.projectId);
+          log.info("session.probe", { project: msg.projectId, exists, runtime: backend.runtime });
+          data = { exists };
+        } else {
+          data = await dispatchStateRequest(msg.operation, msg.projectId, msg.payload ?? {}, stateStore);
+        }
+        send({ type: "state-response", requestId: msg.requestId, operation: msg.operation, ok: true, data });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.error("state.request_failed", { operation: msg.operation, project: msg.projectId, message });
+        send({
+          type: "state-response",
+          requestId: msg.requestId,
+          operation: msg.operation,
+          ok: false,
+          error: message,
+          ...(error instanceof StateFileError ? { path: error.path } : {})
+        });
+      }
+      break;
+    }
     case "attach": {
       const { projectId } = msg;
       log.info("attach.request", {
@@ -220,6 +262,7 @@ async function dispatch(
           // control bytes of a cursor-addressed TUI survive JSON intact. This is
           // the AI's response stream; byte volume is debug-level (would flood).
           (raw) => {
+            mcpRegistry.setRuntimeState(projectId, "responding");
             log.debug("ai.data", { project: projectId, bytes: raw.length });
             send({ type: "data", projectId, data: Buffer.from(raw, "utf8").toString("base64") });
           },
@@ -264,14 +307,17 @@ async function dispatch(
             send({ type: "reference", projectId, reference });
           },
           (message) => {
+            mcpRegistry.setRuntimeState(projectId, "error");
             log.warn("session.error", { project: projectId, message });
             send({ type: "error", projectId, message });
           }
         );
         attached.add(projectId);
+        mcpRegistry.setRuntimeState(projectId, "attached");
         send({ type: "session-status", projectId, status: "attached" });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        mcpRegistry.setRuntimeState(projectId, "error");
         log.error("attach.error", { project: projectId, message });
         send({ type: "error", projectId, message });
       }
@@ -293,6 +339,27 @@ async function dispatch(
       }
       try {
         await backend.sendInput(msg.projectId, msg.data);
+      } catch (err) {
+        send({
+          type: "error",
+          projectId: msg.projectId,
+          message: err instanceof Error ? err.message : String(err)
+        });
+      }
+      break;
+    }
+    case "submit": {
+      // Complete prompts (notably multiline triage requests) must use the
+      // backend's paste-safe submission path. Sending them as raw terminal
+      // keystrokes lets embedded newlines submit partial prompts.
+      log.info("ai.prompt.submit", {
+        project: msg.projectId,
+        bytes: msg.data.length,
+        lines: msg.data.split(/\r?\n/).length,
+        submit: msg.submit !== false
+      });
+      try {
+        await backend.submitPrompt(msg.projectId, msg.data, { submit: msg.submit !== false });
       } catch (err) {
         send({
           type: "error",
@@ -330,14 +397,6 @@ async function dispatch(
           message: err instanceof Error ? err.message : String(err)
         });
       }
-      break;
-    case "board-snapshot":
-      mcpRegistry.updateBoardSnapshot(msg.projectId, msg.snapshot);
-      log.debug("board.snapshot", {
-        project: msg.projectId,
-        cards: msg.snapshot.cards.length,
-        edges: msg.snapshot.edges.length
-      });
       break;
     case "agent":
       // Concurrency ceiling (#142): each run is a full harness process; an
@@ -382,6 +441,99 @@ async function dispatch(
         }
       }
       break;
+  }
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) throw new Error(`State request requires ${field}`);
+  return value;
+}
+
+function requiredProjectId(projectId: string | undefined): string {
+  return requiredString(projectId, "projectId");
+}
+function requiredObject(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`State request requires ${field}`);
+  return value as Record<string, unknown>;
+}
+
+export async function dispatchStateRequest(
+  operation: import("@ai-storm/shared").StateOperation,
+  projectId: string | undefined,
+  payload: Record<string, unknown>,
+  store: StateStore
+): Promise<unknown> {
+  switch (operation) {
+    case "session-probe":
+      throw new Error("session-probe must be handled by the runtime dispatcher");
+    case "registry-load":
+      return store.readRegistry();
+    case "registry-create-project": {
+      const project = payload.project as Omit<StoredProject, "createdAt" | "updatedAt"> | undefined;
+      if (!project || typeof project !== "object") throw new Error("State request requires project");
+      await store.createProject(project);
+      return store.readRegistry();
+    }
+    case "registry-patch-project":
+      await store.updateProject(requiredProjectId(projectId), requiredObject(payload.patch, "patch"));
+      return store.readRegistry();
+    case "registry-delete-project":
+      await store.deleteProject(requiredProjectId(projectId));
+      return store.readRegistry();
+    case "registry-create-folder": {
+      const folder = payload.folder as StoredFolder | undefined;
+      if (!folder || typeof folder !== "object") throw new Error("State request requires folder");
+      await store.createFolder(folder);
+      return store.readRegistry();
+    }
+    case "registry-patch-folder":
+      await store.updateFolder(requiredString(payload.folderId, "folderId"), requiredObject(payload.patch, "patch"));
+      return store.readRegistry();
+    case "registry-delete-folder":
+      await store.deleteFolder(requiredString(payload.folderId, "folderId"));
+      return store.readRegistry();
+    case "board-load": {
+      const board = await store.readBoard(requiredProjectId(projectId));
+      return { revision: board.revision, document: board.document };
+    }
+    case "board-save": {
+      const expectedRevision = payload.expectedRevision;
+      if (!Number.isSafeInteger(expectedRevision)) throw new Error("State request requires expectedRevision");
+      if (!Object.hasOwn(payload, "document")) throw new Error("State request requires document");
+      return store.writeBoard(requiredProjectId(projectId), expectedRevision as number, payload.document);
+    }
+    case "reserve-idea-refs": {
+      const count = payload.count;
+      if (!Number.isSafeInteger(count)) throw new Error("State request requires count");
+      return { refs: await store.reserveIdeaRefs(requiredProjectId(projectId), count as number) };
+    }
+    case "history-load":
+      return store.readHistory(requiredProjectId(projectId));
+    case "history-append":
+      return store.appendHistoryEntry(requiredProjectId(projectId), requiredObject(payload.entry, "entry"));
+    case "history-update":
+      return store.updateHistoryEntry(
+        requiredProjectId(projectId),
+        requiredString(payload.entryId, "entryId"),
+        requiredObject(payload.patch, "patch")
+      );
+    case "history-delete":
+      return store.deleteHistoryEntry(requiredProjectId(projectId), requiredString(payload.entryId, "entryId"));
+    case "history-clear":
+      return store.clearHistory(requiredProjectId(projectId));
+    case "state-export": {
+      const ids = payload.projectIds;
+      if (ids !== undefined && (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")))
+        throw new Error("State request requires projectIds to be strings");
+      return store.exportState(ids as string[] | undefined);
+    }
+    case "state-import": {
+      const bundle = requiredObject(payload.bundle, "bundle") as unknown as PortableStateBundle;
+      const ids = payload.projectIds;
+      if (ids !== undefined && (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")))
+        throw new Error("State request requires projectIds to be strings");
+      return store.importState(bundle, ids as string[] | undefined);
+    }
   }
 }
 
