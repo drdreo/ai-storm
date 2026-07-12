@@ -390,6 +390,10 @@ export const project = {
     });
     applyRegistry(registry);
     const imported = registry.projects.filter((item) => !existingIds.has(item.id));
+    // `state-import` writes each cloned history document on the backend, but
+    // history.boot() has already run for the pre-import registry. Hydrate the
+    // new ids now so History reflects the restored backup immediately.
+    await history.loadProjects(imported.map((item) => item.id));
     const target = imported.at(-1) ?? registry.projects.at(-1);
     if (target) {
       project.setActive(target.id);

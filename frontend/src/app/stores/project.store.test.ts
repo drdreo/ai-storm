@@ -26,6 +26,7 @@ class LocalStorageStub {
 }
 
 let registry = { projects: [] as Array<Record<string, any>>, folders: [] as Array<Record<string, any>>, revision: 0 };
+let histories = new Map<string, { revision: number; runs: Array<Record<string, any>> }>();
 let liveSessions = new Set<string>();
 let probeFails = false;
 
@@ -35,6 +36,9 @@ async function stateRequest(operation: string, options: { projectId?: string; pa
   if (operation === "session-probe") {
     if (probeFails) throw new Error("session-probe unsupported");
     return { exists: !!options.projectId && liveSessions.has(options.projectId) };
+  }
+  if (operation === "history-load") {
+    return structuredClone(histories.get(options.projectId ?? "") ?? { revision: 0, runs: [] });
   }
   if (operation === "state-export") {
     const selected = new Set(payload.projectIds ?? registry.projects.map((project) => project.id));
@@ -67,10 +71,16 @@ async function stateRequest(operation: string, options: { projectId?: string; pa
       registry.folders.push({ ...folder, id });
     }
     for (const source of projects) {
+      const id = `ws_import_${registry.projects.length}`;
       registry.projects.push({
         ...source,
-        id: `ws_import_${registry.projects.length}`,
+        id,
         folderId: source.folderId ? folderMap.get(source.folderId) : undefined
+      });
+      const sourceHistory = bundle.histories[source.id] ?? { revision: 0, runs: [] };
+      histories.set(id, {
+        ...sourceHistory,
+        runs: sourceHistory.runs.map((run: Record<string, any>) => ({ ...run, projectId: id }))
       });
     }
   } else if (operation === "registry-create-project") {
@@ -125,6 +135,7 @@ describe("project store — registry lifecycle", () => {
     // Fresh backend authority + active pointer for each test.
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
+    histories = new Map();
     liveSessions = new Set();
     probeFails = false;
   });
@@ -347,7 +358,22 @@ describe("project store — folders (#128)", () => {
         p2: { version: 1 as const, revision: 0, nextIdeaRef: 1, document: null }
       },
       histories: {
-        p1: { version: 1 as const, revision: 0, runs: [] },
+        p1: {
+          version: 1 as const,
+          revision: 1,
+          runs: [
+            {
+              id: "run_imported",
+              projectId: "p1",
+              type: "synthesis" as const,
+              status: "done" as const,
+              createdAt: 1,
+              finishedAt: 1,
+              output: "# Restored summary",
+              preview: "Restored summary"
+            }
+          ]
+        },
         p2: { version: 1 as const, revision: 0, runs: [] }
       }
     };
@@ -360,6 +386,11 @@ describe("project store — folders (#128)", () => {
     expect(state.folders.find((folder) => folder.id === imported.folderId)?.title).toBe("Research");
     expect(state.projects.some((item) => item.title === "Skipped")).toBe(false);
     expect(state.activeId).toBe(imported.id);
+
+    const { useHistoryStore } = await import("./history.store");
+    expect(useHistoryStore.getState().entries).toContainEqual(
+      expect.objectContaining({ id: "run_imported", projectId: imported.id, output: "# Restored summary" })
+    );
   });
 
   it("exportAll() reads the backend state subset without switching projects", async () => {

@@ -66,6 +66,22 @@ function mutate(input: Omit<PendingMutation, "sequence">): void {
     });
 }
 
+async function loadProjects(projectIds: readonly string[]): Promise<void> {
+  const uniqueIds = [...new Set(projectIds)];
+  const wires = await Promise.all(
+    uniqueIds.map(
+      async (projectId) => [projectId, await backend.request<HistoryWire>("history-load", { projectId })] as const
+    )
+  );
+  for (const [projectId, wire] of wires) replaceProject(projectId, wire);
+  const loaded = uniqueIds.length > 0 ? new Set(uniqueIds) : null;
+  for (const entry of useHistoryStore.getState().entries) {
+    if (loaded && !loaded.has(entry.projectId)) continue;
+    const fixed = reconcileStale(entry);
+    if (fixed) patchEntry(entry.id, fixed);
+  }
+}
+
 async function flushPending(): Promise<void> {
   const failedProjects = new Set<string>();
   for (const command of pendingMutations.values()) {
@@ -108,17 +124,12 @@ export const history = {
   async boot(projectIds: readonly string[] = []): Promise<void> {
     if (booted) return;
     booted = true;
-    const wires = await Promise.all(
-      projectIds.map(
-        async (projectId) => [projectId, await backend.request<HistoryWire>("history-load", { projectId })] as const
-      )
-    );
-    for (const [projectId, wire] of wires) replaceProject(projectId, wire);
-    for (const entry of useHistoryStore.getState().entries) {
-      const fixed = reconcileStale(entry);
-      if (fixed) patchEntry(entry.id, fixed);
-    }
+    await loadProjects(projectIds);
   },
+
+  /** Load history for projects added after app boot, such as restored backup
+   * clones. Import writes the files backend-side; this refreshes the live store. */
+  loadProjects,
 
   record(input: {
     projectId: string;
