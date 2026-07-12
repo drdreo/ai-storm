@@ -228,12 +228,13 @@ export const agent = {
 
   /**
    * AI triage (#60) — serialize the whole board (ref-annotated) and ask the live
-   * agent to rate every card for impact/effort/confidence. Unlike {@link discussText},
-   * this is SUBMITTED (trailing '\r') because it's a complete request: the agent's
-   * `«SCORE@ref»` reply is extracted and flows back to the canvas via
-   * `canvas.applyScore`, then "▦ Grid" lays the scored board out.
+   * agent to rate every card for impact/effort/confidence. The prompt lands
+   * EDITABLE in the input line (paste-safe, no auto-Enter): the user reviews it
+   * and submits. Once they do, the agent's `«SCORE@ref»` reply is extracted and
+   * flows back to the canvas via `canvas.applyScore`, then "▦ Grid" lays the
+   * scored board out.
    *
-   * @returns `true` if a triage prompt was submitted; `false` if no session is
+   * @returns `true` if a triage prompt was typed; `false` if no session is
    *   attached or the board is empty.
    */
   triage(projectId: string): boolean {
@@ -241,9 +242,10 @@ export const agent = {
     const board = canvas.serializeForTriage(projectId);
     const prompt = frameTriage(board);
     if (!prompt) return false;
-    // Trailing '\r' submits it — a triage pass is a complete request, not an
-    // editable seam like the card verbs.
-    ingestion.sendInput(projectId, prompt + "\r");
+    // Paste-safe delivery, no auto-submit: the prompt is multiline (one row per
+    // card), so raw terminal input would treat an embedded newline as Enter and
+    // dispatch only a partial triage request. The user owns the final Enter.
+    ingestion.pastePrompt(projectId, prompt);
     ingestion.focusTerminal(projectId);
     // Record the request's metadata (#104): one serialized line per triageable
     // card, so `cardCount` is the denominator the score replies count toward

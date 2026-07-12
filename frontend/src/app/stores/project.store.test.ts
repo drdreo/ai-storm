@@ -26,10 +26,16 @@ class LocalStorageStub {
 }
 
 let registry = { projects: [] as Array<Record<string, any>>, folders: [] as Array<Record<string, any>>, revision: 0 };
+let liveSessions = new Set<string>();
+let probeFails = false;
 
 async function stateRequest(operation: string, options: { projectId?: string; payload?: Record<string, any> } = {}) {
   const payload = options.payload ?? {};
   if (operation === "registry-load") return structuredClone(registry);
+  if (operation === "session-probe") {
+    if (probeFails) throw new Error("session-probe unsupported");
+    return { exists: !!options.projectId && liveSessions.has(options.projectId) };
+  }
   if (operation === "state-export") {
     const selected = new Set(payload.projectIds ?? registry.projects.map((project) => project.id));
     const projects = registry.projects.filter((project) => selected.has(project.id));
@@ -119,12 +125,45 @@ describe("project store — registry lifecycle", () => {
     // Fresh backend authority + active pointer for each test.
     (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
+    liveSessions = new Set();
+    probeFails = false;
   });
 
   it("stands up a starter project on first boot and marks it active", async () => {
     const { useProjectStore, selectActive } = await bootStore();
     expect(useProjectStore.getState().projects.length).toBe(1);
     expect(selectActive(useProjectStore.getState())?.title).toBe("Untitled Project");
+  });
+
+  it("restores active runtime status when a durable session survived a browser reload", async () => {
+    registry.projects.push({
+      id: "ws_live",
+      title: "Live project",
+      terminal: { agentCommand: "claude" },
+      createdAt: 1,
+      updatedAt: 1
+    });
+    liveSessions.add("ws_live");
+
+    const { useProjectStore, selectActive } = await bootStore();
+
+    expect(selectActive(useProjectStore.getState())?.status).toBe("active");
+  });
+
+  it("boots despite session probes failing — status recovery is best-effort", async () => {
+    registry.projects.push({
+      id: "ws_live",
+      title: "Live project",
+      terminal: { agentCommand: "claude" },
+      createdAt: 1,
+      updatedAt: 1
+    });
+    probeFails = true;
+
+    const { useProjectStore, selectActive } = await bootStore();
+
+    expect(useProjectStore.getState().booted).toBe(true);
+    expect(selectActive(useProjectStore.getState())?.status).toBe("idle");
   });
 
   it("create() adds a project with the given title and rename() updates it", async () => {

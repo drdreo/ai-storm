@@ -33,6 +33,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../log.ts";
 import { sanitize } from "./ansi.ts";
+import { replayCapture } from "./replay.ts";
 import {
   IdeaScanner,
   IdeaSink,
@@ -286,7 +287,7 @@ export class TmuxSessionBackend implements SessionBackend {
       // Idempotent: an existing durable session is reused as-is (design §3.3).
       // Priming is baked into the launch command (system-prompt flag), so a
       // reused session is already primed — nothing to (re)do here.
-      log.info("session.reuse", { project: projectId, session: sessionName });
+      log.info("session.reuse", { project: projectId, runtime: this.runtime, session: sessionName });
       return { projectId, sessionId: sessionName };
     }
 
@@ -377,6 +378,7 @@ export class TmuxSessionBackend implements SessionBackend {
 
     log.info("session.created", {
       project: projectId,
+      runtime: this.runtime,
       session: sessionName,
       command: command || "(shell)"
     });
@@ -448,6 +450,9 @@ export class TmuxSessionBackend implements SessionBackend {
     // set, so without this every visible idea would be re-sent on reconnect).
     try {
       poller.lastCapture = await this.#capture(projectId);
+      // A reloaded browser has an empty xterm even though tmux retained the
+      // pane. Replay the current screen + scrollback before tailing new bytes.
+      onData(replayCapture(poller.lastCapture));
       poller.scanner.scan(poller.lastCapture, true);
       // Seed the score scanner too, so scores already on screen (a reattach) and
       // any echoed example «SCORE» line are not re-emitted.
@@ -459,7 +464,7 @@ export class TmuxSessionBackend implements SessionBackend {
     // Begin streaming raw pane bytes to the client (the xterm.js terminal).
     await this.#startRawStream(projectId, poller);
 
-    log.info("session.attached", { project: projectId });
+    log.info("session.attached", { project: projectId, runtime: this.runtime, session: this.#sessionName(projectId) });
     this.#scheduleTick(projectId, IDEA_POLL_MS);
   }
 
@@ -641,7 +646,7 @@ export class TmuxSessionBackend implements SessionBackend {
    * for short), then submit with a delayed Enter so the harness's line
    * discipline sees a settled line. NOT used for interactive keystrokes.
    */
-  async submitPrompt(projectId: string, data: string): Promise<void> {
+  async submitPrompt(projectId: string, data: string, options?: { submit?: boolean }): Promise<void> {
     assertValidProjectId(projectId);
     const target = this.#target(projectId);
     // tmux submits with a separate Enter, so strip any trailing newline here.
@@ -681,7 +686,9 @@ export class TmuxSessionBackend implements SessionBackend {
     }
 
     // 4) Enter is sent separately, after a delay, so the harness's line
-    //    discipline sees a settled line before submit (AO tmux.ts:118).
+    //    discipline sees a settled line before submit (AO tmux.ts:118). An
+    //    editable delivery stops here — the user reviews and submits.
+    if (options?.submit === false) return;
     await this.#sleep(heavy ? 1000 : 300);
     await this.#tmux("send-keys", "-t", target, "Enter");
   }
@@ -713,7 +720,7 @@ export class TmuxSessionBackend implements SessionBackend {
     // Tool calls now get "session not attached" until reattach; the token (and
     // the durable session) live on (mcp-idea-capture §4.1).
     this.#mcp.detachSession(projectId);
-    log.info("session.detached", { project: projectId });
+    log.info("session.detached", { project: projectId, runtime: this.runtime, session: this.#sessionName(projectId) });
     // The tmux session is intentionally left alive (PRD §3.5).
   }
 

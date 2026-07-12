@@ -129,6 +129,9 @@ export class FakeStateBackend {
     switch (operation) {
       case "registry-load":
         return this.#registry;
+      case "session-probe":
+        // The ui suite never starts sessions; nothing survives a reload.
+        return { exists: false };
       case "registry-create-project": {
         const project = payload.project as Record<string, unknown> & { id: string; createdAt?: number };
         const createdAt = project.createdAt ?? Date.now();

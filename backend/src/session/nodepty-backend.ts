@@ -17,6 +17,7 @@
  */
 
 import { rmSync } from "node:fs";
+import { setTimeout as sleep } from "node:timers/promises";
 import ptyDefault from "@lydell/node-pty";
 import type { IPty } from "@lydell/node-pty";
 import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
@@ -25,6 +26,7 @@ import { resolveLaunch, LaunchNotFoundError, tokenizeCommand } from "../pty/reso
 import { ScanGate } from "./scan-gate.ts";
 import { TerminalScreen } from "./screen.ts";
 import { applyFileLaunch } from "./file-launch.ts";
+import { replayCapture } from "./replay.ts";
 import {
   IdeaScanner,
   IdeaSink,
@@ -114,7 +116,10 @@ export class NodePtySessionBackend implements SessionBackend {
   async create(spec: SessionSpec): Promise<SessionHandle> {
     const { projectId } = spec;
     if (await this.hasSession(projectId)) {
-      // Idempotent: reuse the live PTY.
+      // Idempotent: reuse the live PTY. Log its stable PID so repeated browser
+      // reloads visibly prove that no replacement process was spawned.
+      const pid = this.#sessions.get(projectId)?.term?.pid;
+      log.info("session.reuse", { project: projectId, runtime: this.runtime, pid });
       return { projectId, sessionId: `pty-${projectId}` };
     }
 
@@ -253,20 +258,32 @@ export class NodePtySessionBackend implements SessionBackend {
       log.info("session.pty_exit", { project: projectId, code: exitCode });
     });
 
-    log.info("session.created", { project: projectId, command: launch.cmd, pid: term.pid });
+    log.info("session.created", { project: projectId, runtime: this.runtime, command: launch.cmd, pid: term.pid });
     return { projectId, sessionId: `pty-${projectId}` };
   }
 
   /**
-   * Submit a complete prompt programmatically (priming / context injection). On
-   * a real PTY a trailing carriage return submits the line, so the text is
-   * written with one appended if absent.
+   * Deliver a complete prompt programmatically (priming / context injection /
+   * triage). Paste-safe, then submitted with a carriage return unless
+   * `options.submit` is `false` (the text stays editable for the user).
    */
-  async submitPrompt(projectId: string, text: string): Promise<void> {
+  async submitPrompt(projectId: string, text: string, options?: { submit?: boolean }): Promise<void> {
     const session = this.#sessions.get(projectId);
     if (!session || session.closed || !session.term) return;
+    const term = session.term;
+    const content = text.replace(/[\r\n]+$/, "");
     try {
-      session.term.write(/[\r\n]$/.test(text) ? text : text + "\r");
+      // Clear any editable text first, then use terminal bracketed-paste mode for
+      // multiline/large prompts. Without the paste envelope, every embedded LF
+      // can be interpreted as Enter by interactive TUIs (pi/Claude/Codex),
+      // submitting a half-written triage request one card at a time.
+      term.write("\x15"); // C-u / kill current input line
+      await sleep(50);
+      const heavy = content.includes("\n") || content.length > 200;
+      term.write(heavy ? `\x1b[200~${content}\x1b[201~` : content);
+      if (options?.submit === false) return;
+      await sleep(heavy ? 100 : 30);
+      term.write("\r");
     } catch {
       // Terminal torn down; exit handler reports termination.
     }
@@ -303,7 +320,11 @@ export class NodePtySessionBackend implements SessionBackend {
       onCompletion,
       onReference
     });
-    log.info("session.attached", { project: projectId });
+    // The browser's xterm is new after a reload, but the in-process PTY and its
+    // headless screen are not. Repaint the retained scrollback immediately;
+    // otherwise the terminal stays blank until the harness next emits output.
+    onData(replayCapture(session.screen.snapshotAll()));
+    log.info("session.attached", { project: projectId, runtime: this.runtime, pid: session.term?.pid });
   }
 
   /**
@@ -425,7 +446,7 @@ export class NodePtySessionBackend implements SessionBackend {
     session.gate.cancel();
     // Tool calls get "session not attached" until reattach; the token lives on.
     this.#mcp.detachSession(projectId);
-    log.info("session.detached", { project: projectId });
+    log.info("session.detached", { project: projectId, runtime: this.runtime, pid: session.term?.pid });
   }
 
   async kill(projectId: string): Promise<void> {

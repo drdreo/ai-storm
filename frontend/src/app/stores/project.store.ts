@@ -89,6 +89,29 @@ function optimisticFolder(folder: Folder): void {
 async function reloadRegistry(): Promise<void> {
   applyRegistry(await backend.request<RegistryWire>("registry-load"));
 }
+
+/** Recover non-durable runtime status after a browser reload. The registry does
+ * not persist "active" because only the session backend can authoritatively say
+ * whether a PTY/tmux session still exists. Strictly best-effort: restoring a
+ * status badge must never block boot, so a failed probe counts as "no session". */
+async function probeLiveSessions(): Promise<void> {
+  const projects = useProjectStore.getState().projects;
+  const probes = await Promise.all(
+    projects.map(async ({ id }) => {
+      try {
+        const result = await backend.request<{ exists: boolean }>("session-probe", { projectId: id });
+        return [id, result.exists] as const;
+      } catch {
+        return [id, false] as const;
+      }
+    })
+  );
+  const live = new Set(probes.filter(([, exists]) => exists).map(([id]) => id));
+  if (live.size === 0) return;
+  useProjectStore.setState((state) => ({
+    projects: state.projects.map((item) => (live.has(item.id) ? { ...item, status: "active" as const } : item))
+  }));
+}
 function durableProject(meta: ProjectMeta): Record<string, unknown> {
   return {
     title: meta.title,
@@ -136,6 +159,7 @@ export const project = {
     await withSpan("project.boot", {}, async () => {
       await canvas.init();
       await reloadRegistry();
+      await probeLiveSessions();
       let projects = useProjectStore.getState().projects;
       if (projects.length === 0) {
         const id = `ws_${crypto.randomUUID()}`;

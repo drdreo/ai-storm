@@ -195,7 +195,18 @@ async function dispatch(
   switch (msg.type) {
     case "state-request": {
       try {
-        const data = await dispatchStateRequest(msg.operation, msg.projectId, msg.payload ?? {}, stateStore);
+        // Runtime session state is intentionally not persisted in the registry:
+        // probe the process-wide backend so a freshly loaded browser can tell
+        // which durable sessions should be reattached.
+        let data: unknown;
+        if (msg.operation === "session-probe") {
+          if (!msg.projectId) throw new Error("session-probe requires projectId");
+          const exists = await backend.hasSession(msg.projectId);
+          log.info("session.probe", { project: msg.projectId, exists, runtime: backend.runtime });
+          data = { exists };
+        } else {
+          data = await dispatchStateRequest(msg.operation, msg.projectId, msg.payload ?? {}, stateStore);
+        }
         send({ type: "state-response", requestId: msg.requestId, operation: msg.operation, ok: true, data });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -337,6 +348,27 @@ async function dispatch(
       }
       break;
     }
+    case "submit": {
+      // Complete prompts (notably multiline triage requests) must use the
+      // backend's paste-safe submission path. Sending them as raw terminal
+      // keystrokes lets embedded newlines submit partial prompts.
+      log.info("ai.prompt.submit", {
+        project: msg.projectId,
+        bytes: msg.data.length,
+        lines: msg.data.split(/\r?\n/).length,
+        submit: msg.submit !== false
+      });
+      try {
+        await backend.submitPrompt(msg.projectId, msg.data, { submit: msg.submit !== false });
+      } catch (err) {
+        send({
+          type: "error",
+          projectId: msg.projectId,
+          message: err instanceof Error ? err.message : String(err)
+        });
+      }
+      break;
+    }
     case "resize":
       log.debug("resize", { project: msg.projectId, cols: msg.cols, rows: msg.rows });
       await backend.resize(msg.projectId, msg.cols, msg.rows);
@@ -432,6 +464,8 @@ export async function dispatchStateRequest(
   store: StateStore
 ): Promise<unknown> {
   switch (operation) {
+    case "session-probe":
+      throw new Error("session-probe must be handled by the runtime dispatcher");
     case "registry-load":
       return store.readRegistry();
     case "registry-create-project": {

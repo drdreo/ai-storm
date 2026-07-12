@@ -35,6 +35,7 @@ import type { CreateIdeaInput } from "./idea.js";
 export type ClientMessage =
   | AttachMessage
   | InputMessage
+  | SubmitMessage
   | ResizeMessage
   | DetachMessage
   | KillMessage
@@ -46,6 +47,7 @@ export type ClientMessage =
  * board-save is the sole whole-document write. `requestId` correlates an ack. */
 export type StateOperation =
   | "registry-load"
+  | "session-probe"
   | "registry-create-project"
   | "registry-patch-project"
   | "registry-delete-project"
@@ -65,6 +67,7 @@ export type StateOperation =
 
 const STATE_OPERATIONS: ReadonlySet<string> = new Set<StateOperation>([
   "registry-load",
+  "session-probe",
   "registry-create-project",
   "registry-patch-project",
   "registry-delete-project",
@@ -135,6 +138,20 @@ export interface InputMessage {
   type: "input";
   projectId: string;
   data: string;
+}
+
+/**
+ * Deliver one complete prompt atomically to the interactive harness. Unlike raw
+ * {@link InputMessage} keystrokes, multiline text goes through the backend's
+ * paste-safe path, so embedded newlines never act as Enter. With `submit`
+ * absent/true the prompt is then submitted exactly once; with `submit: false`
+ * it is left editable in the input line for the user to review and send.
+ */
+export interface SubmitMessage {
+  type: "submit";
+  projectId: string;
+  data: string;
+  submit?: boolean;
 }
 
 /** Inform the session of a new viewport size; re-anchors extraction width. */
@@ -496,6 +513,11 @@ export function parseClientMessage(raw: string): ClientMessage {
       break;
     case "input":
       requireString(m, "data", "input");
+      break;
+    case "submit":
+      requireString(m, "data", "submit");
+      if (m.submit !== undefined && typeof m.submit !== "boolean")
+        throw new Error("Malformed `submit` message: `submit` must be a boolean when present");
       break;
     case "resize":
       requireNumber(m, "cols", "resize");

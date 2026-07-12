@@ -216,6 +216,20 @@ export const ingestion = {
     backend.send({ type: "input", projectId, data });
   },
 
+  /** Submit a complete, potentially multiline prompt through the backend's
+   * paste-safe path. This must not be emulated with raw keystrokes: embedded
+   * newlines can otherwise submit only the first portion to a terminal TUI. */
+  submitPrompt(projectId: string, data: string): void {
+    backend.send({ type: "submit", projectId, data });
+  },
+
+  /** Same paste-safe delivery as {@link submitPrompt}, but WITHOUT the final
+   * Enter: the prompt lands editable in the harness's input line so the user
+   * reviews it and submits it themselves. */
+  pastePrompt(projectId: string, data: string): void {
+    backend.send({ type: "submit", projectId, data, submit: false });
+  },
+
   resize(projectId: string, cols: number, rows: number): void {
     backend.send({ type: "resize", projectId, cols, rows });
   },

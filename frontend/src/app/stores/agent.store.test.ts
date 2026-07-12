@@ -14,6 +14,8 @@ interface Harness {
   agent: typeof import("./agent.store").agent;
   useAgentStore: typeof import("./agent.store").useAgentStore;
   sendInput: ReturnType<typeof vi.fn>;
+  submitPrompt: ReturnType<typeof vi.fn>;
+  pastePrompt: ReturnType<typeof vi.fn>;
   focusTerminal: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   applyIssueLinks: ReturnType<typeof vi.fn>;
@@ -24,11 +26,13 @@ interface Harness {
 async function makeStore(opts: { attached: boolean }): Promise<Harness> {
   vi.resetModules();
   const sendInput = vi.fn();
+  const submitPrompt = vi.fn();
+  const pastePrompt = vi.fn();
   const focusTerminal = vi.fn();
   const send = vi.fn();
   const handlers: Array<(msg: ServerMessage) => void> = [];
   vi.doMock("./ingestion.store", () => ({
-    ingestion: { isAttached: (_id: string) => opts.attached, sendInput, focusTerminal }
+    ingestion: { isAttached: (_id: string) => opts.attached, sendInput, submitPrompt, pastePrompt, focusTerminal }
   }));
   // backend.store reads `location` at import time; canvas pulls in tldraw — mock
   // both so the agent store imports cleanly in the Node test env.
@@ -60,6 +64,8 @@ async function makeStore(opts: { attached: boolean }): Promise<Harness> {
     agent,
     useAgentStore,
     sendInput,
+    submitPrompt,
+    pastePrompt,
     focusTerminal,
     send,
     applyIssueLinks,
@@ -247,9 +253,20 @@ describe("agent.generateSpec run metadata + capabilities (#120)", () => {
     expect(entry.output).toContain("spawn failed");
   });
 
-  it("triage records request metadata with the dispatched card count (#104)", async () => {
+  it("triage pastes the complete multiline board editable (user submits) and records its card count (#60/#104)", async () => {
     const { useHistoryStore } = await import("./history.store");
     expect(h.agent.triage("ws1")).toBe(true);
+
+    expect(h.pastePrompt).toHaveBeenCalledTimes(1);
+    const prompt = h.pastePrompt.mock.calls[0][1] as string;
+    expect(h.pastePrompt).toHaveBeenCalledWith("ws1", prompt);
+    expect(prompt).toContain("@a1 [feature] Dark mode");
+    expect(prompt).toContain("@a2 [feature] Light mode");
+    // Neither raw keystrokes (embedded LF would submit partial prompts) nor an
+    // auto-submitting path — the user owns the final Enter.
+    expect(h.sendInput).not.toHaveBeenCalled();
+    expect(h.submitPrompt).not.toHaveBeenCalled();
+
     const entry = useHistoryStore.getState().entries[0];
     expect(entry).toMatchObject({ projectId: "ws1", type: "triage", status: "running", cardCount: 2, scoredCount: 0 });
   });

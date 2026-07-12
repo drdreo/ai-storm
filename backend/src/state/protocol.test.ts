@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseClientMessage } from "@ai-storm/shared";
 import { dispatchStateRequest } from "../server.ts";
 import { StateStore } from "./store.ts";
 
@@ -16,6 +17,26 @@ async function fixture() {
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("backend state protocol", () => {
+  it("accepts a complete multiline prompt submission", () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({ type: "submit", projectId: "p1", data: "Triage all cards\n@a1 one\n@a2 two" })
+      )
+    ).toEqual({ type: "submit", projectId: "p1", data: "Triage all cards\n@a1 one\n@a2 two" });
+  });
+
+  it("accepts an editable (submit: false) delivery and rejects a non-boolean flag", () => {
+    expect(parseClientMessage(JSON.stringify({ type: "submit", projectId: "p1", data: "x", submit: false }))).toEqual({
+      type: "submit",
+      projectId: "p1",
+      data: "x",
+      submit: false
+    });
+    expect(() =>
+      parseClientMessage(JSON.stringify({ type: "submit", projectId: "p1", data: "x", submit: "no" }))
+    ).toThrow(/submit/);
+  });
+
   it("loads registry/board, acknowledges saves, returns conflicts, reserves refs, and persists granular history", async () => {
     const store = await fixture();
     const registry = (await dispatchStateRequest(
