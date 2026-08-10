@@ -6,18 +6,15 @@
  * `get_projects`) so the agent delivers structured actions as schema-validated
  * JSON tool calls rather than marker lines rendered through a terminal (§1/§2).
  *
- * Hand-rolled against MCP protocol revision 2025-03-26 (the revision that
- * introduced Streamable HTTP). The surface is deliberately the sessionless
- * minimum — `initialize`, `notifications/*` (accepted + ignored), `tools/list`,
- * `tools/call`, `ping` — so no SDK dependency is warranted (§12.6: if a harness
- * ever requires the full session lifecycle, the growth is contained here).
- * Spec-permitted simplifications:
- *  - Every response with a body is `application/json`, never SSE: Streamable
- *    HTTP allows plain JSON when the response is a single message.
- *  - Notifications/responses POSTed by the client → `202 Accepted`, no body.
- *  - No `Mcp-Session-Id` (sessionless), no GET stream (`405`), no batching
- *    (single-message bodies only; JSON-RPC batch arrays are rejected — the
- *    pinned harnesses don't send them, and rev 2025-06-18 removed batching).
+ * Hand-rolled against MCP protocol revision 2026-07-28. This is a hard-cutover,
+ * modern-only endpoint: there is no `initialize` handshake, protocol session,
+ * GET stream, legacy HTTP+SSE lane, or version fallback. Every request carries
+ * its version, client identity/capabilities, and routing metadata independently.
+ * The surface is deliberately the sessionless minimum — `server/discover`,
+ * `tools/list`, and `tools/call` — so no SDK dependency is warranted.
+ * Every successful response is a single `application/json` result with the
+ * modern `resultType` and server identity fields. The endpoint never chooses
+ * SSE because none of its operations emit request-scoped notifications.
  *
  * Validation is hand-rolled in the `parseClientMessage` style (the backend has
  * no zod). A tool-level validation failure returns a RESULT with
@@ -33,14 +30,20 @@ import { log } from "../log.ts";
 import type { McpSession, McpSessionRegistry } from "./registry.ts";
 import { deriveBoardIdeas } from "../state/board-reader.ts";
 import { StateFileError, type StateStore } from "../state/store.ts";
-
-/** Protocol revision implemented (and the fallback offer in negotiation). */
-const PROTOCOL_VERSION = "2025-03-26";
-/** Revisions we can speak verbatim — echo the client's ask when it's one of
- *  these (the surface used here is identical across all three). */
-const KNOWN_VERSIONS = new Set(["2024-11-05", "2025-03-26", "2025-06-18"]);
+import {
+  MCP_CLIENT_CAPABILITIES_META_KEY,
+  MCP_CLIENT_INFO_META_KEY,
+  MCP_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_META_KEY,
+  MCP_SERVER_INFO_META_KEY
+} from "./protocol.ts";
 
 const SERVER_INFO = { name: "ai-storm", version: "3.0.0" };
+const SERVER_CAPABILITIES = { tools: {} };
+const JSON_ACCEPT = "application/json";
+const SSE_ACCEPT = "text/event-stream";
+const HEADER_MISMATCH = -32020;
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
 
 // ── Tool schemas (§3) — the JSON Schema mirror of the parse functions below ──
 
@@ -335,12 +338,25 @@ function parseLinkReference(args: Record<string, unknown>): Reference {
 
 type RpcId = string | number | null;
 
-function rpcResult(id: RpcId, result: unknown) {
-  return { jsonrpc: "2.0" as const, id, result };
+function rpcResult(id: RpcId, result: Record<string, unknown>) {
+  return {
+    jsonrpc: "2.0" as const,
+    id,
+    result: {
+      ...result,
+      resultType: "complete",
+      _meta: {
+        ...(result._meta as Record<string, unknown> | undefined),
+        [MCP_SERVER_INFO_META_KEY]: SERVER_INFO
+      }
+    }
+  };
 }
 
-function rpcError(id: RpcId, code: number, message: string) {
-  return { jsonrpc: "2.0" as const, id, error: { code, message } };
+function rpcError(id: RpcId, code: number, message: string, data?: unknown) {
+  const error: { code: number; message: string; data?: unknown } = { code, message };
+  if (data !== undefined) error.data = data;
+  return { jsonrpc: "2.0" as const, id, error };
 }
 
 /** A successful tool result: one text content block the model reads. */
@@ -363,17 +379,6 @@ function logReadFailure(tool: "get_projects" | "get_board_ideas", error: unknown
     path: error instanceof StateFileError ? error.path : undefined,
     cause: cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause)
   });
-}
-
-function initializeResult(params: Record<string, unknown> | undefined) {
-  const requested = typeof params?.protocolVersion === "string" ? params.protocolVersion : undefined;
-  return {
-    // Negotiation per spec: echo the client's revision when we speak it,
-    // otherwise counter-offer ours (the client then decides to proceed or not).
-    protocolVersion: requested && KNOWN_VERSIONS.has(requested) ? requested : PROTOCOL_VERSION,
-    capabilities: { tools: {} },
-    serverInfo: SERVER_INFO
-  };
 }
 
 /**
@@ -517,12 +522,65 @@ interface MethodContext {
   session: McpSession;
 }
 
-/** The sessionless surface (§9/§11): `initialize`, `ping`, `tools/list`, `tools/call`. */
+/** The modern sessionless surface: discovery plus the advertised tools capability. */
 const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
-  initialize: ({ id, params }) => rpcResult(id, initializeResult(params)),
-  ping: ({ id }) => rpcResult(id, {}),
-  "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS })
+  "server/discover": ({ id }) =>
+    rpcResult(id, {
+      // `protocolVersion` is the compact metadata field consumed by the
+      // pi-mcp-adapter endpoint probe; `supportedVersions` is the canonical
+      // MCP discovery list used by pinned SDK clients.
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      supportedVersions: [MCP_PROTOCOL_VERSION],
+      capabilities: SERVER_CAPABILITIES,
+      instructions: "Capture and manage ai-storm canvas ideas using the advertised tools.",
+      ttlMs: 0,
+      cacheScope: "private"
+    }),
+  "tools/list": ({ id }) => rpcResult(id, { tools: TOOLS, ttlMs: 0, cacheScope: "private" })
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function accepts(header: string | undefined, mediaType: string): boolean {
+  return (
+    header
+      ?.split(",")
+      .map((part) => part.split(";", 1)[0].trim().toLowerCase())
+      .includes(mediaType) ?? false
+  );
+}
+
+/** MCP is local-only; reject every browser Origin except loopback origins. */
+function isOriginAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  try {
+    const host = new URL(origin).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/** Decode the sentinel used when an MCP routing header is not plain ASCII. */
+function decodeHeaderValue(value: string): string {
+  if (!value.startsWith("=?base64?") || !value.endsWith("?=")) return value;
+  try {
+    return Buffer.from(value.slice("=?base64?".length, -2), "base64").toString("utf8");
+  } catch {
+    return value;
+  }
+}
+
+function unsupportedVersion(id: RpcId, requested: string) {
+  return rpcError(
+    id,
+    UNSUPPORTED_PROTOCOL_VERSION,
+    `Unsupported MCP protocol version ${requested}. Upgrade the client to MCP ${MCP_PROTOCOL_VERSION}; legacy MCP transports and initialize negotiation are not supported.`,
+    { supported: [MCP_PROTOCOL_VERSION], requested }
+  );
+}
 
 /**
  * Build the `/mcp` sub-app. Mounted by `buildApp` with the process-wide
@@ -532,17 +590,51 @@ const METHOD_HANDLERS: Record<string, (ctx: MethodContext) => unknown> = {
 export function mcpRoutes(registry: McpSessionRegistry, stateStore: StateStore): Hono {
   const app = new Hono();
 
-  // No server-initiated stream in sessionless mode — 405 per Streamable HTTP.
-  app.get("/:projectId/:token", (c) => c.text("Method Not Allowed", 405));
+  // Streamable HTTP requires Origin validation on every incoming connection,
+  // including rejected methods and browser preflights.
+  app.use("/:projectId/:token", async (c, next) => {
+    if (!isOriginAllowed(c.req.header("origin"))) {
+      return c.json(rpcError(null, -32600, "Forbidden Origin: MCP only accepts loopback browser origins."), 403);
+    }
+    await next();
+  });
+
+  // MCP 2026-07-28 has no standalone GET stream or session DELETE operation.
+  app.on(["GET", "PUT", "PATCH", "DELETE", "OPTIONS"], "/:projectId/:token", (c) =>
+    c.json(
+      rpcError(
+        null,
+        -32600,
+        `MCP ${MCP_PROTOCOL_VERSION} is POST-only and sessionless. Upgrade legacy clients; GET streams and session teardown are not supported.`
+      ),
+      405
+    )
+  );
 
   app.post("/:projectId/:token", async (c) => {
     const { projectId, token } = c.req.param();
     // Auth first, before any body is parsed: wrong/missing token and unknown
-    // project are the same bare 404 (no information leak — §4.1). Browser
-    // cross-site POSTs are additionally fenced by CORS (a JSON POST needs a
-    // preflight we never approve) and by the unguessable token itself.
+    // project are the same bare 404 (no information leak — §4.1).
     const session = registry.resolve(projectId, token);
     if (!session) return c.text("Not found", 404);
+
+    const accept = c.req.header("accept");
+    if (!accepts(accept, JSON_ACCEPT) || !accepts(accept, SSE_ACCEPT)) {
+      return c.json(
+        rpcError(
+          null,
+          -32600,
+          `MCP ${MCP_PROTOCOL_VERSION} requests must accept both application/json and text/event-stream; upgrade legacy clients.`
+        ),
+        406
+      );
+    }
+    if (c.req.header("content-type")?.split(";", 1)[0].trim().toLowerCase() !== JSON_ACCEPT) {
+      return c.json(
+        rpcError(null, -32600, `MCP ${MCP_PROTOCOL_VERSION} requires Content-Type: application/json.`),
+        415
+      );
+    }
 
     let msg: unknown;
     try {
@@ -551,29 +643,113 @@ export function mcpRoutes(registry: McpSessionRegistry, stateStore: StateStore):
       return c.json(rpcError(null, -32700, "Parse error: body must be a JSON-RPC message"), 400);
     }
     if (Array.isArray(msg)) {
-      return c.json(rpcError(null, -32600, "Batch requests are not supported"), 400);
+      return c.json(rpcError(null, -32600, "Batch requests are not supported by MCP 2026-07-28"), 400);
     }
-    if (typeof msg !== "object" || msg === null) {
-      return c.json(rpcError(null, -32600, "Invalid request: expected a JSON-RPC object"), 400);
-    }
-    const { id, method, params } = msg as {
-      id?: RpcId;
-      method?: unknown;
-      params?: Record<string, unknown>;
-    };
-
-    // Client-to-server notifications (`notifications/initialized`, cancels) and
-    // stray responses carry no id → accept + ignore with 202 (spec).
-    if (id === undefined || id === null) return c.body(null, 202);
-    if (typeof method !== "string") {
-      return c.json(rpcError(id, -32600, "Invalid request: missing `method`"), 400);
+    if (!isRecord(msg) || msg.jsonrpc !== "2.0") {
+      return c.json(rpcError(null, -32600, "Invalid request: expected one JSON-RPC 2.0 object"), 400);
     }
 
+    const id = msg.id;
+    const method = msg.method;
+    const params = msg.params;
+    if (id === undefined) {
+      return c.json(
+        rpcError(
+          null,
+          -32600,
+          `Client notifications are not supported by this MCP ${MCP_PROTOCOL_VERSION} HTTP endpoint.`
+        ),
+        400
+      );
+    }
+    if ((typeof id !== "string" && typeof id !== "number") || typeof method !== "string" || !isRecord(params)) {
+      return c.json(rpcError(null, -32600, "Invalid request: `id`, `method`, and object `params` are required"), 400);
+    }
+
+    const meta = isRecord(params._meta) ? params._meta : undefined;
+    const headerVersion = c.req.header("mcp-protocol-version");
+    const bodyVersion = meta?.[MCP_PROTOCOL_VERSION_META_KEY];
+    const initializeVersion = method === "initialize" ? params.protocolVersion : undefined;
+    const requestedVersion =
+      headerVersion ??
+      (typeof bodyVersion === "string" ? bodyVersion : undefined) ??
+      (typeof initializeVersion === "string" ? initializeVersion : undefined);
+
+    // Detect old initialize clients before generic header validation so their
+    // only visible failure tells them exactly how to recover.
+    if (requestedVersion && requestedVersion !== MCP_PROTOCOL_VERSION) {
+      return c.json(unsupportedVersion(id, requestedVersion), 400);
+    }
+    if (!headerVersion) {
+      return c.json(
+        rpcError(
+          id,
+          HEADER_MISMATCH,
+          `Missing MCP-Protocol-Version header. This endpoint requires MCP ${MCP_PROTOCOL_VERSION}; upgrade legacy clients.`
+        ),
+        400
+      );
+    }
+    // pi-mcp-adapter's metadata-only endpoint probe carries the modern
+    // version/method in mandatory HTTP headers but intentionally sends empty
+    // discover params. Keep that one modern probe interoperable; every actual
+    // operation still requires the full per-request envelope.
+    const isHeaderOnlyDiscoverProbe = method === "server/discover" && params._meta === undefined;
+    if (!meta && !isHeaderOnlyDiscoverProbe) {
+      return c.json(
+        rpcError(id, -32602, `Invalid params: MCP ${MCP_PROTOCOL_VERSION} requests require params._meta.`),
+        400
+      );
+    }
+    if (meta && bodyVersion !== headerVersion) {
+      return c.json(
+        rpcError(id, HEADER_MISMATCH, "MCP-Protocol-Version header does not match params._meta protocolVersion."),
+        400
+      );
+    }
+    if (meta && !isRecord(meta[MCP_CLIENT_CAPABILITIES_META_KEY])) {
+      return c.json(
+        rpcError(id, -32602, `Invalid params: _meta.${MCP_CLIENT_CAPABILITIES_META_KEY} must be an object.`),
+        400
+      );
+    }
+    const clientInfo = meta?.[MCP_CLIENT_INFO_META_KEY];
+    if (
+      clientInfo !== undefined &&
+      (!isRecord(clientInfo) || typeof clientInfo.name !== "string" || typeof clientInfo.version !== "string")
+    ) {
+      return c.json(
+        rpcError(id, -32602, `Invalid params: _meta.${MCP_CLIENT_INFO_META_KEY} must contain name and version.`),
+        400
+      );
+    }
+
+    const headerMethod = c.req.header("mcp-method");
+    if (!headerMethod || headerMethod !== method) {
+      return c.json(
+        rpcError(id, HEADER_MISMATCH, "Mcp-Method header is required and must match the JSON-RPC method."),
+        400
+      );
+    }
     if (method === "tools/call") {
+      const headerName = c.req.header("mcp-name");
+      if (headerName === undefined || decodeHeaderValue(headerName) !== params.name) {
+        return c.json(
+          rpcError(id, HEADER_MISMATCH, "Mcp-Name header is required and must match tools/call params.name."),
+          400
+        );
+      }
       return c.json(await handleToolCall(id, params, projectId, session, registry, stateStore));
     }
+
     const handler = METHOD_HANDLERS[method];
-    if (!handler) return c.json(rpcError(id, -32601, `Method not found: ${method}`));
+    if (!handler) {
+      const message =
+        method === "initialize"
+          ? `Method not found: initialize. MCP ${MCP_PROTOCOL_VERSION} is stateless and has no initialize handshake.`
+          : `Method not found: ${method}`;
+      return c.json(rpcError(id, -32601, message), 404);
+    }
     return c.json(await handler({ id, params, projectId, session }));
   });
 

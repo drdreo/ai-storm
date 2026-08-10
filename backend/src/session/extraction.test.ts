@@ -220,6 +220,15 @@ describe("computeFileLaunch — pi's generated capture extension (#177)", () => 
     expect(ext.content).toContain(JSON.stringify(mcp.url));
     expect(ext.content).toContain(JSON.stringify(PRIME));
     expect(ext.content).toContain("before_agent_start");
+    // The generated forwarding client speaks the strict, sessionless modern
+    // contract on every call — no initialize handshake or legacy fallback.
+    expect(ext.content).toContain('const PROTOCOL_VERSION = "2026-07-28"');
+    expect(ext.content).toContain('"MCP-Protocol-Version": PROTOCOL_VERSION');
+    expect(ext.content).toContain('"Mcp-Method": "tools/call"');
+    expect(ext.content).toContain('"Mcp-Name": name');
+    expect(ext.content).toContain('"io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION');
+    expect(ext.content).toContain('"io.modelcontextprotocol/clientCapabilities": {}');
+    expect(ext.content).toContain('accept: "application/json, text/event-stream"');
   });
 
   it("registers every tool the capture endpoint dispatches (name parity)", () => {

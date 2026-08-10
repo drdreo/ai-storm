@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
 import type { BoardDocument, RegistryDocument, StateStore } from "../state/store.ts";
 import { mcpRoutes } from "./endpoint.ts";
+import { MCP_PROTOCOL_VERSION, MCP_PROTOCOL_VERSION_META_KEY } from "./protocol.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
 import { TmuxSessionBackend } from "../session/tmux-backend.ts";
@@ -87,19 +88,34 @@ function storedProject(id: string, title: string, folderId?: string) {
 let rpcId = 0;
 
 async function rpc(app: Hono, ws: string, token: string, method: string, params?: unknown) {
-  const res = await app.request(`/mcp/${ws}/${token}`, {
+  const requestParams =
+    typeof params === "object" && params !== null && !Array.isArray(params)
+      ? { ...(params as Record<string, unknown>) }
+      : {};
+  requestParams._meta = {
+    [MCP_PROTOCOL_VERSION_META_KEY]: MCP_PROTOCOL_VERSION,
+    "io.modelcontextprotocol/clientInfo": { name: "ai-storm-tests", version: "1.0.0" },
+    "io.modelcontextprotocol/clientCapabilities": {}
+  };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+    "Mcp-Method": method
+  };
+  if (method === "tools/call" && typeof requestParams.name === "string") headers["Mcp-Name"] = requestParams.name;
+  return app.request(`/mcp/${ws}/${token}`, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params })
+    headers,
+    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params: requestParams })
   });
-  return res;
 }
 
 async function callTool(app: Hono, ws: string, token: string, name: string, args: unknown) {
   const res = await rpc(app, ws, token, "tools/call", { name, arguments: args });
   expect(res.status).toBe(200);
   const body = (await res.json()) as {
-    result?: { content: { type: string; text: string }[]; isError?: boolean };
+    result?: { content: { type: string; text: string }[]; isError?: boolean; resultType: string };
     error?: { code: number; message: string };
   };
   return body;
@@ -118,47 +134,143 @@ afterEach(() => {
 
 // ── MCP protocol surface (sessionless Streamable HTTP minimum) ──
 
-describe("MCP endpoint — protocol surface", () => {
-  it("initialize negotiates the protocol version and declares the tools capability", async () => {
+describe("MCP endpoint — MCP 2026-07-28 protocol surface", () => {
+  it("discovers the one supported revision and modern server metadata", async () => {
     const { registry, app } = setup();
     const { token } = wire(registry, "ws1");
 
-    const res = await rpc(app, "ws1", token, "initialize", {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: { name: "claude-code", version: "x" }
-    });
+    const res = await rpc(app, "ws1", token, "server/discover");
     expect(res.status).toBe(200);
-    const body = await res.json();
-    // A revision we speak verbatim is echoed back.
-    expect(body.result.protocolVersion).toBe("2025-06-18");
-    expect(body.result.capabilities).toEqual({ tools: {} });
-    expect(body.result.serverInfo.name).toBe("ai-storm");
+    expect(res.headers.get("content-type")).toContain("application/json");
+    const { result } = await res.json();
+    expect(result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
+    expect(result.supportedVersions).toEqual([MCP_PROTOCOL_VERSION]);
+    expect(result.capabilities).toEqual({ tools: {} });
+    expect(result.resultType).toBe("complete");
+    expect(result.ttlMs).toBe(0);
+    expect(result.cacheScope).toBe("private");
+    expect(result._meta["io.modelcontextprotocol/serverInfo"]).toEqual({ name: "ai-storm", version: "3.0.0" });
+    expect(result.serverInfo).toBeUndefined();
   });
 
-  it("counter-offers 2025-03-26 for an unknown protocol version", async () => {
-    const { registry, app } = setup();
-    const { token } = wire(registry, "ws1");
-    const res = await rpc(app, "ws1", token, "initialize", { protocolVersion: "1999-01-01" });
-    expect((await res.json()).result.protocolVersion).toBe("2025-03-26");
-  });
-
-  it("accepts and ignores notifications (202, no body)", async () => {
+  it("answers pi-mcp-adapter's modern metadata-only endpoint probe", async () => {
     const { registry, app } = setup();
     const { token } = wire(registry, "ws1");
     const res = await app.request(`/mcp/ws1/${token}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "Mcp-Method": "server/discover"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: {} })
     });
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(200);
+    expect((await res.json()).result).toMatchObject({
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      supportedVersions: [MCP_PROTOCOL_VERSION],
+      resultType: "complete"
+    });
   });
 
-  it("lists the capture + completion tools with their schemas", async () => {
+  it.each(["2024-11-05", "2025-03-26", "2025-06-18"])(
+    "rejects legacy initialize client %s with an actionable upgrade error",
+    async (protocolVersion) => {
+      const { registry, app } = setup();
+      const { token } = wire(registry, "ws1");
+      const res = await app.request(`/mcp/ws1/${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion, capabilities: {}, clientInfo: { name: "legacy", version: "1" } }
+        })
+      });
+      expect(res.status).toBe(400);
+      const { error } = await res.json();
+      expect(error.code).toBe(-32022);
+      expect(error.message).toContain(`Upgrade the client to MCP ${MCP_PROTOCOL_VERSION}`);
+      expect(error.data).toEqual({ supported: [MCP_PROTOCOL_VERSION], requested: protocolVersion });
+    }
+  );
+
+  it("requires modern version, method, metadata, Accept, and Origin headers", async () => {
+    const { registry, app } = setup();
+    const { token } = wire(registry, "ws1");
+    const url = `/mcp/ws1/${token}`;
+    const message = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {
+        _meta: {
+          [MCP_PROTOCOL_VERSION_META_KEY]: MCP_PROTOCOL_VERSION,
+          "io.modelcontextprotocol/clientCapabilities": {}
+        }
+      }
+    };
+
+    const missingVersion = await app.request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify(message)
+    });
+    expect(missingVersion.status).toBe(400);
+    expect((await missingVersion.json()).error.code).toBe(-32020);
+
+    const missingMeta = await app.request(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "Mcp-Method": "tools/list"
+      },
+      body: JSON.stringify({ ...message, params: {} })
+    });
+    expect((await missingMeta.json()).error.code).toBe(-32602);
+
+    const wrongMethod = await app.request(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "Mcp-Method": "tools/call"
+      },
+      body: JSON.stringify(message)
+    });
+    expect((await wrongMethod.json()).error.code).toBe(-32020);
+
+    const badAccept = await app.request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(message)
+    });
+    expect(badAccept.status).toBe(406);
+
+    const badOrigin = await app.request(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        origin: "https://attacker.example"
+      },
+      body: JSON.stringify(message)
+    });
+    expect(badOrigin.status).toBe(403);
+  });
+
+  it("lists the capture + completion tools with modern cache/result fields", async () => {
     const { registry, app } = setup();
     const { token } = wire(registry, "ws1");
     const res = await rpc(app, "ws1", token, "tools/list");
-    const { tools } = (await res.json()).result;
+    const result = (await res.json()).result;
+    const { tools } = result;
+    expect(result).toMatchObject({ resultType: "complete", ttlMs: 0, cacheScope: "private" });
     expect(tools.map((t: { name: string }) => t.name)).toEqual([
       "capture_idea",
       "capture_score",
@@ -169,33 +281,79 @@ describe("MCP endpoint — protocol surface", () => {
     ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
-    // `done` is optional (defaults to marking done); only the target ref is required.
     expect(tools[2].inputSchema.required).toEqual(["ref"]);
-    // link_idea needs a target ref and a url; label is optional.
     expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
     expect(tools[4].inputSchema.required).toEqual(["projectId"]);
     expect(tools[5].inputSchema.properties).toEqual({});
   });
 
-  it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
+  it("requires Mcp-Name for tool calls and stamps modern tool results", async () => {
+    const { registry, app } = setup();
+    const { token } = wire(registry, "ws1");
+    const missingName = await app.request(`/mcp/ws1/${token}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
+        "Mcp-Method": "tools/call"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "capture_score",
+          arguments: { ref: "i1", impact: 3, effort: 2 },
+          _meta: {
+            [MCP_PROTOCOL_VERSION_META_KEY]: MCP_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientCapabilities": {}
+          }
+        }
+      })
+    });
+    expect((await missingName.json()).error.code).toBe(-32020);
+
+    const body = await callTool(app, "ws1", token, "capture_score", { ref: "i1", impact: 3, effort: 2 });
+    expect(body.result).toMatchObject({ resultType: "complete" });
+    expect(body.result?.isError).toBeUndefined();
+  });
+
+  it("has no initialize, ping, batches, GET stream, DELETE session, or notification compatibility", async () => {
     const { registry, app } = setup();
     const { token } = wire(registry, "ws1");
 
-    expect((await (await rpc(app, "ws1", token, "ping")).json()).result).toEqual({});
-    expect((await (await rpc(app, "ws1", token, "resources/list")).json()).error.code).toBe(-32601);
+    for (const method of ["initialize", "ping", "resources/list"]) {
+      const res = await rpc(
+        app,
+        "ws1",
+        token,
+        method,
+        method === "initialize" ? { protocolVersion: MCP_PROTOCOL_VERSION } : {}
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()).error.code).toBe(-32601);
+    }
 
     const unknownTool = await callTool(app, "ws1", token, "delete_everything", {});
     expect(unknownTool.error?.code).toBe(-32602);
 
     const batch = await app.request(`/mcp/ws1/${token}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "ping" }])
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }])
     });
     expect(batch.status).toBe(400);
 
-    const get = await app.request(`/mcp/ws1/${token}`, { method: "GET" });
-    expect(get.status).toBe(405); // no server-initiated SSE stream in sessionless mode
+    expect((await app.request(`/mcp/ws1/${token}`, { method: "GET" })).status).toBe(405);
+    expect((await app.request(`/mcp/ws1/${token}`, { method: "DELETE" })).status).toBe(405);
+
+    const notification = await app.request(`/mcp/ws1/${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} })
+    });
+    expect(notification.status).toBe(400);
   });
 });
 
@@ -739,9 +897,8 @@ describe("routing & auth (§9.5)", () => {
     const { registry, app } = setup();
     const w = wire(registry, "ws1");
     registry.detachSession("ws1");
-    // Protocol methods still answer (the harness may re-initialize while the
-    // browser is away)…
-    expect((await rpc(app, "ws1", w.token, "initialize")).status).toBe(200);
+    // Stateless discovery still answers while the browser is away…
+    expect((await rpc(app, "ws1", w.token, "server/discover")).status).toBe(200);
     // …but a capture has nowhere to go: tool error, nothing emitted.
     const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Lost?" });
     expect(body.result!.isError).toBe(true);
