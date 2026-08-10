@@ -240,6 +240,16 @@ describe("computeFileLaunch — pi's generated capture extension (#177)", () => 
     }
   });
 
+  it("mirrors the current-project read guidance in the generated pi tool", () => {
+    const result = computeFileLaunch(PI_PROFILE, { dir: "/tmp/ai-storm-pi-xyz", mcp, prime: PRIME });
+    const source = result!.files[0].content;
+    expect(source).toContain("pass the current project id supplied in the session instructions");
+    expect(source).toContain(
+      "Use get_projects only when the user explicitly asks to list projects or identify a different project"
+    );
+    expect(source).toContain("projectId: Type.String");
+  });
+
   it("still delivers the prime (but registers no tools) when MCP is not configured", () => {
     const result = computeFileLaunch(PI_PROFILE, { dir: "/tmp/ai-storm-pi-xyz", prime: PRIME });
     expect(result).toBeDefined();

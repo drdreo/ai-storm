@@ -227,14 +227,17 @@ export const TOOLS = [
     name: "get_board_ideas",
     description:
       "Read every page of a project's durable canvas board without requiring an attached browser. " +
-      "Pass a project id returned by get_projects. Returns normalized idea cards and typed edges only.",
+      "For this/current board, pass the current project id supplied in the session instructions. " +
+      "Use get_projects only when the user explicitly asks to list projects or identify a different project. " +
+      "Returns normalized idea cards and typed edges only.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: {
           type: "string",
           pattern: PROJECT_ID_PATTERN.source,
-          description: "The project id returned by get_projects."
+          description:
+            "For this/current board, use the project id supplied in the session instructions; otherwise use an id returned by get_projects."
         }
       },
       required: ["projectId"],
@@ -543,7 +546,10 @@ async function handleToolCall(
   if (name === "get_board_ideas") {
     const targetId = args.projectId;
     if (typeof targetId !== "string" || !PROJECT_ID_PATTERN.test(targetId)) {
-      return toolError(id, "`projectId` is required and must be an id returned by get_projects.");
+      return toolError(
+        id,
+        "`projectId` is required. For this/current board, use the id supplied in the session instructions; otherwise use an id returned by get_projects."
+      );
     }
     try {
       const state = await stateStore.readRegistry();

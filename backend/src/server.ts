@@ -237,7 +237,7 @@ async function dispatch(
         // Idempotent: create the named session if absent (else reuse), then
         // (re)attach the response stream. Decoupled from input readiness —
         // the session always exists by the time `input` is processed (§3.3).
-        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", msg.mode, msg.background);
+        const { harnessProfile, prime } = harnessSetup(msg.shell ?? "", projectId, msg.mode, msg.background);
         log.debug("attach.setup", {
           project: projectId,
           harnessProfile,
