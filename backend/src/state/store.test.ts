@@ -172,6 +172,17 @@ describe("StateStore", () => {
     expect((await value.deleteHistoryEntry("p1", "run1")).runs).toEqual([]);
   });
 
+  it("clears a folder assignment when a serialized patch sends null", async () => {
+    const value = await store();
+    await value.createFolder({ id: "f1", title: "Folder", createdAt: 1 });
+    await value.createProject({ id: "p1", title: "Project", folderId: "f1", terminal: {} });
+
+    const updated = await value.updateProject("p1", { folderId: null });
+
+    expect(updated).not.toHaveProperty("folderId");
+    expect((await value.readRegistry()).projects[0]).not.toHaveProperty("folderId");
+  });
+
   it("sets an inferred title atomically only while the placeholder flag remains true", async () => {
     const value = await store();
     await value.createProject({ id: "auto", title: "Untitled Project", titlePlaceholder: true, terminal: {} });

@@ -143,11 +143,14 @@ export class FakeStateBackend {
       case "registry-patch-project": {
         const index = this.#registry.projects.findIndex((item) => item.id === projectId);
         if (index < 0) throw new Error(`Project does not exist: ${projectId}`);
+        const current = this.#registry.projects[index];
+        const patch = payload.patch as Record<string, unknown>;
         this.#registry.projects[index] = {
-          ...this.#registry.projects[index],
-          ...(payload.patch as Record<string, unknown>),
+          ...current,
+          ...patch,
           updatedAt: Date.now()
         };
+        if (patch.folderId === null) delete this.#registry.projects[index].folderId;
         return this.#bump();
       }
       case "registry-delete-project":

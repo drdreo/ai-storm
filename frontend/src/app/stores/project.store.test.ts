@@ -88,7 +88,10 @@ async function stateRequest(operation: string, options: { projectId?: string; pa
     registry.projects.push({ ...project, updatedAt: project.createdAt });
   } else if (operation === "registry-patch-project") {
     const index = registry.projects.findIndex((item) => item.id === options.projectId);
-    if (index >= 0) registry.projects[index] = { ...registry.projects[index], ...payload.patch, updatedAt: Date.now() };
+    if (index >= 0) {
+      registry.projects[index] = { ...registry.projects[index], ...payload.patch, updatedAt: Date.now() };
+      if (payload.patch?.folderId === null) delete registry.projects[index].folderId;
+    }
   } else if (operation === "registry-delete-project") {
     registry.projects = registry.projects.filter((item) => item.id !== options.projectId);
   } else if (operation === "registry-create-folder") {

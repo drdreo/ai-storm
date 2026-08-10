@@ -321,7 +321,7 @@ export const project = {
       .getState()
       .projects.filter((w) => (w.folderId ?? undefined) === next && w.id !== projectId);
     const order = orderAfterAll(siblings);
-    patchProject({ ...meta, folderId: next, order }, { folderId: next, order });
+    patchProject({ ...meta, folderId: next, order }, { folderId: next ?? null, order });
   },
 
   /**
@@ -333,7 +333,7 @@ export const project = {
     const meta = getMeta(projectId);
     if (!meta) return;
     const nextFolderId = folderId ?? undefined;
-    patchProject({ ...meta, folderId: nextFolderId, order }, { folderId: nextFolderId, order });
+    patchProject({ ...meta, folderId: nextFolderId, order }, { folderId: nextFolderId ?? null, order });
   },
 
   patchTerminal(id: string, patch: Partial<ProjectMeta["terminal"]>): void {
