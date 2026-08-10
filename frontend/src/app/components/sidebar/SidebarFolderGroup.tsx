@@ -14,12 +14,10 @@ import {
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { useDroppable } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ChevronRight, Folder as FolderIcon, MoreHorizontal } from "lucide-react";
 import type { Folder } from "@ai-storm/shared";
 import { project } from "../../stores/project.store";
-import type { DragKind } from "./useSidebarDnd";
 import { UNGROUPED_ZONE } from "./useSidebarDnd";
 
 export interface FolderGroupProps {
@@ -35,23 +33,14 @@ export interface FolderGroupProps {
 }
 
 /**
- * A sortable, collapsible folder group with its own rename/delete kebab.
+ * A fixed, collapsible folder group with its own rename/delete kebab.
  * Collapse state is persisted on the folder meta so it survives a reload
- * (#128). The header doubles as the drop target for moving a project into
- * the folder (works while collapsed too); its children form a nested sortable
- * zone. Same drag ergonomics as project rows: the header itself is the
- * pointer drag source.
+ * (#128). The group remains a drop target for projects, but folders themselves
+ * are deliberately not draggable: their labels behave only as disclosures.
  */
-export function SortableFolderGroup(props: FolderGroupProps) {
+export function SidebarFolderGroup(props: FolderGroupProps) {
   const { folder, isEditing, childIds } = props;
-  const { listeners, setNodeRef, transform, transition, isDragging, isOver, active } = useSortable({
-    id: folder.id,
-    data: { kind: "folder" satisfies DragKind },
-    disabled: isEditing
-  });
-  const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition };
-  // Highlight the header as a drop target only when a *project* hovers it —
-  // a hovering folder is just a reorder, not a drop-into.
+  const { setNodeRef, isOver, active } = useDroppable({ id: folder.id });
   const isDropTarget = isOver && active?.data.current?.kind === "project";
 
   return (
@@ -61,7 +50,7 @@ export function SortableFolderGroup(props: FolderGroupProps) {
       className="group/folder"
       asChild
     >
-      <SidebarMenuItem ref={setNodeRef} style={style} className={cn(isDragging && "opacity-40")}>
+      <SidebarMenuItem ref={setNodeRef}>
         {isEditing ? (
           <SidebarInput
             ref={props.renameInputRef}
@@ -75,7 +64,6 @@ export function SortableFolderGroup(props: FolderGroupProps) {
             <CollapsibleTrigger asChild>
               <SidebarMenuButton
                 onDoubleClick={() => props.onStartRename(folder.id)}
-                onPointerDown={listeners?.onPointerDown as React.PointerEventHandler<HTMLButtonElement> | undefined}
                 tooltip={folder.title}
                 className={cn(isDropTarget && "ring-2 ring-sidebar-ring bg-sidebar-accent")}
               >

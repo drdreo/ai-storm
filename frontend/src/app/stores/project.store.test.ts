@@ -88,7 +88,10 @@ async function stateRequest(operation: string, options: { projectId?: string; pa
     registry.projects.push({ ...project, updatedAt: project.createdAt });
   } else if (operation === "registry-patch-project") {
     const index = registry.projects.findIndex((item) => item.id === options.projectId);
-    if (index >= 0) registry.projects[index] = { ...registry.projects[index], ...payload.patch, updatedAt: Date.now() };
+    if (index >= 0) {
+      registry.projects[index] = { ...registry.projects[index], ...payload.patch, updatedAt: Date.now() };
+      if (payload.patch?.folderId === null) delete registry.projects[index].folderId;
+    }
   } else if (operation === "registry-delete-project") {
     registry.projects = registry.projects.filter((item) => item.id !== options.projectId);
   } else if (operation === "registry-create-folder") {
@@ -266,6 +269,21 @@ describe("project store — folders (#128)", () => {
     expect(useProjectStore.getState().folders.find((f) => f.id === id)?.collapsed).toBe(false);
   });
 
+  it("keeps folder positions stable when legacy order metadata is tied", async () => {
+    registry.folders.push(
+      { id: "fld_a", title: "First", order: "a0", createdAt: 1 },
+      { id: "fld_b", title: "Second", order: "a0", createdAt: 1 },
+      { id: "fld_c", title: "Third", order: "a0", createdAt: 1 }
+    );
+    const { project, useProjectStore } = await bootStore();
+
+    project.setFolderCollapsed("fld_a", true);
+    expect(useProjectStore.getState().folders.map((folder) => folder.id)).toEqual(["fld_a", "fld_b", "fld_c"]);
+
+    project.setFolderCollapsed("fld_b", true);
+    expect(useProjectStore.getState().folders.map((folder) => folder.id)).toEqual(["fld_a", "fld_b", "fld_c"]);
+  });
+
   it("assigns fractional order keys on create so new items append at the end", async () => {
     const { project, useProjectStore } = await bootStore();
     const a = project.create("A");
@@ -296,20 +314,6 @@ describe("project store — folders (#128)", () => {
     project.moveProject(a, null, "zz");
     state = useProjectStore.getState();
     expect(state.projects.find((w) => w.id === a)?.folderId).toBeUndefined();
-  });
-
-  it("reorderFolder() reranks folders by their order keys", async () => {
-    const { project, useProjectStore } = await bootStore();
-    const f1 = project.createFolder("First");
-    const f2 = project.createFolder("Second");
-
-    const before = useProjectStore.getState().folders.map((f) => f.id);
-    expect(before).toEqual([f1, f2]);
-
-    const firstOrder = useProjectStore.getState().folders[0].order!;
-    project.reorderFolder(f2, "0" + firstOrder); // any key < firstOrder
-    const after = useProjectStore.getState().folders.map((f) => f.id);
-    expect(after).toEqual([f2, f1]);
   });
 
   it("ordering is stable across several moves", async () => {

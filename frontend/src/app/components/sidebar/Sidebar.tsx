@@ -22,7 +22,7 @@ import {
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings } from "lucide-react";
+import { ChevronDown, FolderPlus, Plus, Settings } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { DEFAULT_PROJECT_TITLE, type Folder, type PortableStateBundle, type ProjectMeta } from "@ai-storm/shared";
 import { downloadFile } from "../../core/download-file";
@@ -33,7 +33,7 @@ import { useProjectStore, project } from "../../stores/project.store";
 import { SettingsDialog } from "../SettingsDialog";
 import { ImportProjectsDialog } from "./ImportProjectsDialog";
 import { SidebarDialogs } from "./SidebarDialogs";
-import { SortableFolderGroup, UngroupedDropZone } from "./SidebarFolderGroup";
+import { SidebarFolderGroup, UngroupedDropZone } from "./SidebarFolderGroup";
 import { StatusDot, SortableProjectRow } from "./SidebarProjectRow";
 import { useSidebarDnd } from "./useSidebarDnd";
 
@@ -45,11 +45,11 @@ import { useSidebarDnd } from "./useSidebarDnd";
  * SidebarMenuButtons (default styling + the built-in active indicator). The
  * per-row kebab is a Radix DropdownMenu; rename is an inline input.
  *
- * Ordering is user-controlled via drag & drop (#128, {@link useSidebarDnd}):
- * folders sort among folders, projects sort within and across containers
- * (folder ↔ top level), persisted as fractional-index keys on the registry
- * CRDT. Rows/folder groups/dialogs are split into `./sidebar/*` — this file is
- * just the layout + the state that spans all of them (rename/delete targets).
+ * Projects can be reordered within and across folders via drag & drop (#128,
+ * {@link useSidebarDnd}); folder groups remain fixed disclosure controls.
+ * Project ordering is persisted as fractional-index keys on the registry CRDT.
+ * Rows/folder groups/dialogs are split into `./sidebar/*` — this file is just
+ * the layout + the state that spans all of them (rename/delete targets).
  */
 export function Sidebar() {
   const projects = useProjectStore((s) => s.projects);
@@ -290,29 +290,27 @@ export function Sidebar() {
                   onDragCancel={dnd.onDragCancel}
                 >
                   <SidebarMenu>
-                    <SortableContext items={folders.map((f) => f.id)} strategy={verticalListSortingStrategy}>
-                      {folders.map((folder) => {
-                        const children = projects.filter((w) => w.folderId === folder.id);
-                        return (
-                          <SortableFolderGroup
-                            key={folder.id}
-                            folder={folder}
-                            isEditing={editingId === folder.id}
-                            childIds={children.map((c) => c.id)}
-                            onStartRename={setEditingId}
-                            onCommitRename={commitFolderRename}
-                            onRenameKey={onFolderRenameKey}
-                            renameInputRef={renameInputRef}
-                            onRequestDelete={setDeleteFolderTarget}
-                          >
-                            {children.map(renderRow)}
-                          </SortableFolderGroup>
-                        );
-                      })}
-                    </SortableContext>
+                    {folders.map((folder) => {
+                      const children = projects.filter((w) => w.folderId === folder.id);
+                      return (
+                        <SidebarFolderGroup
+                          key={folder.id}
+                          folder={folder}
+                          isEditing={editingId === folder.id}
+                          childIds={children.map((c) => c.id)}
+                          onStartRename={setEditingId}
+                          onCommitRename={commitFolderRename}
+                          onRenameKey={onFolderRenameKey}
+                          renameInputRef={renameInputRef}
+                          onRequestDelete={setDeleteFolderTarget}
+                        >
+                          {children.map(renderRow)}
+                        </SidebarFolderGroup>
+                      );
+                    })}
                     <SortableContext items={ungrouped.map((w) => w.id)} strategy={verticalListSortingStrategy}>
                       {ungrouped.map(renderRow)}
-                      {ungrouped.length === 0 && dnd.drag?.kind === "project" && <UngroupedDropZone />}
+                      {ungrouped.length === 0 && dnd.drag && <UngroupedDropZone />}
                     </SortableContext>
                   </SidebarMenu>
 
@@ -321,11 +319,6 @@ export function Sidebar() {
                       <div className="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-1.5 text-sm text-sidebar-accent-foreground shadow-md">
                         <StatusDot ws={dnd.draggedWs} />
                         <span className="truncate">{dnd.draggedWs.title}</span>
-                      </div>
-                    ) : dnd.draggedFolder ? (
-                      <div className="flex items-center gap-2 rounded-md bg-sidebar-accent px-2 py-1.5 text-sm text-sidebar-accent-foreground shadow-md">
-                        <FolderIcon className="size-4 shrink-0" />
-                        <span className="truncate">{dnd.draggedFolder.title}</span>
                       </div>
                     ) : null}
                   </DragOverlay>

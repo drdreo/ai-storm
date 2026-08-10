@@ -14,16 +14,14 @@ import { project } from "../../stores/project.store";
 /** Droppable id for the top-level (ungrouped) zone when it has no rows. */
 export const UNGROUPED_ZONE = "__ungrouped__";
 
-export type DragKind = "project" | "folder";
-
 /**
- * Sidebar drag-and-drop (#128): reorder folders among folders, reorder
- * projects within a container, or drag a project across containers
- * (folder ↔ top level). Wraps dnd-kit's sensors + drag-end math so
- * {@link Sidebar} only wires up `DndContext`/`SortableContext` markup.
+ * Sidebar drag-and-drop (#128): reorder projects within a container, or drag a
+ * project across containers (folder ↔ top level). Folder groups are fixed
+ * disclosures and only participate as project drop targets. Wraps dnd-kit's
+ * sensors + drag-end math so {@link Sidebar} only wires up the DnD markup.
  */
 export function useSidebarDnd(projects: ProjectMeta[], folders: Folder[]) {
-  const [drag, setDrag] = useState<{ kind: DragKind; id: string } | null>(null);
+  const [drag, setDrag] = useState<{ id: string } | null>(null);
 
   // Distance threshold keeps plain click (activate) and double-click (rename)
   // working on rows that are also pointer drag sources. Pointer-only: rows are
@@ -36,8 +34,8 @@ export function useSidebarDnd(projects: ProjectMeta[], folders: Folder[]) {
     ws.folderId && folders.some((f) => f.id === ws.folderId) ? ws.folderId : null;
 
   const onDragStart = (e: DragStartEvent) => {
-    const kind = e.active.data.current?.kind as DragKind | undefined;
-    setDrag(kind ? { kind, id: String(e.active.id) } : null);
+    const kind = e.active.data.current?.kind;
+    setDrag(kind === "project" ? { id: String(e.active.id) } : null);
   };
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -46,23 +44,7 @@ export function useSidebarDnd(projects: ProjectMeta[], folders: Folder[]) {
     if (!over || active.id === over.id) return;
     const overId = String(over.id);
 
-    if (active.data.current?.kind === "folder") {
-      const folderId = String(active.id);
-      // Folders only reorder among folders: a project target maps to its
-      // containing folder; an ungrouped target means "past the last folder".
-      const overWs = projects.find((w) => w.id === overId);
-      const targetId = folders.some((f) => f.id === overId) ? overId : overWs ? containerOf(overWs) : null;
-      if (targetId === folderId) return;
-      const siblings = folders.filter((f) => f.id !== folderId);
-      const order = targetId
-        ? computeOrder(
-            siblings,
-            folders.findIndex((f) => f.id === targetId)
-          )
-        : orderAfterAll(siblings);
-      project.reorderFolder(folderId, order);
-      return;
-    }
+    if (active.data.current?.kind !== "project") return;
 
     // Project drag: within a container, into a folder, or back to top level.
     const wsId = String(active.id);
@@ -98,7 +80,6 @@ export function useSidebarDnd(projects: ProjectMeta[], folders: Folder[]) {
     onDragEnd,
     onDragCancel: () => setDrag(null),
     containerOf,
-    draggedWs: drag?.kind === "project" ? projects.find((w) => w.id === drag.id) : undefined,
-    draggedFolder: drag?.kind === "folder" ? folders.find((f) => f.id === drag.id) : undefined
+    draggedWs: drag ? projects.find((w) => w.id === drag.id) : undefined
   };
 }

@@ -25,6 +25,62 @@ test.describe("folders", () => {
       .toBeTruthy();
   });
 
+  test("folders are fixed disclosures and never reorder", async ({ shell, page }) => {
+    await shell.goto();
+
+    await shell.createFolder("Alpha");
+    await shell.createFolder("Beta");
+
+    const alpha = shell.folderRows.filter({ hasText: "Alpha" });
+    const disclosure = alpha.locator('[data-sidebar="menu-button"]').first();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-sidebar="folder-drag-handle"]')).toHaveCount(0);
+
+    // A little pointer motion is normal during a click. It exceeds dnd-kit's
+    // project-drag threshold deliberately: a folder label must still behave
+    // only as a disclosure.
+    const box = await disclosure.boundingBox();
+    expect(box).not.toBeNull();
+    const x = box!.x + box!.width / 2;
+    const y = box!.y + box!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 2, y + 8, { steps: 2 });
+    await page.mouse.up();
+
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(shell.folderRows.locator('[data-sidebar="menu-button"]')).toHaveText([/Alpha/, /Beta/]);
+  });
+
+  test("drags a project back to the empty top level", async ({ shell, page }) => {
+    await shell.goto();
+
+    const project = shell.projectRows.first();
+    await shell.createFolder("Group");
+    const folder = shell.folderRows.filter({ hasText: "Group" });
+
+    await project.locator('[data-sidebar="menu-action"]').first().click();
+    await page.getByRole("menuitem", { name: "Move to folder" }).click();
+    await page.getByRole("menuitem", { name: "Group", exact: true }).click();
+    await expect(folder.locator(".group\\/ws-row")).toHaveCount(1);
+
+    const source = await folder.locator(".group\\/ws-row").boundingBox();
+    expect(source).not.toBeNull();
+    await page.mouse.move(source!.x + source!.width / 2, source!.y + source!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(source!.x + source!.width / 2, source!.y + source!.height / 2 + 8, { steps: 2 });
+
+    const dropZone = page.getByText("Drop here to ungroup", { exact: true });
+    await expect(dropZone).toBeVisible();
+    const target = await dropZone.boundingBox();
+    expect(target).not.toBeNull();
+    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2, { steps: 5 });
+    await page.mouse.up();
+
+    await expect(folder.locator(".group\\/ws-row")).toHaveCount(0);
+    await expect(shell.projectRows).toHaveCount(1);
+  });
+
   test("project colors are visible in collapsed sidebar with expanded folder", async ({ shell, page }) => {
     await shell.goto();
 
