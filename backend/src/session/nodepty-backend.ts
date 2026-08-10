@@ -296,6 +296,7 @@ export class NodePtySessionBackend implements SessionBackend {
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,
+    onProjectTitle: (title: string) => void,
     onError: (message: string) => void
   ): Promise<void> {
     const session = this.#sessions.get(projectId);
@@ -318,7 +319,8 @@ export class NodePtySessionBackend implements SessionBackend {
       onIdea,
       onScore,
       onCompletion,
-      onReference
+      onReference,
+      onProjectTitle
     });
     // The browser's xterm is new after a reload, but the in-process PTY and its
     // headless screen are not. Repaint the retained scrollback immediately;

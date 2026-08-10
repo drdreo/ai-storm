@@ -36,14 +36,16 @@ async function makeStore() {
       send: () => {}
     }
   }));
-  vi.doMock("./project.store", () => ({ project: { setStatus: vi.fn() } }));
+  const applyInferredTitle = vi.fn();
+  vi.doMock("./project.store", () => ({ project: { setStatus: vi.fn(), applyInferredTitle } }));
 
   const { ingestion } = await import("./ingestion.store");
   ingestion.attach("ws1", { agentCommand: "claude" } as never);
   const emitIdea = (idea: { title: string; body: string; kind?: string }) =>
     listener?.({ type: "idea", projectId: "ws1", idea });
   const emitData = (data: string) => listener?.({ type: "data", projectId: "ws1", data });
-  return { ingestion, applyIdeas, emitIdea, emitData };
+  const emitProjectTitle = (title: string) => listener?.({ type: "project-title", projectId: "ws1", title });
+  return { ingestion, applyIdeas, applyInferredTitle, emitIdea, emitData, emitProjectTitle };
 }
 
 describe("ingestion store — data/idea split", () => {
@@ -63,6 +65,11 @@ describe("ingestion store — data/idea split", () => {
     expect(h.applyIdeas).toHaveBeenCalledTimes(1);
     expect(h.applyIdeas).toHaveBeenCalledWith("ws1", [idea]);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("applies a backend-persisted inferred project title", () => {
+    h.emitProjectTitle("Stockholm Activities");
+    expect(h.applyInferredTitle).toHaveBeenCalledWith("ws1", "Stockholm Activities");
   });
 
   it("forwards raw data to a registered terminal sink and not to the canvas", () => {

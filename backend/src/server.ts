@@ -306,6 +306,12 @@ async function dispatch(
             });
             send({ type: "reference", projectId, reference });
           },
+          // Automatic naming is persisted by the MCP endpoint first; this event
+          // only refreshes the attached client's optimistic registry projection.
+          (title) => {
+            log.info("project.title.sent", { project: projectId, title });
+            send({ type: "project-title", projectId, title });
+          },
           (message) => {
             mcpRegistry.setRuntimeState(projectId, "error");
             log.warn("session.error", { project: projectId, message });

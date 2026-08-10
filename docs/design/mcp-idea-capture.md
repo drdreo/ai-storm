@@ -11,8 +11,8 @@ doc demotes to a fallback) · [`ai-session-layer.md`](./ai-session-layer.md) §4
 
 > **Implementation note:** The session-scoped endpoint is live at
 > `POST /mcp/:projectId/:token` (`backend/src/mcp/endpoint.ts`). The two
-> capture tools described here are joined by `mark_idea_done`, `link_idea`,
-> `get_board_ideas`, and `get_projects`; all six are advertised by `tools/list`
+> capture tools described here are joined by `set_project_title`, `mark_idea_done`,
+> `link_idea`, `get_board_ideas`, and `get_projects`; all seven are advertised by `tools/list`
 > and route through the same backend session registry and state store. The
 > endpoint uses hand-rolled validation (not a zod runtime dependency), while
 > the schemas in §3 are the contract-level shape. Its transport is a hard-cutover
@@ -249,7 +249,7 @@ brainstorm:
 ```ts
 mcpArgs: ({ url, serverName }) => [
   "--mcp-config", JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
-  "--allowedTools", ["capture_idea", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"]
+  "--allowedTools", ["capture_idea", "set_project_title", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"]
     .map((tool) => `mcp__${serverName}__${tool}`).join(","),
 ],
 ```
@@ -261,7 +261,7 @@ mcpArgs: ({ url, serverName }) => [
 mcpArgs: ({ url, serverName }) => [
   "-c", `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
   "-c", `mcp_servers.${serverName}.enabled=true`,
-  "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"])}`,
+  "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "set_project_title", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"])}`,
   "-c", `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`,
 ],
 ```

@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm, chmod } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { resolveStateDir } from "@ai-storm/state";
-import type { PortableStateBundle } from "@ai-storm/shared";
+import { LEGACY_PROJECT_TITLE_PLACEHOLDER, type PortableStateBundle } from "@ai-storm/shared";
 
 export const STATE_FORMAT_VERSION = 1 as const;
 
@@ -20,6 +20,8 @@ export interface TerminalConfiguration {
 export interface StoredProject {
   id: string;
   title: string;
+  /** Missing only in registry/export documents written before #244. */
+  titlePlaceholder?: boolean;
   color?: string;
   folderId?: string;
   order?: string;
@@ -84,6 +86,14 @@ const emptyBoard = (): BoardDocument => ({
   document: null
 });
 const emptyHistory = (): HistoryDocument => ({ version: STATE_FORMAT_VERSION, revision: 0, runs: [] });
+
+function titleIsPlaceholder(project: Pick<StoredProject, "title" | "titlePlaceholder">): boolean {
+  return project.titlePlaceholder ?? project.title === LEGACY_PROJECT_TITLE_PLACEHOLDER;
+}
+
+function withTitlePlaceholder(project: StoredProject): StoredProject {
+  return { ...project, titlePlaceholder: titleIsPlaceholder(project) };
+}
 
 function assertProjectId(projectId: string): void {
   if (!/^[A-Za-z0-9_-]+$/.test(projectId)) throw new Error(`Invalid project id: ${projectId}`);
@@ -228,7 +238,15 @@ export class StateStore {
     await ensureDirectory(this.root);
     return this.#serialized(this.registryPath, async () => {
       try {
-        return await readRegistryFile(this.registryPath);
+        const registry = await readRegistryFile(this.registryPath);
+        if (registry.projects.every((project) => typeof project.titlePlaceholder === "boolean")) return registry;
+        const migrated = {
+          ...registry,
+          revision: registry.revision + 1,
+          projects: registry.projects.map(withTitlePlaceholder)
+        };
+        await this.#writeJson(this.registryPath, migrated);
+        return migrated;
       } catch (error) {
         if (
           !(error instanceof StateFileError) ||
@@ -269,7 +287,7 @@ export class StateStore {
         throw new Error(`Folder does not exist: ${input.folderId}`);
       }
       const createdAt = input.createdAt ?? this.#now();
-      const project: StoredProject = { ...input, createdAt, updatedAt: createdAt };
+      const project: StoredProject = withTitlePlaceholder({ ...input, createdAt, updatedAt: createdAt });
       // Children first: a crash can leave a harmless orphan, never a registry entry without files.
       await this.#writeJson(this.boardPath(input.id), emptyBoard());
       await this.#writeJson(this.historyPath(input.id), emptyHistory());
@@ -284,7 +302,7 @@ export class StateStore {
 
   async updateProject(
     projectId: string,
-    patch: Partial<Pick<StoredProject, "title" | "color" | "folderId" | "order" | "terminal">>
+    patch: Partial<Pick<StoredProject, "title" | "titlePlaceholder" | "color" | "folderId" | "order" | "terminal">>
   ): Promise<StoredProject> {
     assertProjectId(projectId);
     return this.#serialized(this.registryPath, async () => {
@@ -294,7 +312,29 @@ export class StateStore {
       if (patch.folderId && !registry.folders.some((folder) => folder.id === patch.folderId)) {
         throw new Error(`Folder does not exist: ${patch.folderId}`);
       }
-      const project = { ...registry.projects[index], ...patch, updatedAt: this.#now() };
+      const current = registry.projects[index];
+      // Placeholder eligibility is monotonic. A real/manual title can never be
+      // made auto-nameable again, even if an older client sends a stale flag.
+      const titleChanged = patch.title !== undefined && patch.title !== current.title;
+      const titlePlaceholder = titleIsPlaceholder(current) && patch.titlePlaceholder !== false && !titleChanged;
+      const project = { ...current, ...patch, titlePlaceholder, updatedAt: this.#now() };
+      const projects = [...registry.projects];
+      projects[index] = project;
+      await this.#writeJson(this.registryPath, { ...registry, revision: registry.revision + 1, projects });
+      return project;
+    });
+  }
+
+  /** Atomically assign an AI-inferred title only while no real title exists. */
+  async setInferredProjectTitle(projectId: string, title: string): Promise<StoredProject | null> {
+    assertProjectId(projectId);
+    return this.#serialized(this.registryPath, async () => {
+      const registry = await readRegistryFile(this.registryPath);
+      const index = registry.projects.findIndex((project) => project.id === projectId);
+      if (index < 0) throw new Error(`Project does not exist: ${projectId}`);
+      const current = registry.projects[index];
+      if (!titleIsPlaceholder(current)) return null;
+      const project = { ...current, title, titlePlaceholder: false, updatedAt: this.#now() };
       const projects = [...registry.projects];
       projects[index] = project;
       await this.#writeJson(this.registryPath, { ...registry, revision: registry.revision + 1, projects });
@@ -394,7 +434,7 @@ export class StateStore {
     return {
       version: 2,
       exportedAt: this.#now(),
-      registry: { ...registry, projects, folders },
+      registry: { ...registry, projects: projects.map(withTitlePlaceholder), folders },
       boards: Object.fromEntries(pairs.map(([id, board]) => [id, board])),
       histories: Object.fromEntries(pairs.map(([id, , history]) => [id, history]))
     };
@@ -421,7 +461,12 @@ export class StateStore {
       if (sourceProjects.length !== selected.size) throw new Error("State import references an unknown project");
       for (const project of sourceProjects) {
         assertProjectId(project.id);
-        if (typeof project.title !== "string" || !project.terminal || typeof project.terminal !== "object")
+        if (
+          typeof project.title !== "string" ||
+          (project.titlePlaceholder !== undefined && typeof project.titlePlaceholder !== "boolean") ||
+          !project.terminal ||
+          typeof project.terminal !== "object"
+        )
           throw new Error(`State import contains invalid project metadata: ${project.id}`);
         const board = bundle.boards[project.id];
         const history = bundle.histories[project.id];
@@ -459,6 +504,7 @@ export class StateStore {
       const folders = sourceFolders.map((folder) => ({ ...folder, id: folderIds.get(folder.id)! }));
       const projects = sourceProjects.map((project) => ({
         ...project,
+        titlePlaceholder: project.titlePlaceholder ?? project.title === LEGACY_PROJECT_TITLE_PLACEHOLDER,
         id: projectIdsBySource.get(project.id)!,
         folderId: project.folderId ? folderIds.get(project.folderId) : undefined,
         ...(preserveIds ? {} : { createdAt: this.#now(), updatedAt: this.#now() })

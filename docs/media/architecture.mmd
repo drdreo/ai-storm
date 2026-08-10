@@ -8,7 +8,7 @@ flowchart TB
   daemon(["<b>LOCAL NODE DAEMON · Hono</b><br/>127.0.0.1 · local-only execution"])
   state["<b>BACKEND-OWNED DURABLE STATE</b><br/>StateStore · atomic JSON files<br/>registry.json<br/>projects/&lt;id&gt;/board.json<br/>projects/&lt;id&gt;/history.json<br/>revisioned saves · ref allocation"]
   runtime["<b>SESSION RUNTIME</b><br/>POSIX: named tmux + pipe-pane<br/>Windows: node-pty / ConPTY<br/>reconcile + idempotent attach<br/>IdeaScanner / ScoreScanner<br/>raw data → xterm · markers → cards"]
-  mcp["<b>MCP CAPTURE</b><br/>POST /mcp/:projectId/:token<br/>capture_idea · capture_score<br/>mark / link · board discovery<br/>StateStore reads · ref allocation<br/>session sinks → /pty WS callbacks"]
+  mcp["<b>MCP CAPTURE</b><br/>POST /mcp/:projectId/:token<br/>capture ideas · infer project title<br/>score · mark · link · board discovery<br/>StateStore reads · ref allocation<br/>session sinks → /pty WS callbacks"]
 
   browser --> sidebar & canvas & hub
   sidebar & canvas & hub --> transport
