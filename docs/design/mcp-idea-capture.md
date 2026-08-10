@@ -1,6 +1,6 @@
 # Design: MCP idea capture — a structured side-channel for ideas and scores
 
-**Status:** 🟡 Proposed
+**Status:** 🟢 Implemented
 **Author:** ai-storm backend
 **Related:** [Product decisions](../decisions/product-decisions.md) PD-008 (terminal passthrough + idea scan) ·
 [`ai-response-extraction-contract.md`](./ai-response-extraction-contract.md) (the `«IDEA»` marker contract this
@@ -8,6 +8,17 @@ doc demotes to a fallback) · [`ai-session-layer.md`](./ai-session-layer.md) §4
 [`idea-graph.md`](./idea-graph.md) §4/§5 (refs, typed edges) · issues #38 (resize dedupe), #60 (triage), #62 (combine)
 
 ---
+
+> **Implementation note:** The session-scoped endpoint is live at
+> `POST /mcp/:projectId/:token` (`backend/src/mcp/endpoint.ts`). The two
+> capture tools described here are joined by `mark_idea_done`, `link_idea`,
+> `get_board_ideas`, and `get_projects`; all six are advertised by `tools/list`
+> and route through the same backend session registry and state store. The
+> endpoint uses hand-rolled validation (not a zod runtime dependency), while
+> the schemas in §3 are the contract-level shape.
+>
+> The original design below is retained as the rationale and security/testing
+> record for the shipped implementation. Migration steps in §11 are complete.
 
 ## 1. Problem statement
 
@@ -47,7 +58,7 @@ designed to be parsed.
 Give the agent a **structured, validated side-channel** for the data half of the contract, so the
 terminal goes back to being purely presentational:
 
-> **Expose MCP tools from the backend** — `capture_idea` and `capture_score` — served over MCP's
+> **The backend exposes MCP tools** — `capture_idea` and `capture_score` — served over MCP's
 > Streamable HTTP transport on the localhost server the backend already runs. Contract-aware harness
 > profiles inject the MCP wiring at launch through the **same profile seam** that injects the system
 > prompt today (`launchArgsForProfile`). The priming instructs the agent to **call the tool** instead
@@ -65,7 +76,7 @@ Why this eliminates the §1 class rather than patching it:
   retries. A mangled marker line today is silently lost (at best logged as a near-miss).
 - Multi-line bodies — the fenced Form 2, which PD-008 already flagged as unreliable because the TUI
   renders the fence away — become trivially safe: `body` is just a JSON string.
-- The ref chain (`@a1!@a2!`, the #62 combine verb) becomes a typed `links` array instead of a
+- The ref chain (`@i1!@i2!`, the #62 combine verb) becomes a typed `links` array instead of a
   micro-grammar the model must reproduce character-perfectly.
 - The tool **returns the captured card's ref** to the model, closing a loop the marker contract
   cannot: today the agent never learns the ref of a card it just created, so it cannot link follow-up
@@ -89,8 +100,11 @@ channel with **schema validation and retry** — which is precisely what tool ca
 
 ## 3. Tool surface
 
-Two tools, mirroring the two marker forms. Schemas are the single source of truth (zod backend-side,
-serialized to JSON Schema in the MCP `tools/list` response).
+Two primary capture tools mirror the two marker forms. The endpoint also exposes
+`mark_idea_done`, `link_idea`, `get_board_ideas`, and `get_projects` for completion,
+external references, and durable-board discovery. The `tools/list` response publishes
+JSON Schema; the implementation validates arguments with explicit hand-rolled parsers
+in `backend/src/mcp/endpoint.ts`.
 
 ### 3.1 `capture_idea`
 
@@ -106,25 +120,26 @@ serialized to JSON Schema in the MCP `tools/list` response).
     body: z.string().max(2000).default(""),     // description; multi-line welcome
     kind: z.string().regex(/^[a-z][\w-]*$/).optional(),  // risk | feature | question | decision | …
     links: z.array(z.object({
-      to: z.string().regex(/^[\w-]+$/),          // short ref of an existing card (@a1 → "a1")
+      to: z.string().regex(/^[\w-]+$/),          // short ref of an existing card (@i1 → "i1")
       relation: z.enum(["about", "supersedes"]).default("about"),
     })).max(8).default([]),
   }),
 }
 ```
 
-**Result:** `{ ref: string }` — e.g. `{ "ref": "i3" }`, rendered to the model as
+**Result:** `{ ref: string }` — e.g. `{ "ref": "i3" }` (a canonical backend-reserved
+project ref), rendered to the model as
 `Captured as @i3. Link follow-up ideas to it with links:[{to:"i3"}].`
 
-Semantics map 1:1 onto today's `Idea`:
+Semantics map 1:1 onto the shared `CreateIdeaInput` contract:
 
 | Marker form                              | Tool form                                                                     |
 | ---------------------------------------- | ----------------------------------------------------------------------------- |
 | `«IDEA» T :: B`                          | `{title: "T", body: "B"}`                                                     |
 | `«IDEA:risk» …`                          | `{kind: "risk", …}`                                                           |
-| `«IDEA:risk@a1» …`                       | `{links: [{to: "a1"}], …}` (relation defaults to `about`)                     |
-| `«IDEA@a1!» …` (supersede, PD-012)       | `{links: [{to: "a1", relation: "supersedes"}]}`                               |
-| `«IDEA@a1!@a2!» …` (combine, #62/PD-019) | `{links: [{to:"a1",relation:"supersedes"}, {to:"a2",relation:"supersedes"}]}` |
+| `«IDEA:risk@i1» …`                       | `{links: [{to: "i1"}], …}` (relation defaults to `about`)                     |
+| `«IDEA@i1!» …` (supersede, PD-012)       | `{links: [{to: "i1", relation: "supersedes"}]}`                               |
+| `«IDEA@i1!@i2!» …` (combine, #62/PD-019) | `{links: [{to:"i1",relation:"supersedes"}, {to:"i2",relation:"supersedes"}]}` |
 | ` ```idea ` fenced multi-line body       | `body` with embedded `\n` — no special form needed                            |
 
 ### 3.2 `capture_score`
@@ -144,23 +159,20 @@ Semantics map 1:1 onto today's `Idea`:
 }
 ```
 
-**Result:** `{ ok: true }` (`Scored @a1.`). Maps 1:1 onto `«SCORE@a1» 4/2/3`.
+**Result:** `{ ok: true }` (`Scored @i1.`). Maps 1:1 onto `«SCORE@i1» 4/2/3`.
 
 ### 3.3 Ref minting for tool-captured ideas
 
-Today refs (`a1`, `a2`, …) are minted **frontend-side** at card creation (`idea-card.tsx` `cardRef`),
-and `Idea.id` exists for the rare agent-stamped ref (fenced `id:`). A synchronous tool result cannot
-wait for the canvas round-trip, so:
+Canonical refs (`i1`, `i2`, …) are reserved by the backend `StateStore` at
+card creation. A synchronous tool result cannot wait for a canvas round-trip, so
+both MCP and frontend-created cards use the same project-scoped allocator:
 
-- The MCP handler mints the ref **backend-side** in a distinct namespace — `i1`, `i2`, … per session —
-  and stamps it into `Idea.id` before emitting. The `i` prefix cannot collide with the canvas's
-  `a${n}` mint sequence.
-- The canvas must **honour `Idea.id` as the card's ref** when present (`applyIdeas` → shape
-  `meta.ref`). The `Idea.id` field and its documented intent already exist; verify the honour path
-  and add it if `applyIdeas` currently ignores it (small frontend change, the only one in this
-  design).
-- `resolveRef` already resolves any string ref, so `links: [{to: "i3"}]` and `«SCORE@i3»` work
-  unchanged once the meta is stamped.
+- The MCP handler reserves the next ref from `StateStore`, stamps it into the
+  emitted `CreateIdeaInput.ref`, and returns it to the model.
+- `canvas.store.ts` preserves an incoming `CreateIdeaInput.ref` as `shape.meta.ref`;
+  cards created by the user or imported from a file draw from the same allocator.
+- `resolveRef` already resolves any string ref, so `links: [{to: "i3"}]` and
+  `«SCORE@i3»` work unchanged once the snapshot is saved.
 
 ---
 
@@ -168,17 +180,17 @@ wait for the canvas round-trip, so:
 
 ### 4.1 Streamable HTTP on the existing server
 
-The backend already runs a Hono HTTP+WS server bound to `127.0.0.1`. Add an MCP **Streamable HTTP**
-endpoint (the modern transport; stdio would require a shim subprocess per session and complicates the
+The backend already runs a Hono HTTP+WS server bound to `127.0.0.1`. It exposes an MCP **Streamable HTTP**
+endpoint (the modern transport; stdio would require a shim subprocess per session and complicate the
 tmux launch line):
 
 ```
-POST /mcp/:workspaceId/:token        ← JSON-RPC (initialize / tools/list / tools/call)
+POST /mcp/:projectId/:token        ← JSON-RPC (initialize / tools/list / tools/call)
 ```
 
-- **Workspace identity comes from the URL, never from the model.** Each session's launch config gets
-  its own URL, so a tool call is attributed to its workspace structurally — the agent cannot name (or
-  misname) a workspace.
+- **Project identity comes from the URL, never from the model.** Each session's launch config gets
+  its own URL, so a tool call is attributed to its project structurally — the agent cannot name (or
+  misname) a project.
 - **`:token`** is a per-session secret (128-bit, `randomUUID`-derived) minted at `create()`. The
   server rejects a mismatched token with 404. Binding stays `127.0.0.1`; the token guards against
   other local processes, same trust model as the existing WS endpoint. (Header-based auth would be
@@ -207,7 +219,7 @@ gains an optional MCP context so tmux and node-pty launch paths stay byte-for-by
 
 ```ts
 interface McpLaunchContext {
-  url: string; // http://127.0.0.1:<port>/mcp/<workspaceId>/<token>
+  url: string; // http://127.0.0.1:<port>/mcp/<projectId>/<token>
   serverName: string; // "ai-storm" — fixed; tool ids derive from it
 }
 
@@ -225,7 +237,8 @@ brainstorm:
 ```ts
 mcpArgs: ({ url, serverName }) => [
   "--mcp-config", JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
-  "--allowedTools", `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`,
+  "--allowedTools", ["capture_idea", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"]
+    .map((tool) => `mcp__${serverName}__${tool}`).join(","),
 ],
 ```
 
@@ -236,7 +249,7 @@ mcpArgs: ({ url, serverName }) => [
 mcpArgs: ({ url, serverName }) => [
   "-c", `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
   "-c", `mcp_servers.${serverName}.enabled=true`,
-  "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+  "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"])}`,
   "-c", `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`,
 ],
 ```
@@ -301,8 +314,8 @@ profile has MCP wired:
   capability-neutral phrasing ("capture each idea") so one mode catalog serves both primes; the base
   segment defines what "capture" means. Pure wording change, no structural change to `modes.ts`.
 - The verb-prompt directives (`prompt-framing.ts`) only ever carry **refs**, never marker tokens
-  (PD-008 echo rule), so they work under both primes verbatim — "tag every idea with @a1" reads
-  naturally as "pass `links:[{to:"a1"}]`" to a tool-primed agent. No frontend change.
+  (PD-008 echo rule), so they work under both primes verbatim — "tag every idea with @i1" reads
+  naturally as "pass `links:[{to:"i1"}]`" to a tool-primed agent. No frontend change.
 
 The marker grammar is deliberately **not** taught alongside the tools: one mechanism per session
 keeps the model's behaviour unimodal (the strongest determinism lever available). The scanner still
@@ -315,18 +328,17 @@ runs underneath as a silent safety net (§7).
 Tool-call path, end to end:
 
 ```
-agent → POST /mcp/<ws>/<token> tools/call capture_idea
-  → zod-validate args                      (invalid → MCP error → model retries)
-  → mint ref "i<n>", stamp Idea.id
-  → IdeaSink.offer(idea)                   (shared dedupe — see below)
-  → onIdea callback                        (same callback the scanner feeds)
-  → ws `idea` message → ingestion.service → applyIdeas → card
+agent → POST /mcp/<project>/<token> tools/call capture_idea
+  → hand-rolled validation                  (invalid → MCP error → model retries)
+  → reserve ref "i<n>", stamp CreateIdeaInput.ref
+  → IdeaSink.offer(idea)                    (shared dedupe — see below)
+  → onIdea callback                         (same callback the scanner feeds)
+  → ws `idea` message → ingestion.store → canvas.applyIdeas → board-save
   → tool result { ref } → model
 ```
 
-**`IdeaSink` — one dedupe authority per session.** Today `IdeaScanner` owns the session-scoped
-`ideaIdentityKey` seen-set. Extract that set into a small `IdeaSink` owned by the session (both
-backends), fed by **both** producers:
+**`IdeaSink` — one dedupe authority per session.** The implemented session backends own the
+session-scoped `ideaIdentityKey` seen-set in a small `IdeaSink`, fed by **both** producers:
 
 - the MCP handler (primary), and
 - the `IdeaScanner` (fallback, still scanning every capture).
@@ -338,7 +350,7 @@ because dedupe is by identity, not position. `ScoreScanner`'s tuple-keyed set ge
 treatment (`ScoreSink`), with one deliberate carry-over: a **re-triage** that changes a card's
 rating is a new tuple and passes through, matching today's semantics.
 
-**Diagnostics.** `idea.captured` (info) logs the tool path with `{workspace, ref, kind}`. A scanner
+**Diagnostics.** `idea.captured` (info) logs the tool path with `{project, ref, kind}`. A scanner
 hit on a session that _has_ MCP wired logs `idea.fallback_scan` (warn) — a primed agent ignored the
 tool, the tool-lapse analog of today's near-miss telemetry. Near-miss logging itself is unchanged.
 
@@ -348,11 +360,11 @@ tool, the tool-lapse analog of today's near-miss telemetry. Near-miss logging it
 
 Unchanged in code, demoted in role:
 
-| Session type                                                                                 | Primary path                     | Floor                              |
-| -------------------------------------------------------------------------------------------- | -------------------------------- | ---------------------------------- |
-| Tool-wired harness (claude via `mcpArgs`; opencode/pi via `fileLaunch`; codex once verified) | MCP tools                        | marker scan (logged when it fires) |
-| Contract-aware harness without MCP                                                           | marker scan (today's behaviour)  | near-miss telemetry                |
-| Bare shell / non-AI                                                                          | — (no priming, no scan emission) | —                                  |
+| Session type                                                                  | Primary path                     | Floor                              |
+| ----------------------------------------------------------------------------- | -------------------------------- | ---------------------------------- |
+| Tool-wired harness (claude/codex via `mcpArgs`; opencode/pi via `fileLaunch`) | MCP tools                        | marker scan (logged when it fires) |
+| Contract-aware harness without MCP                                            | marker scan (today's behaviour)  | near-miss telemetry                |
+| Bare shell / non-AI                                                           | — (no priming, no scan emission) | —                                  |
 
 This is the same defence-in-depth posture as the original extraction contract: explicit contract
 primary, heuristic floor secondary, every fallback observable. The §1 resize failure modes still
@@ -368,8 +380,8 @@ Deliberately near-zero:
 
 - `Idea`, `Score`, `idea`/`score` WS messages: **unchanged**. The canvas cannot tell which channel
   produced a card.
-- `Idea.id`: already exists; now actually populated (by the backend mint) on the primary path. The
-  one frontend change is ensuring `applyIdeas` honours it as the shape's `meta.ref` (§3.3).
+- `CreateIdeaInput.ref`: populated by the backend allocator on the primary path. The canvas
+  preserves it as the shape's `meta.ref`; absent refs are reserved by the same state-store allocator.
 - `SessionSpec`: no change — MCP wiring is derived backend-side from the profile at `create()`.
 - Optional, additive: `session-status` gains `capture: "mcp" | "markers"` so the UI can surface which
   contract a session is running (useful for debugging a misbehaving brainstorm). Not required for
@@ -382,10 +394,10 @@ Deliberately near-zero:
 Unit-first, matching the existing extraction test shape (pure modules + fixtures; the MCP handler is
 pure JSON-RPC over Hono, testable with injected requests, no real harness needed):
 
-1. **Schema validation.** Valid `capture_idea` minimal/maximal payloads → `Idea` emitted with minted
-   `i<n>` id; invalid payloads (empty title, bad relation, oversize links) → MCP error response,
+1. **Schema validation.** Valid `capture_idea` minimal/maximal payloads → `CreateIdeaInput` emitted
+   with a minted `i<n>` ref; invalid payloads (empty title, bad relation, oversize links) → MCP error response,
    nothing emitted.
-2. **Marker-parity fixtures.** Every row of the §3.1 mapping table — including the `@a1!@a2!`
+2. **Marker-parity fixtures.** Every row of the §3.1 mapping table — including the `@i1!@i2!`
    combine chain and a multi-line body — produces an `Idea` deep-equal to what `scanIdeas` produces
    for the equivalent marker fixture. Guards the two paths against semantic drift.
    **opencode (#173): pending.** opencode is an alt-screen TUI with no `--no-alt-screen` escape
@@ -396,8 +408,9 @@ pure JSON-RPC over Hono, testable with injected requests, no real harness needed
 3. **Shared dedupe.** Tool call then identical marker scan (and the reverse) → exactly one emission;
    `idea.fallback_scan` logged for the scan-on-MCP-session case.
 4. **Ref round-trip.** `capture_idea` result ref used in a follow-up call's `links.to` and in a
-   `capture_score.ref` → links/score resolve; refs are session-scoped and reset with the session.
-5. **Routing & auth.** Wrong token → 404, nothing emitted; two workspaces capturing concurrently →
+   `capture_score.ref` → links/score resolve; refs remain project-global in `board.json` and are
+   never reused after a restart.
+5. **Routing & auth.** Wrong token → 404, nothing emitted; two projects capturing concurrently →
    ideas land on the right `onIdea` callbacks; tool call after `kill()` → 404.
 6. **Token durability (tmux).** Fake-tmux test (the existing seam): `create()` stamps
    `@ai_storm_mcp_token`; a reconciled backend restores it and a tool call against the old URL still
@@ -421,33 +434,34 @@ pure JSON-RPC over Hono, testable with injected requests, no real harness needed
 - Tool input is **untrusted model output**: schemas bound every field (lengths, ref charset, enum
   relations, link count) before anything reaches the canvas; `ref`s are validated against
   `^[\w-]+$` exactly like the marker grammar's injection guard.
-- No tool ever executes anything or touches the filesystem — `capture_idea`/`capture_score` are pure
-  data writes into the session's existing callback plumbing.
+- No capture or workflow tool executes a shell command. Capture/update calls write only through the
+  existing session callback plumbing; the read tools return a validated projection from `StateStore`.
 
 ---
 
-## 11. Migration steps
+## 11. Implementation history
 
-Each independently shippable; the app works throughout (markers remain the default until a profile
-opts in).
+The staged migration below is complete. Markers remain enabled as a fallback, so
+adding MCP wiring never makes an unsupported or misconfigured harness silent.
 
-1. **`IdeaSink`/`ScoreSink` extraction** — move the seen-sets out of the scanners into
-   session-owned sinks; scanners feed them. Pure refactor, behaviour-identical, lands with tests.
-2. **MCP endpoint** — `/mcp/:workspaceId/:token` (initialize / tools/list / tools/call), zod
-   schemas, ref minting, routing into the sinks. Token map + tmux `@ai_storm_mcp_token`
-   persistence + `reconcile()` restore. (§9 cases 1–6.)
-3. **Profile seam** — `mcpArgs` hook + `McpLaunchContext` through `launchArgsForProfile`; wire the
-   **claude** profile only. (§9 case 7.)
-4. **Prime split** — MCP-conditional base prime; reword mode primes capability-neutral; add the
-   `idea.fallback_scan` diagnostic.
-5. **Frontend ref honour** — `applyIdeas` uses `Idea.id` as `meta.ref` when present (collision-safe
-   by namespace). Optional `capture` field on `session-status`.
-6. **Codex/pi verification** — pin versions, verify their MCP config surfaces (codex HTTP transport
-   keys; whether pi mirrors `--mcp-config`), then add their `mcpArgs`. Until then both stay on
-   markers by construction.
-7. **Cleanup (later)** — once MCP-primary has soaked: consider retiring the fenced ` ```idea ` form
-   from the prime (its only reason to exist — multi-line bodies — is solved), shrinking the marker
-   grammar the fallback must support.
+1. **Shared sinks:** `IdeaSink`/`ScoreSink` now live in the session attachment and
+   dedupe scanner and tool producers together.
+2. **Endpoint:** `backend/src/mcp/endpoint.ts` implements sessionless
+   `initialize`, `tools/list`, and `tools/call` at `/mcp/:projectId/:token`.
+   Token routing is registered by both session backends; tmux persists the token
+   in `@ai_storm_mcp_token` and restores it during `reconcile()`.
+3. **Profile seam:** `McpLaunchContext` and `profileUsesMcp()` are consumed by
+   Claude, Codex, pi's generated extension, and opencode's file/env launch.
+4. **Prime split and diagnostics:** MCP-capable profiles receive the tool prime;
+   marker-only profiles receive the marker prime; fallback scans are logged.
+5. **Canonical refs:** MCP and frontend card creation reserve project-global
+   `i<n>` refs through `StateStore`; the canvas preserves `CreateIdeaInput.ref`.
+6. **Workflow/read tools:** `mark_idea_done`, `link_idea`, `get_board_ideas`, and
+   `get_projects` extend the original capture surface without adding another
+   persistence home.
+7. **Follow-up:** Keep the marker fallback and review harness config assumptions
+   when pinned CLI versions change; retiring fenced markers is deliberately not
+   required for the shipped path.
 
 ---
 
@@ -487,10 +501,10 @@ opts in).
 | -------------------- | ----------------------------------- | ---------------------------------------------------------------- |
 | Plain idea           | `«IDEA» T :: B`                     | `capture_idea {title, body}`                                     |
 | Typed idea           | `«IDEA:risk» T :: B`                | `capture_idea {kind: "risk", …}`                                 |
-| Linked idea          | `«IDEA@a1» …`                       | `capture_idea {links: [{to: "a1"}]}`                             |
-| Supersede (PD-012)   | `«IDEA@a1!» …`                      | `…{links: [{to: "a1", relation: "supersedes"}]}`                 |
-| Combine (#62)        | `«IDEA@a1!@a2!» …`                  | one call, one `supersedes` link per source                       |
+| Linked idea          | `«IDEA@i1» …`                       | `capture_idea {links: [{to: "i1"}]}`                             |
+| Supersede (PD-012)   | `«IDEA@i1!» …`                      | `…{links: [{to: "i1", relation: "supersedes"}]}`                 |
+| Combine (#62)        | `«IDEA@i1!@i2!» …`                  | one call, one `supersedes` link per source                       |
 | Multi-line body      | ` ```idea ` fence (fragile, PD-008) | `body` with `\n`                                                 |
-| Triage (#60)         | `«SCORE@a1» 4/2/3`                  | `capture_score {ref: "a1", impact: 4, effort: 2, confidence: 3}` |
+| Triage (#60)         | `«SCORE@i1» 4/2/3`                  | `capture_score {ref: "i1", impact: 4, effort: 2, confidence: 3}` |
 | Learn own card's ref | — (impossible)                      | tool result `{ ref: "i3" }`                                      |
 | Malformed attempt    | near-miss log, idea lost            | MCP validation error → model retries                             |

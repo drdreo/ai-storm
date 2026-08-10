@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="860" viewBox="0 0 1280 860" role="img" aria-labelledby="title desc">
+  <title id="title">AI-Storm architecture</title>
+  <desc id="desc">A local React browser application connects to a Node and Hono daemon. The daemon owns durable project state, durable terminal sessions, and a session-scoped MCP capture endpoint.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#dce6f1" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="browser" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef4fb"/>
+    </linearGradient>
+    <linearGradient id="daemon" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#172337"/>
+      <stop offset="1" stop-color="#0e1728"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#233a55" flood-opacity="0.18"/>
+    </filter>
+    <marker id="arrow-teal" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#18a7a0"/>
+    </marker>
+    <marker id="arrow-indigo" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6670d8"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#f28b4b"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .title { font-size: 31px; font-weight: 800; letter-spacing: 1.5px; fill: #132238; }
+      .subtitle { font-size: 16px; fill: #526477; }
+      .section { font-size: 18px; font-weight: 800; letter-spacing: .7px; }
+      .tech { font-size: 15px; fill: #5d6d7d; }
+      .box-title { font-size: 18px; font-weight: 750; fill: #132238; }
+      .box-copy { font-size: 14px; fill: #405267; }
+      .daemon-title { font-size: 18px; font-weight: 750; fill: #ffffff; }
+      .daemon-copy { font-size: 14px; fill: #c2d0e1; }
+      .chip { font-size: 12px; font-weight: 650; fill: #28435d; }
+      .chip-light { font-size: 12px; font-weight: 650; fill: #d9e8f6; }
+      .flow { font-size: 13px; font-weight: 700; fill: #315069; }
+      .flow-light { font-size: 13px; font-weight: 700; fill: #9fdedb; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="860" fill="#f4f8fc"/>
+  <rect width="1280" height="860" fill="url(#grid)" opacity="0.72"/>
+
+  <g class="sans">
+    <text x="42" y="53" class="title">AI-STORM ARCHITECTURE</text>
+    <text x="42" y="81" class="subtitle">Local browser UI + local daemon. The backend owns durable state and sessions; the terminal stays a real terminal.</text>
+
+    <!-- Browser tier -->
+    <rect x="32" y="112" width="1216" height="270" rx="18" fill="url(#browser)" stroke="#9aaabd" stroke-width="1.5" filter="url(#shadow)"/>
+    <text x="54" y="145" class="section" fill="#162940">BROWSER APPLICATION</text>
+    <text x="288" y="145" class="tech">React 19 · Vite · Zustand · tldraw · xterm.js · Tailwind v4</text>
+
+    <rect x="53" y="169" width="260" height="170" rx="13" fill="#ffffff" stroke="#c2cedb"/>
+    <text x="73" y="199" class="box-title">Sidebar / projects</text>
+    <text x="73" y="226" class="box-copy">• registry projection</text>
+    <text x="73" y="248" class="box-copy">• folders + ordering</text>
+    <text x="73" y="270" class="box-copy">• live session status</text>
+    <rect x="73" y="294" width="132" height="25" rx="12" fill="#dbe8f5"/>
+    <text x="87" y="311" class="chip">backend state API</text>
+
+    <rect x="333" y="169" width="455" height="170" rx="13" fill="#ffffff" stroke="#c2cedb"/>
+    <text x="353" y="199" class="box-title">Canvas pane · tldraw</text>
+    <text x="353" y="226" class="box-copy">• backend-loaded board snapshots</text>
+    <text x="353" y="248" class="box-copy">• idea cards + typed arrows</text>
+    <text x="353" y="270" class="box-copy">• arrange, filter, search, export</text>
+    <rect x="353" y="294" width="192" height="25" rx="12" fill="#d9f0ee"/>
+    <text x="367" y="311" class="chip">debounced board-save</text>
+
+    <rect x="808" y="169" width="419" height="170" rx="13" fill="#ffffff" stroke="#c2cedb"/>
+    <text x="828" y="199" class="box-title">Control hub · xterm.js</text>
+    <text x="828" y="226" class="box-copy">• raw PTY bytes rendered faithfully</text>
+    <text x="828" y="248" class="box-copy">• prompts, resize, session controls</text>
+    <text x="828" y="270" class="box-copy">• MCP / marker results appear as cards</text>
+    <rect x="828" y="294" width="143" height="25" rx="12" fill="#fce8d8"/>
+    <text x="842" y="311" class="chip">no chat re-parser</text>
+
+    <!-- Transport labels -->
+    <rect x="415" y="398" width="450" height="34" rx="17" fill="#e7edf6" stroke="#b3c1d1"/>
+    <text x="640" y="420" text-anchor="middle" class="flow">/pty WebSocket · project-keyed JSON · state requests/responses</text>
+
+    <path d="M560 382 L560 438" fill="none" stroke="#6670d8" stroke-width="3" marker-end="url(#arrow-indigo)"/>
+    <path d="M720 438 L720 382" fill="none" stroke="#6670d8" stroke-width="3" marker-end="url(#arrow-indigo)"/>
+    <text x="570" y="451" class="flow">data + idea / score / status</text>
+
+    <!-- Daemon tier -->
+    <rect x="32" y="470" width="1216" height="335" rx="18" fill="url(#daemon)" stroke="#536781" stroke-width="1.5" filter="url(#shadow)"/>
+    <text x="54" y="506" class="section" fill="#ffffff">LOCAL NODE DAEMON · Hono</text>
+    <text x="390" y="506" class="tech" fill="#b2c1d3">127.0.0.1 · one process-wide runtime · local-only execution</text>
+
+    <!-- State store -->
+    <rect x="53" y="532" width="350" height="220" rx="13" fill="#22334c" stroke="#526985"/>
+    <text x="75" y="563" class="daemon-title">BACKEND-OWNED DURABLE STATE</text>
+    <text x="75" y="592" class="daemon-copy">StateStore · atomic JSON files</text>
+    <text x="75" y="618" class="daemon-copy">registry.json</text>
+    <text x="75" y="641" class="daemon-copy">projects/&lt;id&gt;/board.json</text>
+    <text x="75" y="664" class="daemon-copy">projects/&lt;id&gt;/history.json</text>
+    <text x="75" y="699" class="daemon-copy">revisioned saves · ref allocation</text>
+    <rect x="75" y="715" width="154" height="24" rx="12" fill="#38516e"/>
+    <text x="89" y="731" class="chip-light">survives browser loss</text>
+
+    <!-- Session runtime -->
+    <rect x="433" y="532" width="370" height="220" rx="13" fill="#22334c" stroke="#526985"/>
+    <text x="455" y="563" class="daemon-title">SESSION RUNTIME</text>
+    <text x="455" y="592" class="daemon-copy">POSIX: named tmux + pipe-pane</text>
+    <text x="455" y="616" class="daemon-copy">Windows: node-pty / ConPTY</text>
+    <text x="455" y="640" class="daemon-copy">reconcile + idempotent attach</text>
+    <text x="455" y="664" class="daemon-copy">IdeaScanner / ScoreScanner</text>
+    <text x="455" y="688" class="daemon-copy">raw data → xterm · markers → cards</text>
+    <rect x="455" y="715" width="192" height="24" rx="12" fill="#38516e"/>
+    <text x="469" y="731" class="chip-light">session survives socket loss</text>
+
+    <!-- MCP -->
+    <rect x="833" y="532" width="394" height="220" rx="13" fill="#22334c" stroke="#526985"/>
+    <text x="855" y="563" class="daemon-title">MCP CAPTURE</text>
+    <text x="855" y="592" class="daemon-copy">POST /mcp/:projectId/:token</text>
+    <text x="855" y="616" class="daemon-copy">capture_idea · capture_score</text>
+    <text x="855" y="640" class="daemon-copy">mark / link · board discovery</text>
+    <text x="855" y="664" class="daemon-copy">session registry + shared sinks</text>
+    <text x="855" y="688" class="daemon-copy">tool calls → same WS callbacks</text>
+    <rect x="855" y="715" width="142" height="24" rx="12" fill="#38516e"/>
+    <text x="869" y="731" class="chip-light">token-scoped localhost</text>
+
+    <!-- Internal and cross-tier flows -->
+    <path d="M403 620 C415 620 420 620 433 620" fill="none" stroke="#f28b4b" stroke-width="3" marker-end="url(#arrow-orange)"/>
+    <text x="416" y="605" text-anchor="middle" class="flow-light">board-save / load</text>
+    <path d="M803 650 C814 650 820 650 833 650" fill="none" stroke="#18a7a0" stroke-width="3" marker-end="url(#arrow-teal)"/>
+    <text x="818" y="635" text-anchor="middle" class="flow-light">MCP events</text>
+
+    <path d="M955 532 C955 488 930 454 850 432" fill="none" stroke="#18a7a0" stroke-width="3" marker-end="url(#arrow-teal)"/>
+    <text x="917" y="481" text-anchor="middle" class="flow-light">idea / score / refs</text>
+    <path d="M620 532 C620 500 620 466 620 432" fill="none" stroke="#6670d8" stroke-width="3" marker-end="url(#arrow-indigo)"/>
+    <text x="638" y="494" class="flow-light">raw data</text>
+
+    <text x="54" y="786" class="tech" fill="#99abc0">Local-first: no cloud service, no hosted AI API, no browser-owned durable project database.</text>
+  </g>
+</svg>

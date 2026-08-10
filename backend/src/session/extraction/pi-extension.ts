@@ -136,7 +136,7 @@ async function forward(name: string, args: unknown): Promise<string> {
 `;
 }
 
-/** The three `pi.registerTool` calls, inserted into the default export's body. */
+/** The six `pi.registerTool` calls, inserted into the default export's body. */
 const TOOLS_REGISTRATION = `
   pi.registerTool({
     name: "capture_idea",

@@ -182,10 +182,10 @@ export const CLAUDE_PROFILE: HarnessProfile = {
  *
  * Deterministic capture (#177): pi has no MCP support and never will, but its
  * native extension seam is equivalent — `fileLaunch` writes a generated
- * extension (pi-extension.ts, verified against pi 0.80.3) that registers
- * `capture_idea`/`capture_score`/`mark_idea_done` as first-class pi tools and
- * forwards each call to the session's capture endpoint. The extension IS an
- * MCP client (one `tools/call` POST per capture), so `usesMcp` is accurate:
+ * extension (pi-extension.ts, verified against pi 0.80.3) that registers all
+ * six capture/workflow/read tools as first-class pi tools and forwards each call
+ * to the session's capture endpoint. The extension IS an MCP client (one
+ * `tools/call` POST per tool call), so `usesMcp` is accurate:
  * it mints the session token/URL in both backends and selects the
  * tool-teaching prime (mcp-idea-capture §5). The marker scanner keeps running
  * underneath as the silent floor (§7) — a tool lapse logs `idea.fallback_scan`.

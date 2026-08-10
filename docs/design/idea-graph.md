@@ -15,8 +15,8 @@ issues #40 (source-linked responses), #19 (parent refs + connectors), #20 (lifec
 Today a brainstorm board is a _pile_ of cards, not a _graph_. The card verbs (#13
 Discuss, #15 Expand/Challenge/Find-risks, #14 reply-to-card) feed an editable prompt
 into the live terminal; the agent's reply streams back as terminal text, and the
-backend independently extracts `«IDEA»` markers into `Idea {title, body, kind?}` →
-`CanvasService.applyIdeas` → one card per idea (colored by `kind`, #21).
+backend independently extracts `«IDEA»` markers into `CreateIdeaInput {title, body, kind?}` →
+`frontend/src/app/stores/canvas.store.ts` → one card per idea (colored by `kind`, #21).
 
 So responses already become cards — but **free-floating, with no link back to the card
 the verb fired from**. Click "Find risks" on a card and the risk cards land wherever
@@ -29,8 +29,10 @@ Several filed issues (#40 source-linked responses, #19 connector edges, #22 supe
 issues on position-only data means each reinvents identity + edges, or gets reworked
 once edges exist. This document defines the primitive once, so they become cheap.
 
-This is a **data-model refactor**, not a feature. It ships behind the existing pipeline
-and is invisible until the consumer features (a separate epic) turn it on.
+This is a **data-model refactor** that now ships through the existing pipeline. Cards,
+refs, typed edges, supersede ghosts, and manual graph-driven arrangement all consume
+the same model; new graph consumers should extend these primitives rather than create
+parallel identity or persistence maps.
 
 ## 2. The model: three orthogonal axes
 
@@ -105,8 +107,8 @@ target X can be either AI- or user-made, and that changes neither its kind nor i
 
 ### 3.1 Wire / storage (shared, additive)
 
-`Idea` in `packages/shared/src/protocol.ts` gains three optional fields — additive, so
-nothing that produces today's `{title, body, kind}` breaks:
+`CreateIdeaInput` in `packages/shared/src/idea.ts` carries the capture-time graph
+fields — additive, so nothing that produces today's `{title, body, kind}` breaks:
 
 ```ts
 export type IdeaRelation = "about" | "supersedes";
@@ -118,11 +120,11 @@ export interface IdeaLink {
   relation?: IdeaRelation;
 }
 
-export interface Idea {
+export interface CreateIdeaInput {
   title: string;
   body: string;
   kind?: string; // what it IS — drives presentation + lifecycle via the registry
-  id?: string; // this idea's own short ref (usually backend/canvas-minted)
+  ref?: string; // canonical project ref reserved by the backend StateStore
   links?: IdeaLink[]; // 0..n edges to other cards; usually 0 or 1 from a verb
 }
 ```
@@ -170,12 +172,12 @@ over-fitting.
 
 Edges need to name their endpoints, and the **AI must be able to reproduce an endpoint
 name in its reply**. A tldraw shape id is a generated token a language model can't
-reproduce. So every card gets a **short ref** — `a1`, `a2`, … — that is:
+reproduce. So every card gets a **short ref** — `i1`, `i2`, … — that is:
 
-- minted at card creation (in `applyIdeas` for AI cards; lazily for a user card the
-  first time it's referenced),
+- reserved by the backend state store at card creation (AI cards and user cards
+  use the same per-project allocator),
 - stored on the card itself in its shape `meta.ref` (persisted with the shape; survives reload),
-- the value used for `Idea.id` and `IdeaLink.to`.
+- the value used for `CreateIdeaInput.ref` and `IdeaLink.to`.
 
 The ref space _is_ the identity layer; the shape id stays tldraw's internal concern.
 
@@ -183,15 +185,15 @@ The ref space _is_ the identity layer; the shape id stays tldraw's internal conc
 
 The hard part (already flagged in #40). The verb prompt goes into an **async interactive
 PTY**; the backend extracts ideas from the reply **independently**, with no built-in link
-between "this verb fired from card a1" and "these ideas came back." We solve it with an
+between "this verb fired from card i1" and "these ideas came back." We solve it with an
 **injected correlation token**, not magic:
 
 ```
-verb fires from card a1
-   → primed prompt for this turn instructs: "tag every idea you emit with @a1"
-   → agent reply: «IDEA:risk@a1» Token leak on reconnect :: refresh races the reattach
-   → backend parses @a1 → Idea.links = [{ to: 'a1', relation: 'about' }]
-   → applyIdeas resolves a1 → its card, places the new card near it, draws a bound arrow
+verb fires from card i1
+   → primed prompt for this turn instructs: "tag every idea you emit with @i1"
+   → agent reply: «IDEA:risk@i1» Token leak on reconnect :: refresh races the reattach
+   → backend parses @i1 → Idea.links = [{ to: 'i1', relation: 'about' }]
+   → applyIdeas resolves i1 → its card, places the new card near it, draws a bound arrow
 ```
 
 ### 5.1 Contract extension (reflow-safe, mirrors `kind`)
@@ -201,16 +203,16 @@ The extraction contract is a deliberately constrained, **reflow-resilient single
 the marker (`«IDEA:risk»`). The target ref slots into the same pattern:
 
 ```
-«IDEA:risk@a1» <title> :: <body>        # kind=risk, link to a1 (relation 'about')
-«IDEA@a1» <title> :: <body>             # no kind, link to a1
-«IDEA:feature@a1!» <title> :: <body>    # trailing ! → 'supersedes' a1 (PD-012)
-«IDEA@a1!@a2!@a3!» <title> :: <body>    # chained refs → supersedes a1+a2+a3 (combine/merge, PD-019)
+«IDEA:risk@i1» <title> :: <body>        # kind=risk, link to i1 (relation 'about')
+«IDEA@i1» <title> :: <body>             # no kind, link to i1
+«IDEA:feature@i1!» <title> :: <body>    # trailing ! → 'supersedes' i1 (PD-012)
+«IDEA@i1!@i2!@i3!» <title> :: <body>    # chained refs → supersedes i1+i2+i3 (combine/merge, PD-019)
 ```
 
 Grammar delta (see `ai-response-extraction-contract.md` §3.2): the in-marker tag becomes
 `[:kind][@ref[!]…]`. A **trailing `!`** on a ref makes that link `supersedes` instead of
 the default `about` (PD-012) — keeping the one structural relation on the robust single-line
-marker. **Refs may be chained** (`@a1!@a2!`) so one idea supersedes several sources at once —
+marker. **Refs may be chained** (`@i1!@i2!`) so one idea supersedes several sources at once —
 the multi-select combine/merge verb (#62, PD-019); each ref carries its own optional `!`. The fenced form _also_ expresses it via `rel: supersedes`, but the agent's TUI
 renders the code fence away before the backend captures the screen (PD-008), so in practice
 the inline `!` is the form that reaches the parser; the Challenge verb emits `!`, not a
@@ -228,46 +230,50 @@ Open question deferred to implementation: an **out-of-band** fallback (correlate
 session's "last verb invocation") is simpler but loses correctness if the user interleaves
 prompts. The in-prompt token is preferred for correctness; the fallback is a maybe-later.
 
-## 6. Persistence: the canvas store is the single source of truth
+## 6. Persistence: the backend-owned board snapshot is the source of truth
 
-No server-side graph store. The tldraw canvas store (persisted per workspace via
-`persistenceKey` → IndexedDB, PD-005/PD-013) is the source of truth. Identity and edges live on
-the canvas itself, not in side-maps:
+The tldraw editor is the live client projection, while `backend/src/state/store.ts`
+(the backend `StateStore`) owns the durable project documents. Each project board is saved as a complete
+snapshot to `projects/<project-id>/board.json` through the `board-save` state
+operation, with revisions used to detect competing or offline writes. Identity and
+edges still live on the canvas itself, not in side-maps:
 
 | Where                                               | Shape                   | Purpose         |
 | --------------------------------------------------- | ----------------------- | --------------- |
-| a card's `shape.meta.ref`                           | `a1`, `a2`, …           | identity (§4)   |
+| a card's `shape.meta.ref`                           | `i1`, `i2`, …           | identity (§4)   |
 | a native arrow bound to both cards, `meta.relation` | `about` \| `supersedes` | the graph edges |
 
 Edges are native tldraw **arrows bound to both endpoints** (so they track the cards as they
 move), with the relation in the arrow's `meta`. The **shared package** (`@ai-storm/shared`) is the
-"both sides know it" contract — satisfied by the wire types, not a second persistence home. A
-server graph DB would split truth between the board and the DB and create a sync problem we don't
-have today. Revisit only if multi-device/collab (PD-001) or server-side graph reasoning becomes a
-goal. AI priming over the whole graph already works via the existing `serializeToText` →
-context-injection path (PRD §3.2).
+"both sides know it" contract — satisfied by the wire types, not a second graph database. The
+backend board snapshot is the one durable copy; the browser's localStorage only keeps UI session
+preferences such as the active project, folder collapse, and camera state. AI priming over the
+whole graph already works via the existing `serializeToText` → context-injection path (PRD §3.2).
 
 ## 7. Implementation status
 
 **Shipped.** The model is live on the tldraw canvas (PD-013):
 
-- the shared contract + extraction — `Idea` with `id`/`links`, and the `@ref[!]` marker
-  grammar (`ai-response-extraction-contract.md` §3.2) the backend parses;
+- the shared contract + extraction — `CreateIdeaInput` with `ref`/`links`, and the `@ref[!]`
+  marker grammar (`ai-response-extraction-contract.md` §3.2) the backend parses;
 - the `KIND_REGISTRY` (`idea-descriptors.ts`), replacing the old parallel label/color/known
   maps; the kind's color is a tldraw shared StyleProp;
-- short-ref identity in `shape.meta.ref` (minted in `applyIdeas`, lazily via `cardRef`);
+- short-ref identity in `shape.meta.ref` (reserved by the backend `StateStore`, with
+  client-side guards for imported/pasted cards);
 - edges as native arrows bound to both cards, the relation in the arrow `meta`. `applyIdeas`
   resolves each `link.to` → its card, places the new card near it, and draws a relation-styled
   arrow; a verb injects the source card's ref into the primed prompt so responses come back
   tagged — "risks branch off the card" (#40) is real.
 
-**Remaining (separate tickets, out of scope here).** Per-kind shapes (#40), lifecycle +
-`supersedes` / replace-on-challenge (#20, #22), semantic layout/clustering near targets
-(#16, #17). They consume the registry + edges; they don't reinvent them.
+**Remaining (separate tickets, out of scope here).** Per-kind shapes and richer
+model-driven affinity clustering remain future work. The shipped canvas already
+supports lifecycle `supersedes` ghosts and manual graph-driven Arrange; those features
+consume the registry + edges rather than reinvent them.
 
 ## 8. What this is explicitly _not_
 
-- Not a server-side store, and not multiplayer (PD-001 stands).
+- Not a separate graph database, and not multiplayer (PD-001 stands); the graph is
+  persisted inside the backend-owned board snapshot.
 - Not a relation taxonomy — `kind` carries flavor; edges stay generic bar `supersedes`.
 - Not nesting/containment — flat nodes + edges.
 - Not a change to how the conversation surface works (PD-008) — only the idea markers gain

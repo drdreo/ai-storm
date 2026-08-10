@@ -10,9 +10,9 @@ ai-storm uses the AI harness you already use; `claude`, `codex`, `pi`,
 [tldraw](https://tldraw.dev) whiteboard. You chat on the right; ideas land as
 cards on the canvas, ready to arrange, connect, score, and riff on.
 
-But with all your tools available - gh cli, atlassian MCP, your workflow - enhancing your brainstorming sessions even further.
-
-And there is **no** lock in. You extract the ideas you want as markdown, JSON, GitHub issues, or whatever you let your AI do with them.
+With your existing tools available — `gh`, Atlassian MCP, and your normal workflow —
+there is no lock-in. Extract the ideas you want as markdown, JSON, GitHub issues, or
+whatever you let your AI do with them.
 
 ![ai-storm live demo](docs/media/hero.gif)
 
@@ -89,10 +89,11 @@ installing anything.
 
 ![Architecture diagram](docs/media/architecture.png)
 
-A local Node.js daemon owns the pseudo-terminals; the browser app is React 19
-(Vite) with Zustand, shadcn/ui + Tailwind v4, an
+A local Node.js daemon owns the pseudo-terminals and durable project state. The
+browser app is React 19 (Vite) with Zustand, shadcn/ui + Tailwind v4, an
 [xterm.js](https://xtermjs.org) terminal fed the raw PTY stream, and a tldraw
-canvas as the idea surface.
+canvas as the idea surface. Structured idea actions can arrive through the
+backend's session-scoped MCP endpoint or the marker fallback.
 
 ### The conversational session
 
@@ -104,10 +105,13 @@ They will try to use the ai-storm MCP / tools / extension, otherwise fallback to
 
 ### Persistence
 
-Each project's canvas is a tldraw store persisted to IndexedDB. The project
-registry (titles, status, terminal config) is a Yjs CRDT document with its own
-IndexedDB store via `y-indexeddb`. On boot the app rehydrates both and restores
-the most recently active project.
+The backend is the source of truth for projects, boards, and run history. `StateStore`
+atomically writes `registry.json`, `projects/<project-id>/board.json`, and
+`projects/<project-id>/history.json` under the platform state directory. The
+browser loads these documents over the state protocol, keeps an optimistic Zustand
+projection, and reconciles revisions on reconnect. The active project pointer,
+folder-collapse state, and tldraw camera/session preferences remain browser-local;
+project content does not depend on browser IndexedDB.
 
 ## Development
 
@@ -144,6 +148,9 @@ Requirements: **Node.js** ≥ 24.15 (backend uses native TS type-stripping),
 ### Tests
 
 ```sh
+# Documentation/code drift checklist
+pnpm docs:check
+
 # Unit
 cd frontend && pnpm test
 
