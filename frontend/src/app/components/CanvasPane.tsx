@@ -33,6 +33,8 @@ const SpecPanel = lazy(() => import("./SpecPanel").then((m) => ({ default: m.Spe
 // gets the same code-split treatment: loaded on first open, kept mounted after.
 const HistoryPanel = lazy(() => import("./HistoryPanel").then((m) => ({ default: m.HistoryPanel })));
 
+const EMPTY_HANDOFF_SCOPE = { source: "board", cardCount: 0, text: "" } as const;
+
 /**
  * A canvas-macro toolbar button with an accessible {@link Tooltip} (audit H1 —
  * replaces the old `title=`, which never showed on keyboard focus or touch). The
@@ -234,9 +236,12 @@ export function CanvasPane() {
   const generateSpec = (format: SpecFormat, opts: SpecOptions) => {
     if (active) agent.generateSpec(active.id, active.terminal, format, opts);
   };
-  // Gates the panel's Generate with why-copy. Only serialized while the panel is
-  // open (it walks the board); the `ideasTick` subscription above keeps it fresh.
-  const specBoardEmpty = !(specOpen && active && canvas.serializeForHandoff(active.id).trim());
+  // Scope is read live from the canvas while the panel is open (#225): an idea
+  // selection takes precedence over the whole board and is named in the panel so
+  // the user can verify what Generate will use. The `ideasTick` subscription above
+  // keeps board mutations fresh without walking cards while the panel is closed.
+  const specScope = specOpen && active ? canvas.handoffScope(active.id) : EMPTY_HANDOFF_SCOPE;
+  const specScopeEmpty = !specScope.text.trim();
   const startSession = () => {
     if (active) ingestion.attach(active.id, active.terminal);
   };
@@ -404,7 +409,8 @@ export function CanvasPane() {
               onOpenChange={setSpecOpen}
               projectId={active?.id}
               projectName={active?.title}
-              boardEmpty={specBoardEmpty}
+              scope={specScope}
+              scopeEmpty={specScopeEmpty}
               onGenerate={generateSpec}
               preset={specPreset}
             />

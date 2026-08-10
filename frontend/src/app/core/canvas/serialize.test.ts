@@ -1,6 +1,69 @@
 import { describe, expect, it } from "vitest";
 import { EditorFake, arrowShape, ideaCardShape } from "../../../testing";
-import { serializeSelectedIdeas, serializeSelectedIdeasJson } from "./serialize";
+import {
+  collectHandoffScope,
+  serializeForHandoff,
+  serializeSelectedIdeas,
+  serializeSelectedIdeasJson
+} from "./serialize";
+
+describe("collectHandoffScope (#225)", () => {
+  it("hands off only the selected idea cards", () => {
+    const e = new EditorFake();
+    e.addShape(ideaCardShape("shape:first", { x: 0, props: { title: "First" } }));
+    e.addShape(ideaCardShape("shape:second", { x: 100, props: { title: "Second" } }));
+    e.addShape(ideaCardShape("shape:third", { x: 200, props: { title: "Third" } }));
+    e.select("shape:first", "shape:third");
+
+    const scope = collectHandoffScope(e.asEditor());
+
+    expect(scope.source).toBe("selection");
+    expect(scope.cardCount).toBe(2);
+    expect(scope.text).toContain("First");
+    expect(scope.text).toContain("Third");
+    expect(scope.text).not.toContain("Second");
+    expect(serializeForHandoff(e.asEditor())).toBe(scope.text);
+  });
+
+  it("falls back to the whole board and excludes superseded cards", () => {
+    const e = new EditorFake();
+    e.addShape(ideaCardShape("shape:active", { props: { title: "Active" } }));
+    e.addShape(ideaCardShape("shape:ghost", { props: { title: "Superseded", superseded: true } }));
+
+    const scope = collectHandoffScope(e.asEditor());
+
+    expect(scope).toMatchObject({ source: "board", cardCount: 1 });
+    expect(scope.text).toContain("Active");
+    expect(scope.text).not.toContain("Superseded");
+  });
+
+  it("includes a superseded card when the user explicitly selects it", () => {
+    const e = new EditorFake();
+    e.addShape(ideaCardShape("shape:ghost", { props: { title: "Wanted ghost", superseded: true } }));
+    e.addShape(ideaCardShape("shape:other", { props: { title: "Other" } }));
+    e.select("shape:ghost");
+
+    const scope = collectHandoffScope(e.asEditor());
+
+    expect(scope).toMatchObject({ source: "selection", cardCount: 1 });
+    expect(scope.text).toContain("Wanted ghost");
+    expect(scope.text).not.toContain("Other");
+  });
+
+  it("ignores non-card shapes in a mixed selection", () => {
+    const e = new EditorFake();
+    e.addShape(ideaCardShape("shape:card", { props: { title: "Selected card" } }));
+    e.addShape(ideaCardShape("shape:other", { props: { title: "Other card" } }));
+    e.addShape(arrowShape("arrow:1"));
+    e.select("shape:card", "arrow:1");
+
+    const scope = collectHandoffScope(e.asEditor());
+
+    expect(scope).toMatchObject({ source: "selection", cardCount: 1 });
+    expect(scope.text).toContain("Selected card");
+    expect(scope.text).not.toContain("Other card");
+  });
+});
 
 describe("serializeSelectedIdeas", () => {
   it("returns null when the selection contains no idea cards", () => {
