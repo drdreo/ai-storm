@@ -190,9 +190,11 @@ tmux launch line):
 POST /mcp/:projectId/:token        ← MCP 2026-07-28 JSON-RPC (server/discover / tools/list / tools/call)
 ```
 
-- **Project identity comes from the URL, never from the model.** Each session's launch config gets
-  its own URL, so a tool call is attributed to its project structurally — the agent cannot name (or
-  misname) a project.
+- **Write identity comes from the URL, never from the model.** Each session's launch config gets
+  its own URL, so capture and title tool calls are attributed to their project structurally — the
+  agent cannot name (or misname) their target. The route-bound project ID is also included in the
+  MCP prime so `get_board_ideas`, whose required ID deliberately supports cross-project reads, can
+  resolve “this board” without a discovery lookup or model inference (#246).
 - **`:token`** is a per-session secret (128-bit, `randomUUID`-derived) minted at `create()`. The
   server rejects a mismatched token with 404. Binding stays `127.0.0.1`; the token guards against
   other local processes, same trust model as the existing WS endpoint. (Header-based auth would be
@@ -321,7 +323,9 @@ profile has MCP wired:
   card; when combining several cards, one call with a `supersedes` link per source). When asked to
   TRIAGE, call `capture_score` once per card. Do NOT also write the idea as a special marker line —
   the tool call is the capture. Mention the returned @ref in your reply so the user can follow
-  along."_
+  along."_ The MCP base also names the route-bound project ID and requires that exact ID for
+  `get_board_ideas` requests about “this board”; `get_projects` is reserved for an explicit
+  project-listing or cross-project request (#246).
 - **Marker prime (existing `PRIME_INSTRUCTION`):** unchanged, used when the profile lacks `mcpArgs`.
 - **Facilitation modes (#61):** mode primes currently say "emit `«IDEA»` lines". Reword to
   capability-neutral phrasing ("capture each idea") so one mode catalog serves both primes; the base

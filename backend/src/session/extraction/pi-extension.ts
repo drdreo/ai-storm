@@ -270,10 +270,15 @@ const TOOLS_REGISTRATION = `
     label: "Get board ideas",
     description:
       "Read every page of a project's durable canvas board without requiring an attached browser. " +
-      "Pass a project id returned by get_projects.",
+      "For this/current board, pass the current project id supplied in the session instructions. " +
+      "Use get_projects only when the user explicitly asks to list projects or identify a different project.",
     promptSnippet: "Read an ai-storm project's board ideas by id",
     parameters: Type.Object({
-      projectId: Type.String({ pattern: "^[A-Za-z0-9_-]+$", description: "The project id returned by get_projects." })
+      projectId: Type.String({
+        pattern: "^[A-Za-z0-9_-]+$",
+        description:
+          "For this/current board, use the project id supplied in the session instructions; otherwise use an id returned by get_projects."
+      })
     }),
     async execute(_toolCallId, params) {
       return { content: [{ type: "text", text: await forward("get_board_ideas", params) }], details: {} };

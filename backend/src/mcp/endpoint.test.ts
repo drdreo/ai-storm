@@ -317,6 +317,10 @@ describe("MCP endpoint — MCP 2026-07-28 protocol surface", () => {
     expect(tools[3].inputSchema.required).toEqual(["ref"]);
     expect(tools[4].inputSchema.required).toEqual(["ref", "url"]);
     expect(tools[5].inputSchema.required).toEqual(["projectId"]);
+    expect(tools[5].description).toContain("pass the current project id supplied in the session instructions");
+    expect(tools[5].description).toContain(
+      "Use get_projects only when the user explicitly asks to list projects or identify a different project"
+    );
     expect(tools[6].inputSchema.properties).toEqual({});
   });
 
@@ -749,6 +753,41 @@ describe("durable MCP read tools (#234)", () => {
     });
   });
 
+  it("reads the primed current project when another live project has a more descriptive title", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    const current = wire(registry, "collaboration-board");
+    registry.registerSession("stockholm-events");
+    registry.setRuntimeState("stockholm-events", "attached");
+    setRegistry({
+      version: 1,
+      revision: 2,
+      projects: [
+        storedProject("collaboration-board", "Untitled Project"),
+        storedProject("stockholm-events", "Stockholm Event Concepts")
+      ],
+      folders: []
+    });
+    boards.set("collaboration-board", ideaBoard({ ref: "i1", title: "Collaborative sketching" }));
+    boards.set("stockholm-events", ideaBoard({ ref: "i2", title: "Secret Courtyard Festival" }));
+
+    const discovery = JSON.parse(textOf(await callTool(app, "collaboration-board", current.token, "get_projects", {})));
+    expect(discovery.projects).toEqual([
+      expect.objectContaining({ id: "collaboration-board", title: "Untitled Project", status: "active" }),
+      expect.objectContaining({ id: "stockholm-events", title: "Stockholm Event Concepts", status: "active" })
+    ]);
+    expect(discovery.currentProjectId).toBeUndefined();
+    expect(discovery.projects.every((project: Record<string, unknown>) => project.current === undefined)).toBe(true);
+
+    const board = JSON.parse(
+      textOf(
+        await callTool(app, "collaboration-board", current.token, "get_board_ideas", {
+          projectId: "collaboration-board"
+        })
+      )
+    );
+    expect(board.pages[0].cards.map((card: { title: string }) => card.title)).toEqual(["Collaborative sketching"]);
+  });
+
   it("keeps every registry project discoverable when one board is unreadable", async () => {
     const { registry, app, boards, setRegistry } = setup();
     const target = registry.registerSession("route")!;
@@ -788,6 +827,16 @@ describe("durable MCP read tools (#234)", () => {
       "mcp.read_failed",
       expect.objectContaining({ tool: "get_board_ideas", project: "broken", message: "missing board" })
     );
+  });
+
+  it("points a missing current-board id back to the session instructions", async () => {
+    const { registry, app } = setup();
+    const target = registry.registerSession("route")!;
+
+    const body = await callTool(app, "route", target.token, "get_board_ideas", {});
+    expect(body.result!.isError).toBe(true);
+    expect(textOf(body)).toContain("use the id supplied in the session instructions");
+    expect(textOf(body)).not.toContain("must be an id returned by get_projects");
   });
 
   it("returns Project not found for unknown/deleted ids without leaking filesystem paths", async () => {

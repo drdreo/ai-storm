@@ -81,6 +81,15 @@ Rules:
 - Do NOT also write the idea as a special marker line — the tool call is the capture.
 - Mention the returned @ref in your reply so the user can follow along.`;
 
+/** Make the route-bound read identity explicit to the model (#246). Writes are
+ * already structurally scoped by the endpoint URL, while get_board_ideas keeps
+ * a required projectId so explicit cross-project reads remain possible. */
+function currentProjectInstruction(projectId: string): string {
+  const id = JSON.stringify(projectId);
+  return `CURRENT PROJECT — this MCP session is structurally bound to project ID ${id}.
+For “this board”, “current project”, and equivalent requests, pass exactly ${id} as projectId to get_board_ideas. Never infer the current project from a title, folder, or runtime status. Call get_projects only when the user explicitly asks to list projects or identify a different project.`;
+}
+
 /**
  * Wrap the user's pre-brainstorm background context (#76) in a labelled block so
  * it reads to the agent as standing *guidance* ("here is the scene"), not as
@@ -100,7 +109,7 @@ function formatBackground(background?: string): string {
 
 /**
  * Derive the harness profile name + priming text from the harness command, the
- * selected facilitation mode (#61), and the user's background context (#76). A
+ * route-bound project id, the selected facilitation mode (#61), and the user's background context (#76). A
  * contract-aware harness (Claude Code, pi, Codex) is primed via its launch-time
  * prompt/config seam with the base `«IDEA»` instruction, then the mode's preset
  * (when not the free-form default), then the background block (when non-empty)
@@ -115,13 +124,16 @@ function formatBackground(background?: string): string {
  */
 export function harnessSetup(
   command: string,
+  projectId: string,
   mode?: string,
   background?: string
 ): { harnessProfile?: string; prime?: string } {
   const harnessProfile = commandProfileName(command);
   const profile = getProfile(harnessProfile);
   if (!profile.supportsIdeaContract) return { harnessProfile, prime: undefined };
-  const base = profileUsesMcp(profile) ? MCP_PRIME_INSTRUCTION : PRIME_INSTRUCTION;
+  const base = profileUsesMcp(profile)
+    ? [MCP_PRIME_INSTRUCTION, currentProjectInstruction(projectId)].join("\n\n")
+    : PRIME_INSTRUCTION;
   const prime = [base, getFacilitationMode(mode).prime, formatBackground(background)].filter(Boolean).join("\n\n");
   return { harnessProfile, prime };
 }
