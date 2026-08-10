@@ -87,7 +87,7 @@ installing anything.
 
 ## How it works
 
-![Architecture diagram](docs/media/architecture.png)
+![Architecture diagram](docs/media/architecture.svg)
 
 A local Node.js daemon owns the pseudo-terminals and durable project state. The
 browser app is React 19 (Vite) with Zustand, shadcn/ui + Tailwind v4, an
