@@ -88,12 +88,18 @@ function getFolder(id: string): Folder | undefined {
   return useProjectStore.getState().folders.find((item) => item.id === id);
 }
 function optimisticProject(meta: ProjectMeta): void {
-  const projects = useProjectStore.getState().projects.filter((item) => item.id !== meta.id);
-  useProjectStore.setState({ projects: [...projects, meta].sort(compareByOrder) });
+  const current = useProjectStore.getState().projects;
+  const projects = current.some((item) => item.id === meta.id)
+    ? current.map((item) => (item.id === meta.id ? meta : item))
+    : [...current, meta];
+  useProjectStore.setState({ projects: projects.sort(compareByOrder) });
 }
 function optimisticFolder(folder: Folder): void {
-  const folders = useProjectStore.getState().folders.filter((item) => item.id !== folder.id);
-  useProjectStore.setState({ folders: [...folders, folder].sort(compareByOrder) });
+  const current = useProjectStore.getState().folders;
+  const folders = current.some((item) => item.id === folder.id)
+    ? current.map((item) => (item.id === folder.id ? folder : item))
+    : [...current, folder];
+  useProjectStore.setState({ folders: folders.sort(compareByOrder) });
 }
 async function reloadRegistry(): Promise<void> {
   applyRegistry(await backend.request<RegistryWire>("registry-load"));
@@ -328,12 +334,6 @@ export const project = {
     if (!meta) return;
     const nextFolderId = folderId ?? undefined;
     patchProject({ ...meta, folderId: nextFolderId, order }, { folderId: nextFolderId, order });
-  },
-
-  /** Drop a folder at an explicit position among folders (#128 DnD). */
-  reorderFolder(folderId: string, order: string): void {
-    const folder = getFolder(folderId);
-    if (folder) patchFolder({ ...folder, order });
   },
 
   patchTerminal(id: string, patch: Partial<ProjectMeta["terminal"]>): void {

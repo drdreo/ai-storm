@@ -22,7 +22,6 @@ import { project } from "../../stores/project.store";
 import { useBackendStore } from "../../stores/backend.store";
 import { useIngestionStore } from "../../stores/ingestion.store";
 import { sessionIndicator } from "../../core/session-status";
-import type { DragKind } from "./useSidebarDnd";
 
 /** Hover explanation for the project status badge (the ringed accent dot). */
 const STATUS_HINT: Record<ProjectStatus, string> = {
@@ -146,7 +145,7 @@ export function SortableProjectRow(props: ProjectRowProps) {
   const { ws, isActive, isEditing, folders } = props;
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ws.id,
-    data: { kind: "project" satisfies DragKind },
+    data: { kind: "project" as const },
     disabled: isEditing
   });
   const style: React.CSSProperties = { transform: CSS.Translate.toString(transform), transition };

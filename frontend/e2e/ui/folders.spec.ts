@@ -25,6 +25,33 @@ test.describe("folders", () => {
       .toBeTruthy();
   });
 
+  test("folders are fixed disclosures and never reorder", async ({ shell, page }) => {
+    await shell.goto();
+
+    await shell.createFolder("Alpha");
+    await shell.createFolder("Beta");
+
+    const alpha = shell.folderRows.filter({ hasText: "Alpha" });
+    const disclosure = alpha.locator('[data-sidebar="menu-button"]').first();
+    await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator('[data-sidebar="folder-drag-handle"]')).toHaveCount(0);
+
+    // A little pointer motion is normal during a click. It exceeds dnd-kit's
+    // project-drag threshold deliberately: a folder label must still behave
+    // only as a disclosure.
+    const box = await disclosure.boundingBox();
+    expect(box).not.toBeNull();
+    const x = box!.x + box!.width / 2;
+    const y = box!.y + box!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 2, y + 8, { steps: 2 });
+    await page.mouse.up();
+
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect(shell.folderRows.locator('[data-sidebar="menu-button"]')).toHaveText([/Alpha/, /Beta/]);
+  });
+
   test("project colors are visible in collapsed sidebar with expanded folder", async ({ shell, page }) => {
     await shell.goto();
 
