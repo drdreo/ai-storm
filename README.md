@@ -92,8 +92,10 @@ installing anything.
 A local Node.js daemon owns the pseudo-terminals and durable project state. The
 browser app is React 19 (Vite) with Zustand, shadcn/ui + Tailwind v4, an
 [xterm.js](https://xtermjs.org) terminal fed the raw PTY stream, and a tldraw
-canvas as the idea surface. Structured idea actions can arrive through the
-backend's session-scoped MCP endpoint or the marker fallback.
+canvas as the idea surface. Structured idea actions arrive through the backend's
+session-scoped, sessionless MCP `2026-07-28` Streamable HTTP endpoint or the marker
+fallback. The MCP endpoint is modern-only: older protocol revisions and legacy
+HTTP+SSE clients must be upgraded.
 
 ### The conversational session
 
@@ -101,7 +103,7 @@ A project session doesn't spawn a raw shell — it launches your configured AI
 harness (default `claude`) inside a real pseudo-terminal via
 [node-pty](https://github.com/microsoft/node-pty). Contract-aware harnesses
 (`claude`, `pi`, `codex`, `opencode`) are primed at launch.
-They will try to use the ai-storm MCP / tools / extension, otherwise fallback to a marker based contract via emitted `«IDEA»` / `«SCORE»`.
+They will try to use the ai-storm MCP / tools / extension, otherwise fallback to a marker based contract via emitted `«IDEA»` / `«SCORE»`. MCP-capable clients must support `2026-07-28`; ai-storm does not negotiate older revisions or expose an SSE fallback endpoint.
 
 ### Persistence
 

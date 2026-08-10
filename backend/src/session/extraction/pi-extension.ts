@@ -5,9 +5,9 @@
  * but its native extensibility seam — TypeScript extensions loaded with
  * `-e <file>` that call `pi.registerTool(...)` — gives the model the exact same
  * schema-validated, deterministic capture channel MCP gives Claude. The
- * backend's "MCP server" is already a sessionless single-message JSON-RPC
+ * backend's MCP server is a sessionless MCP 2026-07-28 Streamable HTTP
  * endpoint (`POST /mcp/:projectId/:token`, endpoint.ts), so each registered
- * tool just forwards its call as one `tools/call` fetch and relays the result.
+ * tool forwards one fully enveloped `tools/call` request and relays the result.
  *
  * `PI_PROFILE.fileLaunch` writes this source into the session temp dir at
  * `create()` with the per-session endpoint URL baked in (token minted
@@ -49,6 +49,13 @@
  * card. A test in extraction.test.ts pins the tool-name parity.
  */
 
+import {
+  MCP_CLIENT_CAPABILITIES_META_KEY,
+  MCP_CLIENT_INFO_META_KEY,
+  MCP_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_META_KEY
+} from "../../mcp/protocol.ts";
+
 /** Filename the extension is written under in the session temp dir. */
 export const PI_EXTENSION_FILENAME = "ai-storm-capture.ts";
 
@@ -70,7 +77,7 @@ export function piCaptureExtensionSource({ endpointUrl, prime }: PiExtensionInpu
   const header = `/**
  * ai-storm capture extension — GENERATED at session launch; do not edit.
  * Forwards capture tool calls to this session's ai-storm backend endpoint as
- * single-message JSON-RPC (the same tools/call surface MCP clients use), and
+ * MCP 2026-07-28 Streamable HTTP (the same tools/call surface MCP clients use), and
  * appends the session prime to the system prompt (argv priming does not
  * survive pi's Windows .cmd shim — see pi-extension.ts in ai-storm).
  */
@@ -103,13 +110,19 @@ function toolsSource(endpointUrl: string): string {
 import { StringEnum } from "@earendil-works/pi-ai";
 
 const ENDPOINT = ${JSON.stringify(endpointUrl)};
+const PROTOCOL_VERSION = ${JSON.stringify(MCP_PROTOCOL_VERSION)};
+const REQUEST_META = {
+  ${JSON.stringify(MCP_PROTOCOL_VERSION_META_KEY)}: PROTOCOL_VERSION,
+  ${JSON.stringify(MCP_CLIENT_INFO_META_KEY)}: { name: "ai-storm-pi-extension", version: "3.0.0" },
+  ${JSON.stringify(MCP_CLIENT_CAPABILITIES_META_KEY)}: {}
+};
 
 interface RpcResponse {
   result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
   error?: { message?: string };
 }
 
-/** POST one tools/call and return the result text. Backend validation
+/** POST one modern tools/call and return the result text. Backend validation
  * failures arrive as \`isError\` results — thrown here so pi reports the tool
  * call as failed and the model retries with corrected arguments. */
 async function forward(name: string, args: unknown): Promise<string> {
@@ -117,8 +130,19 @@ async function forward(name: string, args: unknown): Promise<string> {
   try {
     res = await fetch(ENDPOINT, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "MCP-Protocol-Version": PROTOCOL_VERSION,
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": name
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args, _meta: REQUEST_META }
+      })
     });
   } catch (err) {
     throw new Error("ai-storm backend unreachable: " + (err instanceof Error ? err.message : String(err)));

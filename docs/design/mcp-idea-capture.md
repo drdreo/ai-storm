@@ -15,7 +15,9 @@ doc demotes to a fallback) · [`ai-session-layer.md`](./ai-session-layer.md) §4
 > `get_board_ideas`, and `get_projects`; all six are advertised by `tools/list`
 > and route through the same backend session registry and state store. The
 > endpoint uses hand-rolled validation (not a zod runtime dependency), while
-> the schemas in §3 are the contract-level shape.
+> the schemas in §3 are the contract-level shape. Its transport is a hard-cutover
+> MCP `2026-07-28` implementation: `server/discover` plus per-request metadata,
+> with no legacy revision negotiation, protocol sessions, GET stream, or HTTP+SSE fallback.
 >
 > The original design below is retained as the rationale and security/testing
 > record for the shipped implementation. Migration steps in §11 are complete.
@@ -185,7 +187,7 @@ endpoint (the modern transport; stdio would require a shim subprocess per sessio
 tmux launch line):
 
 ```
-POST /mcp/:projectId/:token        ← JSON-RPC (initialize / tools/list / tools/call)
+POST /mcp/:projectId/:token        ← MCP 2026-07-28 JSON-RPC (server/discover / tools/list / tools/call)
 ```
 
 - **Project identity comes from the URL, never from the model.** Each session's launch config gets
@@ -197,8 +199,18 @@ POST /mcp/:projectId/:token        ← JSON-RPC (initialize / tools/list / tools
   cleaner but is not uniformly supported across harness MCP configs; a path token works everywhere.
   Trade-off: the URL can appear in process listings/logs — acceptable for a localhost dev tool, noted
   in §10.)
-- The handler implements the minimal server surface: `initialize`, `tools/list`, `tools/call`.
-  Sessionless mode (no SSE stream, no server-initiated messages) keeps it ~one file.
+- The handler implements the modern minimal server surface: `server/discover`, `tools/list`, and
+  `tools/call`. Each operation carries `params._meta` protocol/client metadata and the matching
+  `MCP-Protocol-Version`, `Mcp-Method`, and (for calls) `Mcp-Name` headers. The metadata-only
+  `pi-mcp-adapter` discovery probe may omit `_meta` because its required modern version/method headers
+  fully identify the probe. Every result carries
+  `resultType` and server identity; cacheable discovery/list results include cache hints.
+- The endpoint advertises and accepts only `2026-07-28`. Earlier revisions receive an actionable
+  `UnsupportedProtocolVersion` error. There is no `initialize` handshake, `Mcp-Session-Id`, GET
+  stream, DELETE teardown, old HTTP+SSE endpoint, or compatibility fallback.
+- Responses use `application/json`. Sessionless mode needs no SSE response today because these tools
+  emit no request-scoped notifications; clients still advertise both JSON and SSE in `Accept` as
+  required by Streamable HTTP.
 
 ### 4.2 Durability across backend restarts (POSIX)
 
@@ -262,7 +274,8 @@ mcpArgs: ({ url, serverName }) => [
 instead). Resolved by #177 through pi's native extension seam instead of MCP config: `fileLaunch`
 generates a TypeScript extension (`ai-storm-capture.ts`, loaded via pi's repeatable `-e` flag —
 the `args` field of `FileLaunchResult`) that registers the capture tools natively and forwards
-each call to this endpoint as a plain `tools/call` POST. The extension is a minimal MCP client, so
+each call to this endpoint as an MCP `2026-07-28` `tools/call` POST, including the required
+per-request `_meta` envelope and routing/version headers. The extension is a minimal MCP client, so
 the profile sets `usesMcp: true`. The **prime rides the same extension** (via pi's
 `before_agent_start` event) rather than `--append-system-prompt` argv: on Windows pi is an npm
 `.cmd` shim wrapped as `cmd.exe /c`, whose parser truncates the launch line at the first newline
@@ -328,7 +341,7 @@ runs underneath as a silent safety net (§7).
 Tool-call path, end to end:
 
 ```
-agent → POST /mcp/<project>/<token> tools/call capture_idea
+agent → POST /mcp/<project>/<token> MCP 2026-07-28 tools/call capture_idea
   → hand-rolled validation                  (invalid → MCP error → model retries)
   → reserve ref "i<n>", stamp CreateIdeaInput.ref
   → IdeaSink.offer(idea)                    (shared dedupe — see below)
@@ -394,10 +407,14 @@ Deliberately near-zero:
 Unit-first, matching the existing extraction test shape (pure modules + fixtures; the MCP handler is
 pure JSON-RPC over Hono, testable with injected requests, no real harness needed):
 
-1. **Schema validation.** Valid `capture_idea` minimal/maximal payloads → `CreateIdeaInput` emitted
+1. **Protocol surface.** `server/discover` advertises only `2026-07-28`; required per-request
+   metadata, standard HTTP headers, modern result fields, POST-only sessionless behavior, and Origin
+   validation are covered. `2024-11-05`, `2025-03-26`, and `2025-06-18` initialize clients receive
+   an actionable upgrade error; legacy methods/transports remain absent.
+2. **Schema validation.** Valid `capture_idea` minimal/maximal payloads → `CreateIdeaInput` emitted
    with a minted `i<n>` ref; invalid payloads (empty title, bad relation, oversize links) → MCP error response,
    nothing emitted.
-2. **Marker-parity fixtures.** Every row of the §3.1 mapping table — including the `@i1!@i2!`
+3. **Marker-parity fixtures.** Every row of the §3.1 mapping table — including the `@i1!@i2!`
    combine chain and a multi-line body — produces an `Idea` deep-equal to what `scanIdeas` produces
    for the equivalent marker fixture. Guards the two paths against semantic drift.
    **opencode (#173): pending.** opencode is an alt-screen TUI with no `--no-alt-screen` escape
@@ -405,22 +422,23 @@ pure JSON-RPC over Hono, testable with injected requests, no real harness needed
    parity test (and its marker fixtures) need a real captured opencode session before they can be
    written meaningfully; `extraction.test.ts` carries `it.todo` placeholders in the interim rather
    than hand-authored, unverified fixture text.
-3. **Shared dedupe.** Tool call then identical marker scan (and the reverse) → exactly one emission;
+4. **Shared dedupe.** Tool call then identical marker scan (and the reverse) → exactly one emission;
    `idea.fallback_scan` logged for the scan-on-MCP-session case.
-4. **Ref round-trip.** `capture_idea` result ref used in a follow-up call's `links.to` and in a
+5. **Ref round-trip.** `capture_idea` result ref used in a follow-up call's `links.to` and in a
    `capture_score.ref` → links/score resolve; refs remain project-global in `board.json` and are
    never reused after a restart.
-5. **Routing & auth.** Wrong token → 404, nothing emitted; two projects capturing concurrently →
+6. **Routing & auth.** Wrong token → 404, nothing emitted; two projects capturing concurrently →
    ideas land on the right `onIdea` callbacks; tool call after `kill()` → 404.
-6. **Token durability (tmux).** Fake-tmux test (the existing seam): `create()` stamps
+7. **Token durability (tmux).** Fake-tmux test (the existing seam): `create()` stamps
    `@ai_storm_mcp_token`; a reconciled backend restores it and a tool call against the old URL still
    routes.
-7. **Launch args.** `launchArgsForProfile` with an MCP context: claude profile gets
+8. **Launch args.** `launchArgsForProfile` with an MCP context: claude profile gets
    `--mcp-config`/`--allowedTools` exactly once (idempotent against caller-supplied flags, like the
    existing model/config arg logic); profiles without `mcpArgs` are byte-identical to today.
-8. **Live smoke (manual, per pinned harness version).** One brainstorm turn over real Claude Code:
-   idea arrives via tool call, no marker line in the transcript, no permission prompt; resize the
-   pane mid-response → no duplicate or truncated cards (the §1 repro, now passing by construction).
+9. **Live smoke (manual, per pinned harness version).** Connect with `pi-mcp-adapter` pinned to
+   `protocolVersion: "2026-07-28"` (no auto/legacy fallback), then run one brainstorm turn over a
+   real harness: idea arrives via tool call, no marker line in the transcript, no permission prompt;
+   resize the pane mid-response → no duplicate or truncated cards (the §1 repro, now passing by construction).
 
 ---
 
@@ -446,8 +464,9 @@ adding MCP wiring never makes an unsupported or misconfigured harness silent.
 
 1. **Shared sinks:** `IdeaSink`/`ScoreSink` now live in the session attachment and
    dedupe scanner and tool producers together.
-2. **Endpoint:** `backend/src/mcp/endpoint.ts` implements sessionless
-   `initialize`, `tools/list`, and `tools/call` at `/mcp/:projectId/:token`.
+2. **Endpoint:** `backend/src/mcp/endpoint.ts` implements modern-only, sessionless MCP
+   `2026-07-28` with `server/discover`, `tools/list`, and `tools/call` at
+   `/mcp/:projectId/:token`; older revisions and transports are rejected rather than negotiated.
    Token routing is registered by both session backends; tmux persists the token
    in `@ai_storm_mcp_token` and restores it during `reconcile()`.
 3. **Profile seam:** `McpLaunchContext` and `profileUsesMcp()` are consumed by
@@ -468,9 +487,9 @@ adding MCP wiring never makes an unsupported or misconfigured harness silent.
 ## 12. Risks & open questions
 
 1. **Harness MCP config drift.** `--mcp-config` shapes and codex `mcp_servers.*` keys have changed
-   across CLI versions, and the launch line is built blind (no handshake). Mitigation: the MCP
-   `initialize` call is itself the probe — if no initialize arrives within a grace window after
-   launch on an MCP-wired session, log `mcp.never_connected` (warn); the marker floor is already
+   across CLI versions, and the launch line is built blind. Mitigation: validate clients against
+   `server/discover` and pin `2026-07-28`; if no MCP request arrives within a grace window after
+   launch on an MCP-wired session, log `mcp.never_connected` (warn). The marker floor is already
    running regardless, so the failure mode is "today's behaviour + a warning", never silence.
 2. **Model ignores the tools.** A lapse (or a weak model) writes prose or marker lines instead of
    calling. Mitigation: the floor catches marker lines; `idea.fallback_scan` quantifies the lapse
@@ -478,16 +497,16 @@ adding MCP wiring never makes an unsupported or misconfigured harness silent.
    is lost — identical to today.
 3. **Permission prompts.** If `--allowedTools` doesn't cover the tool ids (naming drift in
    `mcp__<server>__<tool>`), Claude Code interrupts the brainstorm with an approval dialog —
-   worse UX than markers. The §9.8 live smoke gates each pinned-version bump.
+   worse UX than markers. The §9.9 live smoke gates each pinned-version bump.
 4. **Double capture.** An agent that both calls the tool _and_ emits a marker produces two
    producers for one idea; identity dedupe collapses exact duplicates, but a _paraphrased_ title
    slips both through. Accepted: same residual risk as today's re-render dedupe, lower frequency
    (the prime explicitly forbids the marker when the tool succeeds).
 5. **Ref namespace forever.** Backend-minted `i<n>` refs interleave with canvas-minted `a<n>` ones;
    serializations (`serializeForTriage`, hand-off) must not assume the `a` prefix. Audit at step 5.
-6. **Streamable HTTP session semantics.** We implement the sessionless minimum. If a harness
-   requires the full session lifecycle (session ids, SSE GET stream), the handler grows — verify
-   against pinned claude first (it tolerates sessionless servers today). Contained: one module.
+6. **Modern client availability.** The hard cutover intentionally breaks harness releases that only
+   implement initialization-based MCP. Keep harness versions current and test them against pinned
+   `2026-07-28`; do not restore session IDs, a GET stream, or HTTP+SSE as a workaround.
 7. **Should `capture_idea` support updates?** An `update_idea(ref, …)` tool would let the agent
    refine a card it just captured (today: supersede only). Deliberately out of scope — supersede
    already models refinement with history (PD-012); revisit if real transcripts show the agent
