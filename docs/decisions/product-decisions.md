@@ -112,16 +112,23 @@ memory of the whiteboard state.
 
 ### 3.5. Local-first persistence architecture
 
-- **Local state integrity:** Workspace content must completely survive runtime crashes, web
-  application refreshes, system restarts, and terminal disconnections. Every data change — whether
-  driven by manual user keyboard input or incoming streamed text — must write down immediately.
-- **Local IndexedDB persistence:** Workspace state must persist to the browser's native IndexedDB —
-  the tldraw canvas store per workspace (via `persistenceKey`) and a CRDT (Yjs) registry of workspace
-  metadata — so it survives reloads and crashes.
-- **Crash recovery boot sequence:** Upon application boot, an initialization service must scan the
-  browser storage engine index, identify the most recently active workspace identifier, rebuild the
-  structural data engine from local binary storage logs, and present the workspace exactly as it was
-  left.
+> **Current implementation — PD-024 supersedes the browser-only storage wording below.**
+> The backend `StateStore` is the authority for durable project state. It atomically
+> writes `registry.json`, `projects/<project-id>/board.json`, and
+> `projects/<project-id>/history.json`; the browser loads and mutates those
+> documents through the WebSocket state protocol and keeps only an optimistic
+> Zustand projection. Browser-local storage is limited to UI/session preferences.
+
+- **Local state integrity:** Project content survives browser refreshes, socket loss,
+  backend restarts, and terminal disconnections. Board writes use revisions and
+  atomic same-directory replacement so an interrupted write cannot replace a valid
+  document with a partial one.
+- **Backend-owned local persistence:** The filesystem store lives under the platform
+  ai-storm state directory, outside the checkout. The registry, tldraw board
+  snapshots, and run history are durable on the machine running the daemon.
+- **Crash recovery boot sequence:** On boot, the backend initializes and validates the
+  state files; the browser requests the registry and each active project's board and
+  history, probes live sessions, and restores the last active project pointer.
 
 ### 3.6. Downstream agent execution hook
 
@@ -193,6 +200,25 @@ Recent decisions first; foundational PRD-v3.0 baseline decisions at the bottom. 
 decision, the date, the reasoning, and what it affects.
 
 Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **Affects**.
+
+### PD-024 — Backend-owned durable project state
+
+`(2026-08-10, accepted, supersedes the browser-persistence portions of PD-005/PD-013; #231)`
+
+- **Decision:** The backend is the single durable authority for project metadata, tldraw board
+  documents, idea-ref allocation, and run history. `StateStore` writes a validated registry plus
+  per-project `board.json` and `history.json` files with atomic replacement and per-file ordering.
+  The React/Zustand client loads those documents over the state protocol, applies optimistic edits,
+  and reconciles revision conflicts. `localStorage` is reserved for browser-only presentation state
+  such as the active-project pointer, folder collapse, and tldraw camera/session preferences.
+- **Why:** Browser persistence made the durable model invisible to the daemon and left background
+  sessions, MCP tools, imports, and a refreshed client to coordinate through separate local stores.
+  Backend ownership gives every client and local tool one authority, survives browser replacement,
+  and lets the daemon validate, serialize, export, and recover state consistently.
+- **Affects:** `backend/src/state/store.ts`, `backend/src/state/board-reader.ts`, the shared
+  `state-request`/`state-response` protocol, the project/canvas/history stores, and the state E2E
+  coverage. The original IndexedDB/Yjs persistence prose remains below only as decision history; new
+  features must extend `StateStore` and its protocol rather than add another browser durable store.
 
 ### PD-023 — Distribution is a launcher CLI over a git checkout, not an app bundle
 
@@ -285,7 +311,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   `CanvasService` facade (§4.1, PD-013): tldraw is now a first-class node in the app's own React tree,
   rendered directly by `CanvasPane`. `CanvasService` is **deleted**; its imperative responsibilities
   (hold the live `Editor`, `applyIdeas`, arrange, mark, serialize, kind visibility, the background
-  idea queue, per-workspace IndexedDB cleanup) move into a thin `canvas` controller module that the
+  idea queue, and backend-loaded board cleanup) move into a thin `canvas` controller module that the
   out-of-tree stores drive. The build swaps Angular CLI → Vite (Vitest kept; the `/pty` + `/health`
   proxy ported to `server.proxy`); the project was scaffolded with the official `create vite` /
   `react-ts` template, not a hand-assembled config. We are pre-prod (v0), so this was a clean rewrite,
@@ -301,9 +327,9 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   tests.
 - **Affects:** Removes all `@angular/*`, `rxjs`, `tslib`; adds Vite + React toolchain. Rewrites §4.1
   (no Angular shell, no island boundary, no `CanvasService`). Refines **PD-013**: tldraw stays the
-  canvas with the same shape/edge/persistence model — only its host changes; the pinned IndexedDB
-  name scheme `TLDRAW_DOCUMENT_v2ai-storm:ws:{id}` is preserved so existing local boards are not
-  orphaned. State layer is **PD-017**; UI/styling is **PD-018**. Backend, the `/pty` protocol, and
+  canvas with the same shape/edge model — only its host changes; durable board persistence is now
+  supplied by the backend state store (PD-024). State layer is **PD-017**; UI/styling is **PD-018**.
+  Backend, the `/pty` protocol, and
   `@ai-storm/shared` are untouched (PD-008 stands).
 
 ### PD-017 — Zustand as the state layer (external-store pattern)
@@ -311,13 +337,14 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 `(2026-06-07, accepted, supersedes the Angular-signals mechanism of §5.1)`
 
 - **Decision:** Client state is **Zustand**. Most of this app's "state" is not React-owned data — it is
-  **external mutable singletons React subscribes to**: a Yjs `Y.Doc` registry (the real source of
-  truth, persisted to IndexedDB), one imperative multiplexing `WebSocket`, live `xterm.js` instances,
-  the tldraw `Editor` handle, and per-workspace ingestion pipelines. The five Angular services port
-  near 1:1 to "singleton store + subscribe hook": `signal()` → store state, `computed()` →
-  selectors/`useMemo`, `effect()` → `useEffect`. The socket, Y.Doc, pipelines, and editor stay as
-  imperative module singletons (exactly as before); only their _reactive surface_ (connection state,
-  workspace list, attached set, agent-run output, `ideasTick`) lives in a store, so code running
+  **external mutable singletons React subscribes to**: one imperative multiplexing `WebSocket`, the
+  backend-loaded tldraw `Editor` stores, live `xterm.js` instances, and per-project ingestion
+  pipelines. Durable registry, board, ref-allocation, and history state lives in the backend
+  `StateStore` (PD-024); localStorage is only for browser UI/session preferences. The five Angular
+  services port near 1:1 to "singleton store + subscribe hook": `signal()` → store state,
+  `computed()` → selectors/`useMemo`, `effect()` → `useEffect`. The socket, editor, pipelines, and
+  backend protocol client stay as imperative module singletons; only their _reactive surface_
+  (connection state, project list, attached set, agent-run output, `ideasTick`) lives in a store, so code running
   **outside** the component tree (the WebSocket dispatcher, the ingestion pipelines) reads/writes via
   `store.getState()` / `setState()`.
 - **Why:** Zustand is a ~1KB ergonomic wrapper over React 19's `useSyncExternalStore` — the exact
@@ -413,7 +440,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   (discuss/expand/challenge) are about one idea and don't map onto a multi-card convergent action.
 - **Affects:** Adds the `combine` `PromptIntent` + template + `combineDirective` (prompt-framing) and a
   multi-select branch in the `CardVerbBar` (#13/#15 seam). The supersede fan rides the **single-line
-  marker** as a **chained ref form** — `«IDEA@a1!@a2!@a3!»` — extending the idea contract grammar
+  marker** as a **chained ref form** — `«IDEA@i1!@i2!@i3!»` — extending the idea contract grammar
   (one `@ref[!]` → a chain of them; backend `extraction` + the session priming both teach/parse it),
   because the fenced `rel:` form is unreliable (PD-008: the TUI renders the fence away). Frontend
   `applyIdeas` now connects **all** resolved links and ghosts every superseded target, not just the
@@ -479,8 +506,8 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   graph (PD-010) actually reads and leaves cognitive room. A continuous/auto mode, a persisted
   preference, or model-driven affinity re-clustering (#17) can layer on later without reversing
   this call.
-- **Affects:** Implements #16. Adds `CanvasService.arrange(workspaceId)` → `arrangeMindMap(editor)`
-  in the canvas island, which extracts the typed edge graph from the bound arrows
+- **Affects:** Implements #16. Adds `canvas.arrangeMindMap(projectId)` → the shared
+  `arrangeMindMap(editor)` layout helper, which extracts the typed edge graph from the bound arrows
   (`getBindingsFromShape` + the arrow `meta.relation`) and feeds a pure, testable `layoutMindMap`
   helper (`idea-layout.ts`): union-find clusters → per-cluster branching radial placement
   (`about` fans out, `supersedes` pins the original left) → shelf-packing with `clusterGap`
@@ -501,22 +528,23 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 > under Angular" framing and the `CanvasService` Angular facade below are gone — the editor is held by
 > a plain `canvas` controller module and rendered directly in the React tree.
 
-- **Decision:** The spatial canvas is **tldraw**, rendered as a React island under the Angular
-  shell. Ideas are custom `idea-card` shapes; typed edges are native arrows bound to cards (the
-  `about`/`supersedes` relation lives in the arrow's `meta`); per-kind color is a tldraw shared
-  style resolved against the active light/dark theme; identity is the card's short ref in its shape
-  `meta`. The board persists per workspace via tldraw `persistenceKey` → IndexedDB (PD-001,
-  local-first; survives reload).
+- **Decision:** The spatial canvas is **tldraw**, rendered directly in the React tree. Ideas are
+  custom `idea-card` shapes; typed edges are native arrows bound to cards (the `about`/`supersedes`
+  relation lives in the arrow's `meta`); per-kind color is a tldraw shared style resolved against
+  the active light/dark theme; identity is the card's short ref in its shape `meta`. The editor
+  loads and saves its per-project document through the backend `StateStore` (PD-024), so the
+  board survives reload and backend restart without browser IndexedDB.
 - **Why:** tldraw's shapes-+-typed-bindings model maps directly onto the idea-graph (PD-010, nodes +
   typed edges), connectors are built in, the canvas UX/perf and SDK DX are strong, and the
   React→Angular boundary is a thin island (`createRoot`/`unmount`, no `@angular/elements` or Zone
   bridging — the app is zoneless). It is the native fit for the edgeless-only surface (PD-011).
-- **Affects:** `CanvasService` is an Angular facade over the island; `applyIdeas` creates cards +
-  bound arrows; `serializeToText` walks the shape store; the card verbs (#13/#15) are a tldraw
-  selection action bar; kind colors come from the kind registry (PD-010). Multiplayer / server
-  storage (tldraw sync or a backend snapshot store) is a later option; single-user (PD-001) stands.
-  The shared `Idea`/`IdeaRelation`/`IdeaLink` types and the `«IDEA…@ref!»` extraction contract are
-  framework-neutral and unaffected.
+- **Affects:** The `canvas` controller loads board snapshots, reserves canonical refs, queues
+  revisioned saves, and drives `applyIdeas`; that path creates cards + bound arrows. `serializeToText`
+  walks the shape store; the card verbs (#13/#15) are a tldraw selection action bar; kind colors
+  come from the kind registry (PD-010). Multiplayer / cross-device sync is still a later option;
+  single-user local-first operation (PD-001) stands.
+  The shared idea/ref/link types and the `«IDEA…@ref!»` extraction contract are framework-neutral
+  and unaffected.
 
 ### PD-012 — A challenge is a supersede operation, not a kind
 
@@ -576,8 +604,9 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   edge from a `risk`-kind card. Per-kind behavior (label, tint, future shape/lifecycle) lives
   in a single client-side **kind registry**, so a new ideation concept is one registry entry
   (data), not a new wire marker/parser/type (code). Identity and edges persist on the canvas itself
-  — a card's short ref in its shape `meta`, edges as bound arrows carrying their `relation` — **no
-  server-side store**; the shared `@ai-storm/shared` types are the "both sides know it" contract.
+  — a card's short ref in its shape `meta`, edges as bound arrows carrying their `relation` —
+  persisted inside the backend-owned board snapshot; the shared `@ai-storm/shared` types are the
+  "both sides know it" contract.
 - **Why:** #40 (source-linked responses), #19 (connectors), #20 (lifecycle), #22 (supersede),
   #16/#17 (layout) all need the same two primitives — **stable idea identity** and **typed
   edges**. Defining them once makes those issues cheap; building them on position-only data
@@ -589,10 +618,11 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
   a node — it's the terminal thread, referenced by #23, not forced into `{title, body}`.
 - **Affects:** Foundational refactor tracked by its own ticket; design in
   [`idea-graph.md`](../design/idea-graph.md). Extends the `«IDEA»` contract with an optional
-  `@ref` target (mirrors the existing inline `:kind` tag) and the shared `Idea` type with
-  `id`/`links`. Refactors `idea-descriptors.ts` (`KIND_LABEL`/`KIND_BACKGROUND`/`KNOWN_KINDS` →
-  `KIND_REGISTRY`) and `CanvasService` (`applyIdeas` creates cards + bound arrows; refs in shape
-  `meta`). Unblocks #40/#19/#20/#22/#16. Single-user (PD-001) and terminal-passthrough (PD-008) stand.
+  `@ref` target (mirrors the existing inline `:kind` tag) and the shared `CreateIdeaInput` type with
+  `ref`/`links`. Refactors `idea-descriptors.ts` (`KIND_LABEL`/`KIND_BACKGROUND`/`KNOWN_KINDS` →
+  `KIND_REGISTRY`) and the canvas controller (`applyIdeas` creates cards + bound arrows; refs in
+  shape `meta`, allocated by `StateStore`). Unblocks #40/#19/#20/#22/#16. Single-user (PD-001),
+  terminal-passthrough (PD-008), and backend-owned persistence (PD-024) stand.
 
 ### PD-009 — Note provenance, not a capture composer
 
@@ -600,7 +630,7 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 - **Decision:** Humans author notes the way they already do — directly on the canvas. We do
   NOT add a dedicated "add idea" composer. Instead we **track provenance**: AI-created cards (the only
-  programmatic creator, `CanvasService.applyIdeas()` from the `«IDEA»` stream) are tagged
+  programmatic creator, the canvas `applyIdeas()` path from the `«IDEA»` stream) are tagged
   `origin: 'ai'`; any card the user draws on the canvas is untagged and treated as user-origin by
   default. AI cards are made visually distinct (kind color **and** a 🤖 badge).
 - **Why:** A second input path is redundant when the editor already creates notes, and a structured
@@ -619,8 +649,8 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 - **Decision:** Humans can capture ideas directly, not only the AI via the terminal.
 - **Why:** Today the only human path to a card is drawing one directly on the canvas. A first-class
   "add idea" affordance is needed. The clean approach reuses the existing AI pipeline: a human-authored idea
-  produces the same `Idea {title, body, kind}` object and flows through `ideaToDescriptors()` →
-  `RenderScheduler` → `CanvasService.applyIdeas()`. So we add a second _producer_ to an existing
+  produces the same `CreateIdeaInput {title, body, kind}` object and flows through
+  `ideaToDescriptors()` → the canvas `applyIdeas()` path. So we add a second _producer_ to an existing
   pipeline rather than building a parallel system — which also de-risks the bidirectional-canvas
   keystone by proving an input-side entry point.
 - **Affects:** Chosen **starting ticket** for the brainstorm-ux epic
@@ -633,9 +663,9 @@ Format: **PD-NNN — <title>** `(date, status)` · **Decision** · **Why** · **
 
 - **Decision:** ai-storm is single-user for now. No real-time co-editing, presence, attribution, or
   multiplayer voting yet.
-- **Why:** Keeps scope focused. Local-first persistence stays (the tldraw canvas store + a Yjs
-  workspace registry, §3.5); going multiplayer later (e.g. tldraw sync) is an additive step, not a
-  rewrite — but no multiplayer-specific affordances are built now.
+- **Why:** Keeps scope focused. Local-first persistence stays (the backend `StateStore` owns the
+  registry, board snapshots, and run history, §3.5); going multiplayer later (e.g. tldraw sync) is
+  an additive step, not a rewrite — but no multiplayer-specific affordances are built now.
 - **Affects:** Closes [#30](https://github.com/drdreo/ai-storm/issues/30) (not planned). De-prioritizes
   presence/attribution/voting across the brainstorm-ux epic. Revisit if/when multiplayer becomes a goal.
 
@@ -660,7 +690,7 @@ requirements are in Part 1.
   scan remains.
 - **Affects:** Supersedes §3.3. Detailed in
   [`ai-response-extraction-contract.md`](../design/ai-response-extraction-contract.md). The
-  `«IDEA»` contract (`Idea {title, body, kind}`) is the shared seam PD-002 builds on.
+  `«IDEA»` contract (`CreateIdeaInput {title, body, kind}`) is the shared seam PD-002 builds on.
 
 ### PD-007 — Downstream agent hand-off via local subprocess
 
@@ -683,16 +713,18 @@ requirements are in Part 1.
   that. (§3.4, §5.2)
 - **Affects:** `WorkspaceService`, canvas remount/switch in `CanvasService`, per-workspace terminal caching.
 
-### PD-005 — Local-first persistence to IndexedDB
+### PD-005 — Local-first persistence to IndexedDB (superseded by PD-024)
 
-`(PRD v3.0 baseline, accepted)`
+`(PRD v3.0 baseline, superseded by the backend-owned state decision in 2026-08)`
 
-- **Decision:** All workspace state persists locally to IndexedDB, written immediately on every
-  change, with a crash-recovery boot sequence that restores the last-active workspace exactly: the
-  **tldraw canvas store** per workspace (via `persistenceKey`) and a **CRDT (Yjs) registry** of
-  workspace metadata.
-- **Why:** Local data privacy + crash resilience without a server. (§3.5)
-- **Affects:** `CanvasService` (the per-workspace tldraw store), the workspace registry.
+- **Historical decision:** All workspace state persisted locally to browser IndexedDB: the tldraw
+  canvas store per workspace and a Yjs registry of workspace metadata.
+- **Current decision:** The local-first goal stands, but the durable authority is now the backend
+  `StateStore`, which writes the registry, board snapshots, and run history to the platform state
+  directory. See **PD-024** and `backend/src/state/store.ts`.
+- **Why the storage home changed:** Backend ownership gives the daemon, MCP tools, imports, and
+  refreshed clients one validated source of truth while preserving local data privacy and crash
+  resilience.
 
 ### PD-003 — Local-only: reuse local CLI subscriptions via real PTYs
 

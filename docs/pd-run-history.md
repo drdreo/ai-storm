@@ -36,7 +36,13 @@ Both open the same `HistoryPanel`, code-split and lazy-loaded like the existing 
 
 ## Storage approach
 
-Follows the existing project-registry persistence pattern: a dedicated CRDT doc (`ai-storm-run-history`) persisted to its own IndexedDB store via `y-indexeddb`, booted alongside `project.boot()`. No backend involvement — history is local-first by design, matching the rest of the app's persistence model.
+History is part of the backend-owned project state. The frontend's Zustand history
+store loads and mutates each project's `history.json` through the shared WebSocket
+state protocol (`history-load`, `history-append`, `history-update`,
+`history-delete`, and `history-clear`). `backend/src/state/store.ts` serializes
+and atomically writes the file, so history survives browser reloads, reconnects,
+and backend restarts alongside the board and registry. The frontend remains an
+optimistic projection; it does not maintain a second durable history store.
 
 ## Acceptance criteria
 
@@ -47,6 +53,6 @@ Follows the existing project-registry persistence pattern: a dedicated CRDT doc 
 
 ## Non-goals
 
-- No cross-project or cross-device history.
+- No cross-project or cross-device history; the backend store is local to the
+  machine running ai-storm.
 - No diffing/comparison between runs (mentioned as a motivating use case in the issue, not built here).
-- No server-side/backend persistence — this is IndexedDB-only.

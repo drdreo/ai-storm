@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 832.4060000000001 1020.4" width="832.4060000000001" height="1020.4" style="--bg:#0d1117;--fg:#e6edf3;--line:#3d444d;--accent:#4493f8;--muted:#9198a1;background:var(--bg)">
+<style>
+  text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-233d444d" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="#3d444d" stroke="#3d444d" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start-233d444d" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="#3d444d" stroke="#3d444d" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-234493f8" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="#4493f8" stroke="#4493f8" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start-234493f8" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="#4493f8" stroke="#4493f8" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-23d29922" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="#d29922" stroke="#d29922" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start-23d29922" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="#d29922" stroke="#d29922" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-233fb950" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="#3fb950" stroke="#3fb950" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start-233fb950" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="#3fb950" stroke="#3fb950" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="browser" data-to="sidebar" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="451.2500000000001,101.80000000000001 451.2500000000001,129.8 123.4385,129.8 123.4385,189.79999999999998" fill="none" stroke="#3d444d" stroke-width="1.5px" marker-end="url(#arrowhead-233d444d)" />
+<polyline class="edge" data-from="browser" data-to="canvas" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="451.2500000000001,101.80000000000001 451.2500000000001,129.8 358.7755000000001,129.8 358.7755000000001,157.8" fill="none" stroke="#3d444d" stroke-width="1.5px" marker-end="url(#arrowhead-233d444d)" />
+<polyline class="edge" data-from="browser" data-to="hub" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="451.2500000000001,101.80000000000001 451.2500000000001,129.8 651.54,129.8 651.54,157.8" fill="none" stroke="#3d444d" stroke-width="1.5px" marker-end="url(#arrowhead-233d444d)" />
+<polyline class="edge" data-from="sidebar" data-to="transport" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="123.4385,277.4 123.4385,289.4 409.59074999999996,289.4 409.59074999999996,301.40000000000003" fill="none" stroke="#4493f8" stroke-width="2px" marker-end="url(#arrowhead-234493f8)" />
+<polyline class="edge" data-from="canvas" data-to="transport" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="358.7755000000001,245.40000000000003 358.7755000000001,289.4 409.59074999999996,289.4 409.59074999999996,301.40000000000003" fill="none" stroke="#4493f8" stroke-width="2px" marker-end="url(#arrowhead-234493f8)" />
+<polyline class="edge" data-from="hub" data-to="transport" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="651.54,245.40000000000003 651.54,289.4 409.59074999999996,289.4 409.59074999999996,301.40000000000003" fill="none" stroke="#4493f8" stroke-width="2px" marker-end="url(#arrowhead-234493f8)" />
+<polyline class="edge" data-from="transport" data-to="daemon" data-style="solid" data-arrow-start="false" data-arrow-end="true" points="409.59074999999996,355.20000000000005 409.59075,411.20000000000005" fill="none" stroke="#4493f8" stroke-width="2px" marker-end="url(#arrowhead-234493f8)" />
+<polyline class="edge" data-from="daemon" data-to="state" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="state API" points="353.3465,465.00000000000006 353.3465,541 192.52162500000009,541 192.52162500000009,629.3000000000001" fill="none" stroke="#d29922" stroke-width="2px" marker-end="url(#arrowhead-23d29922)" />
+<polyline class="edge" data-from="daemon" data-to="runtime" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="PTY data + input" points="409.59075,465.00000000000006 409.59075,509.00000000000006 488.250125,509.00000000000006 488.250125,597.3000000000001" fill="none" stroke="#4493f8" stroke-width="2px" marker-end="url(#arrowhead-234493f8)" />
+<polyline class="edge" data-from="daemon" data-to="mcp" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="idea / score / refs" points="465.835,465.00000000000006 465.835,497.00000000000006 696.612625,497.00000000000006 696.612625,839 462.40775,839 462.40775,851" fill="none" stroke="#3fb950" stroke-width="2px" marker-end="url(#arrowhead-233fb950)" />
+<polyline class="edge" data-from="runtime" data-to="mcp" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="tool calls + sinks" points="488.250125,718.7 488.250125,827 402.4585,827 402.4585,851" fill="none" stroke="#3fb950" stroke-width="2px" marker-end="url(#arrowhead-233fb950)" />
+<polyline class="edge" data-from="state" data-to="mcp" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="board reads · ref allocation" points="192.52162500000009,750.7 192.52162500000009,839 342.50925000000007,839 342.50925000000007,851" fill="none" stroke="#d29922" stroke-width="2px" marker-end="url(#arrowhead-23d29922)" />
+<g class="edge-label" data-from="daemon" data-to="state" data-label="state API">
+  <rect x="163.02162500000009" y="548" width="58.636" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="192.3396250000001" y="563.15" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">state API</text>
+</g>
+<g class="edge-label" data-from="daemon" data-to="runtime" data-label="PTY data + input">
+  <rect x="441.250125" y="516" width="93.08800000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="487.794125" y="531.15" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">PTY data + input</text>
+</g>
+<g class="edge-label" data-from="daemon" data-to="mcp" data-label="idea / score / refs">
+  <rect x="647.112625" y="801.7" width="98.43400000000003" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="696.329625" y="816.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">idea / score / refs</text>
+</g>
+<g class="edge-label" data-from="runtime" data-to="mcp" data-label="tool calls + sinks">
+  <rect x="440.750125" y="769.7" width="94.27600000000001" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="487.88812500000006" y="784.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">tool calls + sinks</text>
+</g>
+<g class="edge-label" data-from="state" data-to="mcp" data-label="board reads · ref allocation">
+  <rect x="119.5216250000001" y="801.7" width="145.95400000000004" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="192.49862500000012" y="816.85" text-anchor="middle" font-size="11" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">board reads · ref allocation</text>
+</g>
+<g class="node" data-id="browser" data-label="&lt;b&gt;BROWSER APPLICATION&lt;/b&gt;
+React 19 · Vite · Zustand · tldraw · xterm.js · Tailwind v4" data-shape="stadium">
+  <rect x="267.99600000000015" y="48" width="366.50799999999987" height="53.800000000000004" rx="26.900000000000002" ry="26.900000000000002" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="451.2500000000001" y="74.9" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="451.2500000000001" dy="-3.9000000000000012"><tspan font-weight="bold">BROWSER APPLICATION</tspan></tspan><tspan x="451.2500000000001" dy="16.900000000000002">React 19 · Vite · Zustand · tldraw · xterm.js · Tailwind v4</tspan></text>
+</g>
+<g class="node" data-id="sidebar" data-label="&lt;b&gt;Sidebar / projects&lt;/b&gt;
+registry projection
+folders + ordering
+live session status" data-shape="rectangle">
+  <rect x="48" y="189.79999999999998" width="150.877" height="87.60000000000001" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="123.4385" y="233.6" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="123.4385" dy="-20.8"><tspan font-weight="bold">Sidebar / projects</tspan></tspan><tspan x="123.4385" dy="16.900000000000002">registry projection</tspan><tspan x="123.4385" dy="16.900000000000002">folders + ordering</tspan><tspan x="123.4385" dy="16.900000000000002">live session status</tspan></text>
+</g>
+<g class="node" data-id="canvas" data-label="&lt;b&gt;Canvas pane · tldraw&lt;/b&gt;
+backend-loaded board snapshots
+idea cards + typed arrows
+arrange, filter, search, export" data-shape="rectangle">
+  <rect x="238.87700000000007" y="157.8" width="239.797" height="87.60000000000001" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="358.7755000000001" y="201.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="358.7755000000001" dy="-20.8"><tspan font-weight="bold">Canvas pane · tldraw</tspan></tspan><tspan x="358.7755000000001" dy="16.900000000000002">backend-loaded board snapshots</tspan><tspan x="358.7755000000001" dy="16.900000000000002">idea cards + typed arrows</tspan><tspan x="358.7755000000001" dy="16.900000000000002">arrange, filter, search, export</tspan></text>
+</g>
+<g class="node" data-id="hub" data-label="&lt;b&gt;Control hub · xterm.js&lt;/b&gt;
+raw PTY bytes rendered faithfully
+prompts, resize, session controls
+MCP / marker results appear as cards" data-shape="rectangle">
+  <rect x="518.674" y="157.8" width="265.732" height="87.60000000000001" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="651.54" y="201.60000000000002" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="651.54" dy="-20.8"><tspan font-weight="bold">Control hub · xterm.js</tspan></tspan><tspan x="651.54" dy="16.900000000000002">raw PTY bytes rendered faithfully</tspan><tspan x="651.54" dy="16.900000000000002">prompts, resize, session controls</tspan><tspan x="651.54" dy="16.900000000000002">MCP / marker results appear as cards</tspan></text>
+</g>
+<g class="node" data-id="transport" data-label="&lt;b&gt;/pty WebSocket&lt;/b&gt;
+project-keyed JSON · state requests/responses" data-shape="stadium">
+  <rect x="246.34375" y="301.40000000000003" width="326.49399999999997" height="53.800000000000004" rx="26.900000000000002" ry="26.900000000000002" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="409.59074999999996" y="328.3" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="409.59074999999996" dy="-3.9000000000000012"><tspan font-weight="bold">/pty WebSocket</tspan></tspan><tspan x="409.59074999999996" dy="16.900000000000002">project-keyed JSON · state requests/responses</tspan></text>
+</g>
+<g class="node" data-id="daemon" data-label="&lt;b&gt;LOCAL NODE DAEMON · Hono&lt;/b&gt;
+127.0.0.1 · local-only execution" data-shape="stadium">
+  <rect x="297.10225" y="411.20000000000005" width="224.97699999999995" height="53.800000000000004" rx="26.900000000000002" ry="26.900000000000002" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="409.59075" y="438.1" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="409.59075" dy="-3.9000000000000012"><tspan font-weight="bold">LOCAL NODE DAEMON · Hono</tspan></tspan><tspan x="409.59075" dy="16.900000000000002">127.0.0.1 · local-only execution</tspan></text>
+</g>
+<g class="node" data-id="state" data-label="&lt;b&gt;BACKEND-OWNED DURABLE STATE&lt;/b&gt;
+StateStore · atomic JSON files
+registry.json
+projects/&lt;id&gt;/board.json
+projects/&lt;id&gt;/history.json
+revisioned saves · ref allocation" data-shape="rectangle">
+  <rect x="59.6556250000001" y="629.3000000000001" width="265.7319999999999" height="121.4" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="192.52162500000006" y="690.0000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="192.52162500000006" dy="-37.70000000000001"><tspan font-weight="bold">BACKEND-OWNED DURABLE STATE</tspan></tspan><tspan x="192.52162500000006" dy="16.900000000000002">StateStore · atomic JSON files</tspan><tspan x="192.52162500000006" dy="16.900000000000002">registry.json</tspan><tspan x="192.52162500000006" dy="16.900000000000002">projects/&lt;id&gt;/board.json</tspan><tspan x="192.52162500000006" dy="16.900000000000002">projects/&lt;id&gt;/history.json</tspan><tspan x="192.52162500000006" dy="16.900000000000002">revisioned saves · ref allocation</tspan></text>
+</g>
+<g class="node" data-id="runtime" data-label="&lt;b&gt;SESSION RUNTIME&lt;/b&gt;
+POSIX: named tmux + pipe-pane
+Windows: node-pty / ConPTY
+reconcile + idempotent attach
+IdeaScanner / ScoreScanner
+raw data → xterm · markers → cards" data-shape="rectangle">
+  <rect x="365.38762500000007" y="597.3000000000001" width="245.725" height="121.4" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="488.2501250000001" y="658.0000000000001" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="488.2501250000001" dy="-37.70000000000001"><tspan font-weight="bold">SESSION RUNTIME</tspan></tspan><tspan x="488.2501250000001" dy="16.900000000000002">POSIX: named tmux + pipe-pane</tspan><tspan x="488.2501250000001" dy="16.900000000000002">Windows: node-pty / ConPTY</tspan><tspan x="488.2501250000001" dy="16.900000000000002">reconcile + idempotent attach</tspan><tspan x="488.2501250000001" dy="16.900000000000002">IdeaScanner / ScoreScanner</tspan><tspan x="488.2501250000001" dy="16.900000000000002">raw data → xterm · markers → cards</tspan></text>
+</g>
+<g class="node" data-id="mcp" data-label="&lt;b&gt;MCP CAPTURE&lt;/b&gt;
+POST /mcp/:projectId/:token
+capture_idea · capture_score
+mark / link · board discovery
+StateStore reads · ref allocation
+session sinks → /pty WS callbacks" data-shape="rectangle">
+  <rect x="282.56000000000006" y="851" width="239.79699999999994" height="121.4" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="402.4585" y="911.7" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="402.4585" dy="-37.70000000000001"><tspan font-weight="bold">MCP CAPTURE</tspan></tspan><tspan x="402.4585" dy="16.900000000000002">POST /mcp/:projectId/:token</tspan><tspan x="402.4585" dy="16.900000000000002">capture_idea · capture_score</tspan><tspan x="402.4585" dy="16.900000000000002">mark / link · board discovery</tspan><tspan x="402.4585" dy="16.900000000000002">StateStore reads · ref allocation</tspan><tspan x="402.4585" dy="16.900000000000002">session sinks → /pty WS callbacks</tspan></text>
+</g>
+</svg>

@@ -32,31 +32,53 @@
 
 ---
 
-## 1. Problem statement
+## 1. Current implementation and historical context
 
-ai-storm streams a local CLI agent's output into a tldraw canvas as structured cards. Today the backend spawns the agent **directly** under a per-connection `node-pty` PTY (`backend/src/pty/manager.ts`) and forwards every raw stdout byte to the browser as `{type:"data",chunk}` (`packages/shared/src/protocol.ts`). The browser renders those bytes in an xterm terminal, and the backend scans the screen for `«IDEA»` markers it turns into cards (`RenderScheduler` → `CanvasService.applyIdeas`).
+The durable-session portion of this design is shipped. `backend/src/session/runtime.ts`
+selects `TmuxSessionBackend` on POSIX and `NodePtySessionBackend` on Windows;
+`backend/src/server.ts` owns one process-wide backend whose sessions outlive a
+WebSocket connection. The backend sends raw PTY bytes as `data`, scans rendered
+terminal output for `idea`/`score` markers, and routes MCP tool events through the
+same callbacks. Project metadata, tldraw board snapshots, ref allocation, and run
+history are separately durable in `backend/src/state/store.ts`.
 
-This works but has three structural problems we want to fix while keeping the existing ingestion pipeline intact:
+The original problem statement below is retained to explain why the named session,
+raw terminal, and backend-owned state boundaries exist. It is historical, not a
+claim about the current code.
 
-1. **The PTY is bound to a WebSocket connection, not to a workspace.** When the backend restarts, the browser refreshes, or the socket drops, the agent process dies with it. PRD §3.5 requires that workspace sessions _"survive runtime crashes, web application refreshes, system restarts, and terminal disconnections."_ A direct-spawned PTY cannot satisfy this.
+### Historical problem statement
 
-2. **There is an input race.** `IngestionService.attach()` sends `{type:"attach"}` and `ControlHubComponent.send()` immediately follows with `{type:"input"}` before the PTY has spawned (see §3.3 below). It is currently _papered over_ by buffering in `PtyManager.#pendingInput`, but the fragility is real: the contract is "spray input at a process that may not exist yet."
+ai-storm originally spawned a local CLI agent directly under a per-connection PTY and
+forwarded raw stdout to the browser. That prototype had three structural problems:
 
-3. **We forward a raw terminal, not responses.** The product wants the canvas to show the **agent's responses** — not the user's echoed prompt, not the harness's spinner/`>` prompt chrome. Today every byte (including the echo of the user's own keystrokes and the harness banner) flows into the parser. The frontend pipeline is good at _cleaning_ bytes but has no notion of _"this span is the agent talking vs. this span is my prompt being echoed back."_
+1. **The PTY was bound to a WebSocket connection.** A backend restart, browser refresh,
+   or socket drop killed the agent process instead of allowing reattach.
+2. **Input raced PTY creation.** The client could send `attach` and `input` back-to-back,
+   requiring a pending-input buffer while the process was still spawning.
+3. **A proposed response extractor overfit terminal chrome.** The abandoned design tried
+   to infer agent prose from prompt echoes and spinner output; the shipped product keeps
+   the terminal presentation raw and extracts only the explicit idea contract.
 
-The goal of this design is to host the **real interactive harness** (`claude`, or any harness — **harness-agnostic**, **never** a `-p`/`--output-format` headless mode) inside a **named, connection-independent session**, and to add a **net-new response-extraction layer** that emits only the agent's response text into the existing ingestion pipeline.
+The implementation outcome is a durable named session (`ai-storm-<projectId>`) on
+POSIX, an idempotent process-lifetime session on Windows, raw xterm passthrough, and
+backend-side marker/MCP capture. The current state protocol is documented in
+[`PD-024`](../decisions/product-decisions.md#pd-024--backend-owned-durable-project-state).
 
-### Hard constraints (from the product owner)
+### Runtime constraints (implemented)
 
-- **No headless/print mode.** Must drive the real interactive CLI. No `claude -p`, no `--output-format`. Harness-agnostic.
-- **No raw terminal mirror.** The frontend never gets an xterm.js mirror. It shows only parsed responses (cards/notes/text) via the **existing** `frontend/src/app/core` pipeline.
-- **POSIX uses tmux; Windows keeps the existing node-pty/ConPTY path.** Both sit behind one `SessionBackend` abstraction.
+- **No headless/print mode.** The daemon drives the real interactive CLI. No `claude -p`
+  or `--output-format` shortcut is used; profiles remain harness-agnostic.
+- **Raw terminal presentation is intentional.** The browser receives the raw PTY stream
+  as `data` and renders it with xterm.js; only the explicit idea/score contract is
+  extracted into structured messages.
+- **POSIX uses tmux; Windows uses node-pty/ConPTY.** Both sit behind one
+  `SessionBackend` abstraction.
 
 ---
 
 ## 2. The agent-orchestrator mechanism (the template we port)
 
-agent-orchestrator (AO) already solves "host an interactive harness in a durable, reattachable tmux session and relay it to a browser." We port its **session + transport** layer almost verbatim. The one thing AO does **not** do is extract clean responses — _"AO streams the RAW rendered bytes to xterm.js and does NOT extract clean responses. Its only clean-text primitive is `tmux capture-pane -p`."_ That gap is the core of §4.
+agent-orchestrator (AO) already solves "host an interactive harness in a durable, reattachable tmux session and relay it to a browser." We port its **session + transport** layer almost verbatim. The abandoned clean-response extractor is retained below as historical rationale; the shipped implementation intentionally keeps AO's raw terminal presentation and scans only the explicit idea contract.
 
 ### 2.1 Default runtime selection — `packages/core/src/platform.ts`
 
@@ -151,7 +173,7 @@ AO's `sendKeys` is the model for `sendInput`. It does **not** just blast keys; i
 
 ### 2.4 Transport / reattach — `packages/web/server/mux-websocket.ts`
 
-AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and relays bytes to the browser. **We keep this only as a fallback diagnostic transport, if at all** — ai-storm does _not_ mirror a raw terminal — but the reattach machinery is the part we want:
+AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and relays bytes to the browser. The original ai-storm proposal treated this as a fallback diagnostic transport; the shipped product intentionally keeps the raw terminal presentation, while the reattach machinery remains the part we want:
 
 - Exact-match attach (prevents `ao-1` matching `ao-15`):
   ```ts
@@ -164,8 +186,11 @@ AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and r
 
 ### 2.5 Session existence + naming
 
-- Existence check uses exact match: `tmux has-session -t ={sessionId}`.
-- Session IDs are validated against `^[a-zA-Z0-9_-]+$` before being interpolated into any tmux command (injection guard). **We adopt this verbatim** — see §8.
+- AO's existence check uses exact match: `tmux has-session -t ={sessionId}`. The
+  shipped backend uses the validated full session name because tmux 3.6b rejects
+  the `=` form for several commands.
+- Project IDs are validated against `^[a-zA-Z0-9_-]+$` before being interpolated
+  into any tmux command (injection guard).
 - AO captures clean text with `tmux capture-pane -t {sessionId} -p -S -{lines}` (e.g. `-S -50`). This single primitive is the seed of our extraction layer.
 
 ---
@@ -174,20 +199,32 @@ AO's `TerminalManager` spawns a `node-pty` that runs `tmux attach-session` and r
 
 ### 3.1 What exists today
 
-| Component      | File                              | Behavior                                                                                                                                                                                                           |
-| -------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| WS server      | `backend/src/server.ts`           | Hono HTTP+WS bound to `127.0.0.1`; `/pty` multiplexes all workspaces over one socket; dispatches `attach`/`input`/`resize`/`detach`/`context`/`agent`. Tears down PTYs + tracked agent subprocesses on disconnect. |
-| PTY manager    | `backend/src/pty/manager.ts`      | `PtyManager.attach(workspaceId, opts, onData, onExit, onError)` spawns one `node-pty` per workspace. `#sessions`, `#attaching`, `#pendingInput` maps.                                                              |
-| Agent executor | `backend/src/agent/executor.ts`   | `runAgent(workspaceId, spec, emit)` — one-shot subprocess for the §3.6 hand-off; untrusted payload delivered on **stdin only** (not argv) to avoid cmd.exe re-parse + `ARG_MAX`.                                   |
-| Wire protocol  | `packages/shared/src/protocol.ts` | `ClientMessage`/`ServerMessage` unions (quoted in §6).                                                                                                                                                             |
+| Component         | File                                     | Current behavior                                                                                                                                       |
+| ----------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| WS + HTTP server  | `backend/src/server.ts`                  | Hono binds to `127.0.0.1`; `/pty` multiplexes projects and `/mcp` routes session-scoped tools. Disconnect detaches streams but does not kill sessions. |
+| Runtime selector  | `backend/src/session/runtime.ts`         | One process-wide `SessionBackend`: tmux on POSIX, node-pty on Windows.                                                                                 |
+| POSIX session     | `backend/src/session/tmux-backend.ts`    | Named `ai-storm-<projectId>` session, keep-alive shell, raw `pipe-pane` stream, `capture-pane` marker scan, MCP token recovery.                        |
+| Windows session   | `backend/src/session/nodepty-backend.ts` | Process-lifetime ConPTY session with a headless screen for the same marker scanner; restart persistence remains a documented Windows limitation.       |
+| Durable state     | `backend/src/state/store.ts`             | Atomic registry, board, ref-allocation, and history files under the platform state directory.                                                          |
+| One-shot hand-off | `backend/src/agent/executor.ts`          | Backend-vetted subprocess execution with payload delivered on stdin where required by the security boundary.                                           |
+| Wire protocol     | `packages/shared/src/protocol.ts`        | Shared project-keyed `ClientMessage`/`ServerMessage` and state request/response unions.                                                                |
 
-### 3.2 The lifecycle today (direct spawn)
+### 3.2 The implemented lifecycle
 
-`attach` → `PtyManager.attach()` spawns `node-pty` directly on the harness binary → every stdout chunk emitted as `{type:"data",chunk}` → frontend pipeline. The PTY lives and dies with the WebSocket connection. There is **no named session, no reattach, no persistence** — directly contradicting PRD §3.5.
+`attach` → `SessionBackend.create()` ensures the project session exists →
+`SessionBackend.attach()` replays/streams raw PTY bytes and starts the idea/score
+scan → the browser renders `data` in xterm.js and applies discrete `idea`,
+`score`, completion, and reference messages. On POSIX the session survives a
+backend restart; on Windows it survives socket loss and browser refresh only while
+the backend process remains alive. A reconnect reissues `attach` idempotently;
+there is no client-side durable project store or PTY creation buffer.
 
-### 3.3 The input race (documented, then fixed by the named-session model)
+### 3.3 The input race (historical, fixed by the named-session model)
 
-The frontend sends **attach and input back-to-back without waiting for `ready`**:
+The original frontend sent **attach and input back-to-back without waiting for `ready`**.
+The component/service names in the example below describe that pre-session-backend
+implementation; the current equivalent is `ControlHub` → `ingestion` → the shared
+`backend` WebSocket client.
 
 - `ControlHubComponent.send()`:
   ```ts
@@ -204,19 +241,19 @@ The frontend sends **attach and input back-to-back without waiting for `ready`**
 
 This is a **correctness-by-buffering** contract: the producer assumes the consumer will hold its early writes. It breaks the moment we want idempotent reconnects (re-sending `attach` to an already-running session must **not** replay buffered keystrokes), and it conflates "create the session" with "the session is ready to take input."
 
-**How the named-session model fixes it.** With a durable named session (`ai-storm-<workspaceId>`), `attach` becomes **idempotent and decoupled from readiness**:
+**How the named-session model fixes it.** With a durable named session (`ai-storm-<projectId>`), `attach` becomes **idempotent and decoupled from readiness**:
 
-- `attach` = "ensure session `ai-storm-<workspaceId>` exists" (create if absent via `has-session` → `new-session -d`; otherwise no-op and reattach the response stream). It never spawns a throwaway process tied to the socket.
+- `attach` = "ensure session `ai-storm-<projectId>` exists" (create if absent via `has-session` → `new-session -d`; otherwise no-op and reattach the response stream). It never spawns a throwaway process tied to the socket.
 - `input` = "send keys to that named session." The session always exists by the time input is processed because `attach`'s create step is synchronous w.r.t. the dispatcher (`has-session`/`new-session` complete before the next message is dispatched), and even a late `input` lands in a real, running tmux session rather than a not-yet-spawned PTY.
 - A backend restart or browser refresh re-issues `attach`, which **finds the existing session** and resumes — no buffered-keystroke replay, no lost process.
 
-The `#pendingInput` buffer can then be **deleted**; the named session is the durable buffer.
+The historical `#pendingInput` buffer was deleted; the named session is the durable buffer.
 
 ---
 
-## 4. The response-extraction layer (net-new — the core design problem)
+## 4. Historical response-extraction proposal (not shipped)
 
-This is the part AO does not have. We must turn the agent's interactive terminal pane into a stream of **clean response text** that feeds the existing `SlicingBuffer → MarkdownBlockParser → RenderScheduler` pipeline — while excluding:
+This is the part AO does not have. The proposal would have turned the agent's interactive terminal pane into a stream of **clean response text** that fed the old `SlicingBuffer → MarkdownBlockParser → RenderScheduler` pipeline — while excluding:
 
 - the **echoed user prompt** (the harness echoes typed input back to the pane — see the spike in §4.4),
 - the **harness chrome**: input prompt glyphs (`>`, `❯`), spinners/“thinking…”, status lines, banners, box-drawing UI.
@@ -307,7 +344,7 @@ This confirms the three-way discrimination the extractor must perform — **echo
 
 ---
 
-## 5. The `SessionBackend` interface
+## 5. Historical `SessionBackend` interface proposal
 
 One abstraction, two implementations. `getDefaultRuntime()`-style selection picks tmux on POSIX, node-pty on Windows.
 
@@ -372,12 +409,12 @@ export interface SessionBackend {
 
 ### 5.1 `TmuxSessionBackend` (POSIX)
 
-- `create`: `tmux has-session -t =ai-storm-<id>`; if absent, `tmux new-session -d -s ai-storm-<id> -c <cwd> -e KEY=VAL... <withKeepAliveShell(command)>` then `set-option -t ... status off`. Long launch commands → self-deleting launch script (§2.2).
+- `create`: `tmux has-session -t ai-storm-<id>`; if absent, `tmux new-session -d -s ai-storm-<id> -c <cwd> -e KEY=VAL... <withKeepAliveShell(command)>` then `set-option -t ... status off`. Long launch commands → self-deleting launch script (§2.2).
 - `sendInput`: AO's `sendKeys` sequence verbatim — Escape + 100 ms; `load-buffer`/`paste-buffer -d` for long/multiline, else `send-keys -l`; separate delayed `Enter` (§2.3).
 - `attach`: starts the **capture-pane diff poller** (§4.3) with adaptive cadence; on each finalized batch calls `onChunk`. Reattach after backend restart = just resume polling the still-alive session.
 - `resize`: `tmux resize-window`/pane to the new size and re-anchor extraction (treat as width-change → re-capture baseline).
 - `kill`: `tmux kill-session -t =ai-storm-<id>`.
-- `hasSession`: `tmux has-session -t =ai-storm-<id>`.
+- `hasSession`: `tmux has-session -t ai-storm-<id>`.
 
 ### 5.2 `NodePtySessionBackend` (Windows) — refactor of today's path
 
@@ -392,7 +429,7 @@ This keeps the platform difference confined to _"where do the bytes come from"_ 
 
 ---
 
-## 6. Wire protocol changes (`@ai-storm/shared`)
+## 6. Historical wire-protocol proposal (`@ai-storm/shared`)
 
 Today (`packages/shared/src/protocol.ts`) the server emits raw `DataMessage`:
 
@@ -434,7 +471,7 @@ export interface SessionStatusMessage {
 
 ---
 
-## 7. Frontend changes (`IngestionService` / `control-hub`)
+## 7. Historical frontend changes (`IngestionService` / `control-hub`)
 
 The frontend keeps its **structural** pipeline (`MarkdownBlockParser → RenderScheduler → CanvasService.applyBlocks`) but drops the **raw-cleaning front half**, since the backend now emits clean lines:
 
@@ -447,28 +484,40 @@ The frontend keeps its **structural** pipeline (`MarkdownBlockParser → RenderS
 
 ---
 
-## 8. Migration steps
+## 8. Implementation status
 
-Staged so each step is independently shippable and the app stays working.
+The staged session migration is complete, with the deliberate terminal-passthrough
+change described in the banner above:
 
-1. **Add `SessionBackend` interface + `getRuntime()` selector** (`backend/src/session/`). No behavior change yet.
-2. **Wrap today's `PtyManager` as `NodePtySessionBackend`** behind the interface; route `server.ts` dispatch through it. Pure refactor; protocol unchanged. Ship + verify on both OSes.
-3. **Implement `TmuxSessionBackend.create/hasSession/sendInput/kill`** (session + transport port of AO — §2). Behind a feature flag, still streaming raw `data` for now, to validate session durability (kill the backend, confirm `claude` survives, reattach).
-4. **Build the response-extraction poller** (§4.3) as a standalone module with unit tests over **recorded `capture-pane` fixtures** (idle→echo→response→idle cycles, spinners, multiline, scrollback). This is where the real risk lives; test it in isolation.
-5. **Add `ResponseMessage`/`SessionStatusMessage` to `@ai-storm/shared`**; have `TmuxSessionBackend.attach` emit `response`. Keep `data` available behind the debug flag.
-6. **Switch `IngestionService` to consume `response`**; retire client-side `SlicingBuffer`/`ansi.ts` (or demote to debug). Remove the `#pendingInput` reliance — `attach` is now idempotent (§3.3).
-7. **Port extraction to the Windows backend** (shared rules over the PTY byte stream) so both platforms emit identical `response` messages.
-8. **Persistence/reattach across backend restart** (PRD §3.5): on boot, the backend enumerates `tmux list-sessions` for `ai-storm-*` and re-exposes them; a workspace `attach` resumes extraction without respawning. Windows persistence remains a known gap (§10).
-9. **Remove the deprecated `data` path** once both backends ship `response`.
+1. `SessionBackend` and `getRuntime()` live in `backend/src/session/`; both runtime
+   implementations are wired through `server.ts`.
+2. POSIX uses named tmux sessions with keep-alive shells, reconnect-safe attach,
+   raw `pipe-pane` streaming, and boot-time `reconcile()`.
+3. Windows uses an in-process node-pty session plus `TerminalScreen`; it survives
+   socket loss but not a backend process restart.
+4. The backend emits the established `data` terminal surface plus discrete
+   `idea`, `score`, `completion`, and `reference` messages. The proposed
+   `ResponseMessage`/chat extraction path was intentionally not shipped.
+5. Project durability is implemented separately by `StateStore`; the browser
+   loads board and history snapshots through the state protocol. See PD-024.
 
 ---
 
 ## 9. Operational details
 
-- **tmux prerequisite/version.** Requires `tmux` on `PATH` (POSIX). Verified locally with **tmux 3.6b**; the commands used (`new-session -d`, `-c`, `-e`, `set-option status`, `capture-pane -p -S`, `send-keys -l`, `load-buffer`/`paste-buffer -d`, `has-session -t =`, `kill-session`) are stable since tmux ≥ 2.x. Backend should `tmux -V`-probe at startup and surface a clear error if missing.
-- **Session naming.** `ai-storm-<workspaceId>`, with `<workspaceId>` validated against `^[a-zA-Z0-9_-]+$` (AO's `SAFE_SESSION_ID`) **before** any interpolation — this is the injection guard for every tmux invocation. Always address sessions with the exact-match `=` prefix (`-t =ai-storm-<id>`) to avoid prefix collisions.
+- **tmux prerequisite/version.** Requires `tmux` on `PATH` (POSIX). Verified locally with **tmux 3.6b**; the commands used (`new-session -d`, `-c`, `-e`, `set-option status`, `capture-pane -p -S`, `send-keys -l`, `load-buffer`/`paste-buffer -d`, `has-session`, `kill-session`) are stable since tmux ≥ 2.x. Backend should `tmux -V`-probe at startup and surface a clear error if missing.
+- **Session naming.** `ai-storm-<projectId>`, with `<projectId>` validated against
+  `^[a-zA-Z0-9_-]+$` before any interpolation. The implementation addresses the
+  validated full session name because tmux 3.6b rejects the `=` exact-match form
+  for several commands; project IDs are UUID-backed and cannot be prefixes of one
+  another in normal operation.
 - **Persistence/reattach (PRD §3.5).** Detached tmux sessions survive backend restart, browser refresh, and socket loss. The keep-alive shell (`exec "${SHELL:-/bin/bash}" -i`) keeps the pane alive even if the agent itself exits, so the workspace can be reattached and a new agent launched without recreating the session. On boot the backend reconciles live `ai-storm-*` sessions with known workspaces.
-- **Teardown / memory (PRD §5.2).** `detach` (refresh/hot-switch) stops the poller and disposes the `RenderScheduler` but **leaves tmux alive**. Explicit `kill` (close workspace) runs `kill-session` and drops all maps. Polling is adaptive (idle → ~1 s, near-zero CPU); only one lightweight `capture-pane` subprocess per active, responding workspace. Bound retained scrollback the way AO bounds its ring buffer (50 KB) so a long session can't grow unbounded.
+- **Teardown / memory (PRD §5.2).** `detach` (refresh/hot-switch) stops the poller but
+  **leaves tmux alive**. Explicit `kill` (close project) runs `kill-session` and drops
+  all maps. The current idea scan polls at a bounded 400 ms cadence while raw bytes
+  stream through `pipe-pane`; the Windows path debounces scans with `ScanGate`.
+  Captures are bounded to the configured scrollback window so a long session cannot
+  grow the scanner input without limit.
 - **Frame throttling (PRD §5.1).** Unchanged and complementary: the backend extractor controls _how often clean lines are produced_; `RenderScheduler` (double-buffer, `maxPerFrame: 80`, rAF) still governs _how often the canvas mutates_. The two decouple network/extraction cadence from DOM cadence exactly as §5.1 requires.
 
 ---
@@ -497,6 +546,6 @@ Staged so each step is independently shippable and the app stays working.
 | Short literal input          | `tmux send-keys -t ai-storm-<id> -l <text>`                                          |
 | Submit                       | `tmux send-keys -t ai-storm-<id> Enter` (after 300 ms / 1 s)                         |
 | Extract clean text           | `tmux capture-pane -t ai-storm-<id> -p -S -<N>`                                      |
-| Existence check              | `tmux has-session -t =ai-storm-<id>`                                                 |
-| Teardown                     | `tmux kill-session -t =ai-storm-<id>`                                                |
+| Existence check              | `tmux has-session -t ai-storm-<id>`                                                  |
+| Teardown                     | `tmux kill-session -t ai-storm-<id>`                                                 |
 | (Rejected B) raw stream      | `tmux pipe-pane -t ai-storm-<id> -O '<sink>'`                                        |

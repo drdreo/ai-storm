@@ -1,9 +1,10 @@
 /**
  * The MCP capture endpoint — `POST /mcp/:projectId/:token` (mcp-idea-capture
  * design §§3–4): a minimal, sessionless MCP server over the Streamable HTTP
- * transport, exposing the two capture tools (`capture_idea`, `capture_score`)
- * so the agent delivers ideas as schema-validated JSON tool calls instead of
- * marker lines rendered through a terminal (§1/§2).
+ * transport, exposing capture tools plus workflow/read tools (`capture_idea`,
+ * `capture_score`, `mark_idea_done`, `link_idea`, `get_board_ideas`, and
+ * `get_projects`) so the agent delivers structured actions as schema-validated
+ * JSON tool calls rather than marker lines rendered through a terminal (§1/§2).
  *
  * Hand-rolled against MCP protocol revision 2025-03-26 (the revision that
  * introduced Streamable HTTP). The surface is deliberately the sessionless

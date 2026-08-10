@@ -1,0 +1,25 @@
+%% Canonical architecture source. Render with: pnpm docs:render
+flowchart TB
+  browser(["<b>BROWSER APPLICATION</b><br/>React 19 · Vite · Zustand · tldraw · xterm.js · Tailwind v4"])
+  sidebar["<b>Sidebar / projects</b><br/>registry projection<br/>folders + ordering<br/>live session status"]
+  canvas["<b>Canvas pane · tldraw</b><br/>backend-loaded board snapshots<br/>idea cards + typed arrows<br/>arrange, filter, search, export"]
+  hub["<b>Control hub · xterm.js</b><br/>raw PTY bytes rendered faithfully<br/>prompts, resize, session controls<br/>MCP / marker results appear as cards"]
+  transport(["<b>/pty WebSocket</b><br/>project-keyed JSON · state requests/responses"])
+  daemon(["<b>LOCAL NODE DAEMON · Hono</b><br/>127.0.0.1 · local-only execution"])
+  state["<b>BACKEND-OWNED DURABLE STATE</b><br/>StateStore · atomic JSON files<br/>registry.json<br/>projects/&lt;id&gt;/board.json<br/>projects/&lt;id&gt;/history.json<br/>revisioned saves · ref allocation"]
+  runtime["<b>SESSION RUNTIME</b><br/>POSIX: named tmux + pipe-pane<br/>Windows: node-pty / ConPTY<br/>reconcile + idempotent attach<br/>IdeaScanner / ScoreScanner<br/>raw data → xterm · markers → cards"]
+  mcp["<b>MCP CAPTURE</b><br/>POST /mcp/:projectId/:token<br/>capture_idea · capture_score<br/>mark / link · board discovery<br/>StateStore reads · ref allocation<br/>session sinks → /pty WS callbacks"]
+
+  browser --> sidebar & canvas & hub
+  sidebar & canvas & hub --> transport
+  transport --> daemon
+  daemon -->|state API| state
+  daemon -->|PTY data + input| runtime
+  daemon -->|idea / score / refs| mcp
+  runtime -->|tool calls + sinks| mcp
+  state -->|board reads · ref allocation| mcp
+
+  linkStyle 0,1,2 stroke:#3d444d,stroke-width:1.5px
+  linkStyle 3,4,5,6,8 stroke:#4493f8,stroke-width:2px
+  linkStyle 7,11 stroke:#d29922,stroke-width:2px
+  linkStyle 9,10 stroke:#3fb950,stroke-width:2px

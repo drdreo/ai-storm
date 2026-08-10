@@ -15,9 +15,11 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "docs:render": "node scripts/render-diagrams.mjs"
   },
   "devDependencies": {
+    "beautiful-mermaid": "1.1.3",
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0"
   }
