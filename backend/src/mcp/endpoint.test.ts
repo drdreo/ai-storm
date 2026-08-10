@@ -475,6 +475,25 @@ describe("automatic project naming (#244)", () => {
     );
   });
 
+  it("emits only one nudge when several capture calls cross the threshold concurrently", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    setRegistry({
+      version: 1,
+      revision: 1,
+      projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+      folders: []
+    });
+    boards.set("ws1", ideaBoard());
+    const w = wire(registry, "ws1");
+
+    const results = await Promise.all(
+      ["Museums", "Archipelago", "Food tour", "Sauna", "Night market", "Design district"].map(async (title) =>
+        textOf(await callTool(app, "ws1", w.token, "capture_idea", { title }))
+      )
+    );
+    expect(results.filter((result) => result.includes("set_project_title now"))).toHaveLength(1);
+  });
+
   it("counts meaningful persisted manual cards and includes their titles in the nudge", async () => {
     const { registry, app, boards, setRegistry } = setup();
     setRegistry({

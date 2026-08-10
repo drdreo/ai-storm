@@ -73,7 +73,8 @@ export interface McpSession {
   noteCapturedIdea: (ref: string) => void;
   acknowledgePersistedIdeas: (refs: ReadonlySet<string>) => void;
   projectTitleNudgeSent: boolean;
-  noteProjectTitleNudge: () => void;
+  /** Atomically win the right to include the one-time naming nudge. */
+  claimProjectTitleNudge: () => boolean;
 }
 
 interface Entry {
@@ -237,8 +238,10 @@ export class McpSessionRegistry {
       get projectTitleNudgeSent() {
         return entry.projectTitleNudgeSent;
       },
-      noteProjectTitleNudge: () => {
+      claimProjectTitleNudge: () => {
+        if (entry.projectTitleNudgeSent) return false;
         entry.projectTitleNudgeSent = true;
+        return true;
       }
     };
   }
