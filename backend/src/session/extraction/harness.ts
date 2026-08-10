@@ -14,6 +14,7 @@ import { PI_EXTENSION_FILENAME, piCaptureExtensionSource } from "./pi-extension.
 
 const AI_STORM_MCP_TOOLS = [
   "capture_idea",
+  "set_project_title",
   "capture_score",
   "mark_idea_done",
   "link_idea",
@@ -183,7 +184,7 @@ export const CLAUDE_PROFILE: HarnessProfile = {
  * Deterministic capture (#177): pi has no MCP support and never will, but its
  * native extension seam is equivalent — `fileLaunch` writes a generated
  * extension (pi-extension.ts, verified against pi 0.80.3) that registers all
- * six capture/workflow/read tools as first-class pi tools and forwards each call
+ * seven capture/workflow/read tools as first-class pi tools and forwards each call
  * to the session's capture endpoint. The extension IS an MCP client (one
  * `tools/call` POST per tool call), so `usesMcp` is accurate:
  * it mints the session token/URL in both backends and selects the

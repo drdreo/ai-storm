@@ -132,7 +132,7 @@ mcpArgs: ({ url, serverName }) => [
   "--mcp-config",
   JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
   "--allowedTools",
-  `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`,
+  `mcp__${serverName}__capture_idea,mcp__${serverName}__set_project_title,mcp__${serverName}__capture_score`,
 ],
 ```
 
@@ -171,7 +171,7 @@ export const CLAUDE_PROFILE: HarnessProfile = {
     "--mcp-config",
     JSON.stringify({ mcpServers: { [serverName]: { type: "http", url } } }),
     "--allowedTools",
-    `mcp__${serverName}__capture_idea,mcp__${serverName}__capture_score`
+    `mcp__${serverName}__capture_idea,mcp__${serverName}__set_project_title,mcp__${serverName}__capture_score`
   ]
 };
 ```
@@ -212,7 +212,7 @@ or an extension instead"), so instead of `mcpArgs` the profile uses
 (`pi-extension.ts` → `ai-storm-capture.ts` in the session temp dir) and load
 it with pi's repeatable `-e <file>` flag — this is the `args` field of
 `FileLaunchResult`, which both backends append to the launch argv. The
-extension registers `capture_idea` / `capture_score` / `mark_idea_done` as
+extension registers `capture_idea` / `set_project_title` / `capture_score` / `mark_idea_done` as
 first-class pi tools (schema-validated, called deterministically like
 `read`/`bash`) and forwards each call to the session's capture endpoint as a
 single JSON-RPC `tools/call` POST — the extension is effectively a minimal
@@ -264,7 +264,7 @@ export const CODEX_PROFILE: HarnessProfile = {
     "-c",
     `mcp_servers.${serverName}.enabled=true`,
     "-c",
-    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "capture_score", "mark_idea_done"])}`,
+    `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "set_project_title", "capture_score", "mark_idea_done"])}`,
     "-c",
     `mcp_servers.${serverName}.default_tools_approval_mode=${JSON.stringify("approve")}`
   ]

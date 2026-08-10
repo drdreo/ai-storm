@@ -124,6 +124,10 @@ function ingestMessage(projectId: string, msg: ServerMessage): void {
       // External-link reference (#227) → attach the link to the target card.
       canvas.applyReference(projectId, msg.reference);
       break;
+    case "project-title":
+      // The MCP endpoint already persisted this conditional automatic rename.
+      project.applyInferredTitle(projectId, msg.title);
+      break;
     case "session-status":
       applyStatus(projectId, msg.status);
       break;

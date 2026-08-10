@@ -393,6 +393,7 @@ export class TmuxSessionBackend implements SessionBackend {
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,
+    onProjectTitle: (title: string) => void,
     onError: (message: string) => void
   ): Promise<void> {
     assertValidProjectId(projectId);
@@ -441,7 +442,15 @@ export class TmuxSessionBackend implements SessionBackend {
     // Route the MCP tool path into THIS attachment (mcp-idea-capture §6):
     // tool-captured ideas dedupe against the same sinks the scanner feeds and
     // emit through the same WS callbacks. No-op for markers-only sessions.
-    this.#mcp.attachSession(projectId, { ideaSink, scoreSink, onIdea, onScore, onCompletion, onReference });
+    this.#mcp.attachSession(projectId, {
+      ideaSink,
+      scoreSink,
+      onIdea,
+      onScore,
+      onCompletion,
+      onReference,
+      onProjectTitle
+    });
 
     // SEED the scanner with the current pane and DISCARD the result so ideas
     // already on screen are never re-emitted: this suppresses the echoed priming

@@ -57,11 +57,33 @@ describe("StateStore", () => {
     expect((await value.readRegistry()).projects[0]).toEqual({
       id: "p1",
       title: "Project",
+      titlePlaceholder: false,
       terminal: { shell: "bash" },
       color: "blue",
       createdAt: 42,
       updatedAt: 42
     });
+  });
+
+  it("migrates legacy title eligibility once without relying on the default forever", async () => {
+    const value = await store();
+    await atomicWriteJson(value.registryPath, {
+      version: 1,
+      revision: 4,
+      projects: [
+        { id: "untitled", title: "Untitled Project", terminal: {}, createdAt: 1, updatedAt: 1 },
+        { id: "named", title: "Stockholm Activities", terminal: {}, createdAt: 1, updatedAt: 1 }
+      ],
+      folders: []
+    });
+
+    const migrated = await value.initialize();
+    expect(migrated.revision).toBe(5);
+    expect(migrated.projects.map((project) => [project.id, project.titlePlaceholder])).toEqual([
+      ["untitled", true],
+      ["named", false]
+    ]);
+    expect((await value.initialize()).revision).toBe(5);
   });
 
   it("handles board revisions, stale conflicts, and opaque document round trips", async () => {
@@ -136,6 +158,7 @@ describe("StateStore", () => {
     await value.createProject({ id: "p1", title: "Old", folderId: "f1", terminal: {} });
     const updated = await value.updateProject("p1", { title: "New" });
     expect(updated.updatedAt).toBe(12);
+    expect(updated.titlePlaceholder).toBe(false);
     await value.updateFolder("f1", { title: "Renamed" });
     await value.deleteFolder("f1");
     const registry = await value.readRegistry();
@@ -147,6 +170,23 @@ describe("StateStore", () => {
     await value.updateHistoryEntry("p1", "run1", { status: "done" });
     expect((await value.readHistory("p1")).runs).toEqual([{ id: "run1", status: "done" }]);
     expect((await value.deleteHistoryEntry("p1", "run1")).runs).toEqual([]);
+  });
+
+  it("sets an inferred title atomically only while the placeholder flag remains true", async () => {
+    const value = await store();
+    await value.createProject({ id: "auto", title: "Untitled Project", titlePlaceholder: true, terminal: {} });
+    await expect(value.updateProject("auto", { color: "blue" })).resolves.toMatchObject({
+      titlePlaceholder: true
+    });
+    await expect(value.setInferredProjectTitle("auto", "Stockholm Activities")).resolves.toMatchObject({
+      title: "Stockholm Activities",
+      titlePlaceholder: false
+    });
+    await expect(value.setInferredProjectTitle("auto", "Overwrite Attempt")).resolves.toBeNull();
+
+    await value.createProject({ id: "manual", title: "Untitled Project", titlePlaceholder: true, terminal: {} });
+    await value.updateProject("manual", { title: "My Own Name", titlePlaceholder: false });
+    await expect(value.setInferredProjectTitle("manual", "AI Name")).resolves.toBeNull();
   });
 
   it("does not replace malformed files or destroy the prior file after a failed write", async () => {

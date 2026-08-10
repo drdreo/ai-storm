@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { backend } from "./backend.store";
-import type { Folder, PortableStateBundle, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
+import {
+  DEFAULT_PROJECT_TITLE,
+  LEGACY_PROJECT_TITLE_PLACEHOLDER,
+  type Folder,
+  type PortableStateBundle,
+  type ProjectMeta,
+  type ProjectStatus
+} from "@ai-storm/shared";
 import { canvas } from "./canvas.store";
 import { history } from "./history.store";
 import { defaultTerminalConfig, defaultProjectColor } from "../core/models";
@@ -40,6 +47,7 @@ interface RegistryWire {
   projects: Array<{
     id: string;
     title: string;
+    titlePlaceholder?: boolean;
     color?: string;
     folderId?: string;
     order?: string;
@@ -58,6 +66,7 @@ function applyRegistry(registry: RegistryWire): void {
   const projects: ProjectMeta[] = registry.projects
     .map((item) => ({
       ...item,
+      titlePlaceholder: item.titlePlaceholder ?? item.title === LEGACY_PROJECT_TITLE_PLACEHOLDER,
       status: statuses.get(item.id) ?? "idle",
       // Compatibility field only: backend `updatedAt` tracks registry edits,
       // not actual UI activity. Active-project restoration uses localStorage.
@@ -115,18 +124,19 @@ async function probeLiveSessions(): Promise<void> {
 function durableProject(meta: ProjectMeta): Record<string, unknown> {
   return {
     title: meta.title,
+    titlePlaceholder: meta.titlePlaceholder,
     color: meta.color,
     folderId: meta.folderId,
     order: meta.order,
     terminal: { ...meta.terminal }
   };
 }
-function patchProject(meta: ProjectMeta): void {
+function patchProject(meta: ProjectMeta, patch: Record<string, unknown>): void {
   optimisticProject(meta);
   void backend
     .request<RegistryWire>("registry-patch-project", {
       projectId: meta.id,
-      payload: { patch: durableProject(meta) }
+      payload: { patch }
     })
     .then(applyRegistry)
     .catch(() => {
@@ -166,7 +176,8 @@ export const project = {
         const now = Date.now();
         const meta: ProjectMeta = {
           id,
-          title: "Untitled Project",
+          title: DEFAULT_PROJECT_TITLE,
+          titlePlaceholder: true,
           status: "idle",
           createdAt: now,
           lastActiveAt: now,
@@ -198,6 +209,7 @@ export const project = {
     const meta: ProjectMeta = {
       id,
       title,
+      titlePlaceholder: title === DEFAULT_PROJECT_TITLE,
       status: "idle",
       createdAt: now,
       lastActiveAt: now,
@@ -219,7 +231,14 @@ export const project = {
 
   rename(id: string, title: string): void {
     const meta = getMeta(id);
-    if (meta) patchProject({ ...meta, title });
+    if (meta) patchProject({ ...meta, title, titlePlaceholder: false }, { title, titlePlaceholder: false });
+  },
+
+  /** Apply a title the backend already persisted through the MCP tool. */
+  applyInferredTitle(id: string, title: string): void {
+    const meta = getMeta(id);
+    // A local manual rename may have won immediately before this event arrived.
+    if (meta?.titlePlaceholder) optimisticProject({ ...meta, title, titlePlaceholder: false });
   },
 
   setStatus(id: string, status: ProjectStatus): void {
@@ -229,7 +248,7 @@ export const project = {
 
   setColor(id: string, color: string): void {
     const meta = getMeta(id);
-    if (meta && meta.color !== color) patchProject({ ...meta, color });
+    if (meta && meta.color !== color) patchProject({ ...meta, color }, { color });
   },
 
   // ---- Folders (#128) ------------------------------------------------------
@@ -295,7 +314,8 @@ export const project = {
     const siblings = useProjectStore
       .getState()
       .projects.filter((w) => (w.folderId ?? undefined) === next && w.id !== projectId);
-    patchProject({ ...meta, folderId: next, order: orderAfterAll(siblings) });
+    const order = orderAfterAll(siblings);
+    patchProject({ ...meta, folderId: next, order }, { folderId: next, order });
   },
 
   /**
@@ -306,7 +326,8 @@ export const project = {
   moveProject(projectId: string, folderId: string | null, order: string): void {
     const meta = getMeta(projectId);
     if (!meta) return;
-    patchProject({ ...meta, folderId: folderId ?? undefined, order });
+    const nextFolderId = folderId ?? undefined;
+    patchProject({ ...meta, folderId: nextFolderId, order }, { folderId: nextFolderId, order });
   },
 
   /** Drop a folder at an explicit position among folders (#128 DnD). */
@@ -317,7 +338,10 @@ export const project = {
 
   patchTerminal(id: string, patch: Partial<ProjectMeta["terminal"]>): void {
     const meta = getMeta(id);
-    if (meta) patchProject({ ...meta, terminal: { ...meta.terminal, ...patch } });
+    if (meta) {
+      const terminal = { ...meta.terminal, ...patch };
+      patchProject({ ...meta, terminal }, { terminal });
+    }
   },
 
   setActive(id: string): void {
@@ -333,7 +357,7 @@ export const project = {
     let target = useProjectStore.getState().projects.find((w) => w.id !== id) ?? null;
     if (wasActive && !target) {
       // Deleting the last project — stand up a replacement to switch onto.
-      const fresh = project.create("Untitled Project");
+      const fresh = project.create(DEFAULT_PROJECT_TITLE);
       target = getMeta(fresh) ?? null;
     }
 

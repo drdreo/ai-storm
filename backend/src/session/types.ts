@@ -68,8 +68,9 @@ export interface SessionBackend {
    * extracted idea (a new card); `onScore` receives each newly-seen triage score
    * (#60) updating an existing card; `onCompletion` receives each done/reopen
    * state change (#167) for an existing card; `onReference` receives each
-   * external-link reference (#227) attached to an existing card. Both the last
-   * two are delivered via the MCP tool path (no scanner producer).
+   * external-link reference (#227) attached to an existing card; `onProjectTitle`
+   * receives a backend-persisted automatic rename (#244). These are delivered
+   * via the MCP tool path (no scanner producer).
    */
   attach(
     projectId: string,
@@ -78,6 +79,7 @@ export interface SessionBackend {
     onScore: (score: Score) => void,
     onCompletion: (completion: Completion) => void,
     onReference: (reference: Reference) => void,
+    onProjectTitle: (title: string) => void,
     onError: (message: string) => void
   ): Promise<void>;
 

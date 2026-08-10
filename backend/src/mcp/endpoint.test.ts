@@ -33,6 +33,17 @@ function setup() {
       const board = boards.get(projectId);
       if (!board) throw new Error("missing board");
       return board;
+    }),
+    setInferredProjectTitle: vi.fn(async (projectId: string, title: string) => {
+      const index = registryDocument.projects.findIndex((project) => project.id === projectId);
+      if (index < 0) throw new Error("missing project");
+      const current = registryDocument.projects[index];
+      if (!(current.titlePlaceholder ?? current.title === "Untitled Project")) return null;
+      const updated = { ...current, title, titlePlaceholder: false, updatedAt: current.updatedAt + 1 };
+      const projects = [...registryDocument.projects];
+      projects[index] = updated;
+      registryDocument = { ...registryDocument, revision: registryDocument.revision + 1, projects };
+      return updated;
     })
   } as unknown as StateStore;
   const app = new Hono().route("/mcp", mcpRoutes(registry, stateStore));
@@ -55,15 +66,17 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   const scores: Score[] = [];
   const completions: Completion[] = [];
   const references: Reference[] = [];
+  const projectTitles: string[] = [];
   registry.attachSession(projectId, {
     ideaSink,
     scoreSink,
     onIdea: (i) => ideas.push(i),
     onScore: (s) => scores.push(s),
     onCompletion: (c) => completions.push(c),
-    onReference: (r) => references.push(r)
+    onReference: (r) => references.push(r),
+    onProjectTitle: (title) => projectTitles.push(title)
   });
-  return { ...target, ideaSink, scoreSink, ideas, scores, completions, references };
+  return { ...target, ideaSink, scoreSink, ideas, scores, completions, references, projectTitles };
 }
 
 function storedBoard(...records: Record<string, unknown>[]): BoardDocument {
@@ -73,6 +86,23 @@ function storedBoard(...records: Record<string, unknown>[]): BoardDocument {
     nextIdeaRef: 4,
     document: { store: Object.fromEntries(records.map((record) => [record.id, record])) }
   };
+}
+
+function ideaBoard(...ideas: Array<{ ref: string; title: string; body?: string }>): BoardDocument {
+  const page = { id: "page:1", typeName: "page", name: "Page 1", index: "a1" };
+  return storedBoard(
+    page,
+    ...ideas.map((idea, index) => ({
+      id: `shape:${idea.ref}`,
+      typeName: "shape",
+      type: "idea-card",
+      parentId: page.id,
+      x: index * 100,
+      y: 0,
+      props: { title: idea.title, body: idea.body ?? "", origin: "user", kind: "idea" },
+      meta: { ref: idea.ref }
+    }))
+  );
 }
 
 function storedProject(id: string, title: string, folderId?: string) {
@@ -273,6 +303,7 @@ describe("MCP endpoint — MCP 2026-07-28 protocol surface", () => {
     expect(result).toMatchObject({ resultType: "complete", ttlMs: 0, cacheScope: "private" });
     expect(tools.map((t: { name: string }) => t.name)).toEqual([
       "capture_idea",
+      "set_project_title",
       "capture_score",
       "mark_idea_done",
       "link_idea",
@@ -280,11 +311,13 @@ describe("MCP endpoint — MCP 2026-07-28 protocol surface", () => {
       "get_projects"
     ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
-    expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
-    expect(tools[2].inputSchema.required).toEqual(["ref"]);
-    expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
-    expect(tools[4].inputSchema.required).toEqual(["projectId"]);
-    expect(tools[5].inputSchema.properties).toEqual({});
+    expect(tools[1].inputSchema.required).toEqual(["title"]);
+    expect(tools[1].inputSchema.properties.title.maxLength).toBe(40);
+    expect(tools[2].inputSchema.required).toEqual(["ref", "impact", "effort"]);
+    expect(tools[3].inputSchema.required).toEqual(["ref"]);
+    expect(tools[4].inputSchema.required).toEqual(["ref", "url"]);
+    expect(tools[5].inputSchema.required).toEqual(["projectId"]);
+    expect(tools[6].inputSchema.properties).toEqual({});
   });
 
   it("requires Mcp-Name for tool calls and stamps modern tool results", async () => {
@@ -414,6 +447,112 @@ describe("capture_idea — schema validation (§9.1)", () => {
     expect(body.result!.content[0].text.length).toBeGreaterThan(0); // readable retry hint
     expect(w.ideas).toEqual([]);
   });
+});
+
+describe("automatic project naming (#244)", () => {
+  it("nudges the active model on the third unsaved MCP capture", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    setRegistry({
+      version: 1,
+      revision: 1,
+      projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+      folders: []
+    });
+    boards.set("ws1", ideaBoard());
+    const w = wire(registry, "ws1");
+
+    expect(textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Museums" }))).not.toContain(
+      "set_project_title"
+    );
+    expect(textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Archipelago" }))).not.toContain(
+      "set_project_title"
+    );
+    const third = textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Food tour" }));
+    expect(third).toContain("set_project_title now");
+    expect(third).toContain("maximum 40 characters");
+    expect(textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Sauna" }))).not.toContain(
+      "set_project_title"
+    );
+  });
+
+  it("emits only one nudge when several capture calls cross the threshold concurrently", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    setRegistry({
+      version: 1,
+      revision: 1,
+      projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+      folders: []
+    });
+    boards.set("ws1", ideaBoard());
+    const w = wire(registry, "ws1");
+
+    const results = await Promise.all(
+      ["Museums", "Archipelago", "Food tour", "Sauna", "Night market", "Design district"].map(async (title) =>
+        textOf(await callTool(app, "ws1", w.token, "capture_idea", { title }))
+      )
+    );
+    expect(results.filter((result) => result.includes("set_project_title now"))).toHaveLength(1);
+  });
+
+  it("counts meaningful persisted manual cards and includes their titles in the nudge", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    setRegistry({
+      version: 1,
+      revision: 1,
+      projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+      folders: []
+    });
+    boards.set(
+      "ws1",
+      ideaBoard(
+        { ref: "manual1", title: "Vasa Museum" },
+        { ref: "manual2", title: "Untitled idea" },
+        { ref: "manual3", title: "Archipelago ferry" }
+      )
+    );
+    const w = wire(registry, "ws1");
+    const result = textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Gamla Stan walk" }));
+
+    expect(result).toContain("set_project_title now");
+    expect(result).toContain('["Vasa Museum","Archipelago ferry"]');
+  });
+
+  it("persists a concise inferred title, notifies the client, and never overwrites it", async () => {
+    const { registry, app, setRegistry } = setup();
+    setRegistry({
+      version: 1,
+      revision: 1,
+      projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+      folders: []
+    });
+    const w = wire(registry, "ws1");
+
+    expect(textOf(await callTool(app, "ws1", w.token, "set_project_title", { title: " Stockholm Activities " }))).toBe(
+      'Project titled "Stockholm Activities".'
+    );
+    expect(w.projectTitles).toEqual(["Stockholm Activities"]);
+    expect(textOf(await callTool(app, "ws1", w.token, "set_project_title", { title: "Overwrite" }))).toContain(
+      "already has a real title"
+    );
+    expect(w.projectTitles).toEqual(["Stockholm Activities"]);
+  });
+
+  it.each([{ title: "" }, { title: "Untitled Project" }, { title: "x".repeat(41) }])(
+    "rejects an invalid inferred title %#",
+    async (args) => {
+      const { registry, app, setRegistry } = setup();
+      setRegistry({
+        version: 1,
+        revision: 1,
+        projects: [{ ...storedProject("ws1", "Untitled Project"), titlePlaceholder: true }],
+        folders: []
+      });
+      const w = wire(registry, "ws1");
+      const body = await callTool(app, "ws1", w.token, "set_project_title", args);
+      expect(body.result!.isError).toBe(true);
+      expect(w.projectTitles).toEqual([]);
+    }
+  );
 });
 
 describe("capture_score — schema validation (§9.1)", () => {
@@ -697,6 +836,7 @@ describe("durable MCP read tools (#234)", () => {
     expect(payload.projects[0]).toMatchObject({
       id: "idle",
       title: "Idle",
+      titlePlaceholder: false,
       folder: "Archive",
       createdAt: 100,
       updatedAt: 200,
@@ -980,7 +1120,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     // The old token routes again; after attach, a tool call lands on the canvas.
     const app = new Hono().route("/mcp", mcpRoutes(registry2, {} as StateStore));
     const ideas: CreateIdeaInput[] = [];
-    await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
+    await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop, noop, noop);
     const body = await callTool(app, "ws1", token, "capture_idea", {
       title: "Survived the restart"
     });
@@ -1002,7 +1142,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
     const ideas: CreateIdeaInput[] = [];
-    await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
+    await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop, noop, noop);
     // The primed agent lapses back to a marker line after the attach-time seed.
     fake.setPane("  «IDEA» Lapsed marker :: the agent ignored the tool\n❯");
     // Two poll ticks: the scanner's two-frame confirmation (scanner-hardening)

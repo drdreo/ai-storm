@@ -143,7 +143,10 @@ describe("project store — registry lifecycle", () => {
   it("stands up a starter project on first boot and marks it active", async () => {
     const { useProjectStore, selectActive } = await bootStore();
     expect(useProjectStore.getState().projects.length).toBe(1);
-    expect(selectActive(useProjectStore.getState())?.title).toBe("Untitled Project");
+    expect(selectActive(useProjectStore.getState())).toMatchObject({
+      title: "Untitled Project",
+      titlePlaceholder: true
+    });
   });
 
   it("restores active runtime status when a durable session survived a browser reload", async () => {
@@ -184,7 +187,23 @@ describe("project store — registry lifecycle", () => {
     expect(useProjectStore.getState().projects.find((w) => w.id === id)?.title).toBe("My Project");
 
     project.rename(id, "Renamed Project");
-    expect(useProjectStore.getState().projects.find((w) => w.id === id)?.title).toBe("Renamed Project");
+    expect(useProjectStore.getState().projects.find((w) => w.id === id)).toMatchObject({
+      title: "Renamed Project",
+      titlePlaceholder: false
+    });
+  });
+
+  it("applies an inferred title only while the local placeholder flag is still set", async () => {
+    const { project, useProjectStore } = await bootStore();
+    const id = useProjectStore.getState().activeId!;
+
+    project.applyInferredTitle(id, "Stockholm Activities");
+    expect(useProjectStore.getState().projects.find((item) => item.id === id)).toMatchObject({
+      title: "Stockholm Activities",
+      titlePlaceholder: false
+    });
+    project.applyInferredTitle(id, "Late AI Overwrite");
+    expect(useProjectStore.getState().projects.find((item) => item.id === id)?.title).toBe("Stockholm Activities");
   });
 
   it("create() assigns a deterministic default color and setColor() overrides it", async () => {

@@ -7,10 +7,17 @@
 
 export type ProjectStatus = "idle" | "active" | "streaming" | "error";
 
+/** Pre-#244 fallback used only to migrate records that lack the explicit flag. Never change. */
+export const LEGACY_PROJECT_TITLE_PLACEHOLDER = "Untitled Project";
+/** Initial display title. Eligibility for automatic naming is tracked separately. */
+export const DEFAULT_PROJECT_TITLE = LEGACY_PROJECT_TITLE_PLACEHOLDER;
+
 /** Metadata describing a single isolated project. */
 export interface ProjectMeta {
   id: string;
   title: string;
+  /** True until the user or active AI session assigns a real title. */
+  titlePlaceholder: boolean;
   status: ProjectStatus;
   /** Epoch ms of creation. */
   createdAt: number;
@@ -56,6 +63,8 @@ export interface Folder {
 export interface PortableStateProject {
   id: string;
   title: string;
+  /** Absent only in exports created before automatic project naming (#244). */
+  titlePlaceholder?: boolean;
   color?: string;
   folderId?: string;
   order?: string;

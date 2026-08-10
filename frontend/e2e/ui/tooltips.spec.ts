@@ -18,6 +18,19 @@ test.describe("tooltips", () => {
     await expect(page.getByRole("tooltip")).toContainText(/Facilitation mode/i);
   });
 
+  test("an ellipsized project title reveals its full text on hover", async ({ shell, page }) => {
+    await shell.goto();
+    const row = shell.projectRows.first();
+    const title = row.getByTestId("project-title");
+    const original = (await title.textContent())!;
+    const longTitle = "Stockholm Event Concepts and Activities";
+    await shell.renameProject(row, original, longTitle);
+
+    await expect.poll(() => title.evaluate((element) => element.scrollWidth > element.clientWidth + 1)).toBe(true);
+    await title.hover();
+    await expect(page.getByRole("tooltip").filter({ hasText: longTitle })).toBeVisible();
+  });
+
   test("session setup advertises that settings apply on start", async ({ shell, page }) => {
     await shell.goto();
     await expect(page.getByText(/applied on start/i)).toBeVisible();

@@ -58,6 +58,8 @@ export interface McpAttachment {
    *  feeds it — so no shared dedupe sink is needed; the canvas appends it to the
    *  card's `meta.links` (deduped by URL). */
   onReference: (reference: Reference) => void;
+  /** Notify the attached client after the backend atomically persists an inferred title. */
+  onProjectTitle: (title: string) => void;
 }
 
 /** What the endpoint sees after a successful token check. */
@@ -66,12 +68,21 @@ export interface McpSession {
   attachment: McpAttachment | null;
   /** Mint the next globally reserved `i<n>` ref. */
   mintRef: () => Promise<string>;
+  /** MCP refs captured since this process registered/restored the session. */
+  capturedIdeaRefs: ReadonlySet<string>;
+  noteCapturedIdea: (ref: string) => void;
+  acknowledgePersistedIdeas: (refs: ReadonlySet<string>) => void;
+  projectTitleNudgeSent: boolean;
+  /** Atomically win the right to include the one-time naming nudge. */
+  claimProjectTitleNudge: () => boolean;
 }
 
 interface Entry {
   token: string;
   attachment: McpAttachment | null;
   nextRef: number;
+  capturedIdeaRefs: Set<string>;
+  projectTitleNudgeSent: boolean;
 }
 
 type RuntimeState = "idle" | "attached" | "responding" | "error";
@@ -114,7 +125,13 @@ export class McpSessionRegistry {
     if (!this.#baseUrl) return undefined;
     let entry = this.#entries.get(projectId);
     if (!entry) {
-      entry = { token: randomUUID().replace(/-/g, ""), attachment: null, nextRef: 1 };
+      entry = {
+        token: randomUUID().replace(/-/g, ""),
+        attachment: null,
+        nextRef: 1,
+        capturedIdeaRefs: new Set(),
+        projectTitleNudgeSent: false
+      };
       this.#entries.set(projectId, entry);
     }
     if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
@@ -128,7 +145,13 @@ export class McpSessionRegistry {
    */
   restoreSession(projectId: string, token: string): void {
     if (this.#entries.has(projectId)) return; // live entry wins
-    this.#entries.set(projectId, { token, attachment: null, nextRef: 1 });
+    this.#entries.set(projectId, {
+      token,
+      attachment: null,
+      nextRef: 1,
+      capturedIdeaRefs: new Set(),
+      projectTitleNudgeSent: false
+    });
     if (!this.#runtimeStates.has(projectId)) this.#runtimeStates.set(projectId, "idle");
   }
 
@@ -204,6 +227,21 @@ export class McpSessionRegistry {
       mintRef: async () => {
         if (this.#reserveRef) return this.#reserveRef(projectId);
         return `i${entry.nextRef++}`;
+      },
+      get capturedIdeaRefs() {
+        return entry.capturedIdeaRefs;
+      },
+      noteCapturedIdea: (ref: string) => entry.capturedIdeaRefs.add(ref),
+      acknowledgePersistedIdeas: (refs: ReadonlySet<string>) => {
+        for (const ref of refs) entry.capturedIdeaRefs.delete(ref);
+      },
+      get projectTitleNudgeSent() {
+        return entry.projectTitleNudgeSent;
+      },
+      claimProjectTitleNudge: () => {
+        if (entry.projectTitleNudgeSent) return false;
+        entry.projectTitleNudgeSent = true;
+        return true;
       }
     };
   }

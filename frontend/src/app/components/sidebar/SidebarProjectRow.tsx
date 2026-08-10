@@ -10,10 +10,12 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { SidebarInput, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Check, MoreHorizontal } from "lucide-react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Folder, ProjectMeta, ProjectStatus } from "@ai-storm/shared";
 import { defaultProjectColor, PROJECT_COLORS } from "../../core/models";
 import { project } from "../../stores/project.store";
@@ -55,6 +57,46 @@ function useDotDisplay(ws: ProjectMeta): DotDisplay {
     return { shape: ws.status, hint: STATUS_HINT[ws.status] };
   }
   return { shape: "idle", hint: STATUS_HINT.idle };
+}
+
+/** Show the full project title only when CSS truncation has hidden part of it. */
+function ProjectTitle({ title }: { title: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [truncated, setTruncated] = useState(false);
+  const measure = useCallback(() => {
+    const element = ref.current;
+    const next = !!element && element.scrollWidth > element.clientWidth + 1;
+    setTruncated((current) => (current === next ? current : next));
+  }, []);
+
+  useLayoutEffect(() => {
+    let mounted = true;
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (ref.current) observer?.observe(ref.current);
+    window.addEventListener("resize", measure);
+    void document.fonts?.ready.then(() => {
+      if (mounted) measure();
+    });
+    return () => {
+      mounted = false;
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [measure, title]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span ref={ref} className="min-w-0 flex-1 truncate" data-testid="project-title">
+          {title}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="center" sideOffset={6} hidden={!truncated}>
+        {title}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /** The project status/accent dot, shared by the row and the drag overlay. */
@@ -145,7 +187,7 @@ export function SortableProjectRow(props: ProjectRowProps) {
         tooltip={shape === "idle" ? ws.title : `${ws.title} · ${hint}`}
       >
         <StatusDot ws={ws} />
-        <span className="truncate">{ws.title}</span>
+        <ProjectTitle title={ws.title} />
         <span className="sr-only">— {shape}</span>
       </SidebarMenuButton>
 

@@ -160,7 +160,7 @@ async function forward(name: string, args: unknown): Promise<string> {
 `;
 }
 
-/** The six `pi.registerTool` calls, inserted into the default export's body. */
+/** The seven `pi.registerTool` calls, inserted into the default export's body. */
 const TOOLS_REGISTRATION = `
   pi.registerTool({
     name: "capture_idea",
@@ -188,6 +188,25 @@ const TOOLS_REGISTRATION = `
     }),
     async execute(_toolCallId, params) {
       return { content: [{ type: "text", text: await forward("capture_idea", params) }], details: {} };
+    }
+  });
+
+  pi.registerTool({
+    name: "set_project_title",
+    label: "Set project title",
+    description:
+      "Replace this project's placeholder title with a concise inferred title. Call only when capture_idea " +
+      "explicitly asks you to name the project.",
+    promptSnippet: "Set the inferred ai-storm project title",
+    parameters: Type.Object({
+      title: Type.String({
+        minLength: 1,
+        maxLength: 40,
+        description: "Concise product/session-style project title; no sentence or trailing punctuation."
+      })
+    }),
+    async execute(_toolCallId, params) {
+      return { content: [{ type: "text", text: await forward("set_project_title", params) }], details: {} };
     }
   });
 

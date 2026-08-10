@@ -68,6 +68,8 @@ const MCP_PRIME_INSTRUCTION = `You are in a brainstorming project. Reply normall
 
 Whenever you produce a brainstorming idea or ideation note worth capturing on the canvas, call the capture_idea tool: a short title, a description in body (multi-line is fine), and optionally a kind (risk, feature, question, decision).
 
+If a capture_idea result says the project still needs a title, immediately infer the common theme across the ideas and call set_project_title with the requested concise product/session-style title. Do not call set_project_title otherwise.
+
 When you are responding about a specific existing card whose ref you were given (it looks like @a1), link your idea to it by passing links:[{to:"a1"}]. If your idea is a stronger version that REPLACES (supersedes) that card, pass links:[{to:"a1",relation:"supersedes"}] — the original then recedes on the canvas while yours takes its place. When you are asked to COMBINE or merge several cards into one stronger idea, make a SINGLE capture_idea call with one supersedes link per source card.
 
 When you are asked to TRIAGE or rate the existing cards, call capture_score once per card — impact/effort and optional confidence, each an integer 1-5 (higher impact = more valuable, higher effort = more costly, higher confidence = more sure) — and do NOT create new cards while triaging.

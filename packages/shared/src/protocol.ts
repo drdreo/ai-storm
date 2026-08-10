@@ -235,6 +235,7 @@ export type ServerMessage =
   | ScoreMessage
   | CompletionMessage
   | ReferenceMessage
+  | ProjectTitleMessage
   | ExitMessage
   | AgentStatusMessage
   | AgentArtifactsMessage
@@ -377,6 +378,13 @@ export interface ReferenceMessage {
   type: "reference";
   projectId: string;
   reference: Reference;
+}
+
+/** A backend-persisted automatic title update for the attached project (#244). */
+export interface ProjectTitleMessage {
+  type: "project-title";
+  projectId: string;
+  title: string;
 }
 
 /**

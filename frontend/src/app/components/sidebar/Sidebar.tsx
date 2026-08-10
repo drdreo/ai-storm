@@ -24,7 +24,7 @@ import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { ChevronDown, Folder as FolderIcon, FolderPlus, Plus, Settings } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
-import type { Folder, PortableStateBundle, ProjectMeta } from "@ai-storm/shared";
+import { DEFAULT_PROJECT_TITLE, type Folder, type PortableStateBundle, type ProjectMeta } from "@ai-storm/shared";
 import { downloadFile } from "../../core/download-file";
 import { exportFileSlug, parseImportFile, type ImportableProject } from "../../core/project-portable";
 import { ingestion } from "../../stores/ingestion.store";
@@ -95,7 +95,7 @@ export function Sidebar() {
   };
 
   const add = () => {
-    const id = project.create("Untitled Project");
+    const id = project.create(DEFAULT_PROJECT_TITLE);
     project.setActive(id);
   };
 
