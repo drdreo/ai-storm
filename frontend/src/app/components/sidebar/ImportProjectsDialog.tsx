@@ -11,15 +11,15 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { useState } from "react";
-import type { ExportedProject } from "../../core/project-portable";
+import type { ImportableProject } from "../../core/project-portable";
 
 export interface ImportProjectsDialogProps {
   /** Parsed entries from the chosen export file. */
-  entries: ExportedProject[];
+  entries: ImportableProject[];
   /** Titles of projects that already exist (case-sensitive match). */
   existingTitles: ReadonlySet<string>;
   onCancel: () => void;
-  onConfirm: (selected: ExportedProject[]) => void;
+  onConfirm: (selected: ImportableProject[]) => void;
 }
 
 /**
@@ -61,7 +61,7 @@ export function ImportProjectsDialog({ entries, existingTitles, onCancel, onConf
                 </Badge>
               )}
               <span className="shrink-0 text-xs text-muted-foreground">
-                {entry.board.cards.length} {entry.board.cards.length === 1 ? "card" : "cards"}
+                {entry.cardCount} {entry.cardCount === 1 ? "card" : "cards"}
               </span>
             </label>
           ))}

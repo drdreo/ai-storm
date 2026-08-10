@@ -30,7 +30,7 @@ import {
   CODEX_PROFILE,
   OPENCODE_PROFILE,
   PI_EXTENSION_FILENAME,
-  type Idea,
+  type CreateIdeaInput,
   type McpLaunchContext
 } from "./extraction/index.ts";
 import { TOOLS } from "../mcp/endpoint.ts";
@@ -433,7 +433,7 @@ describe("scanIdeas — idea-graph links (#42)", () => {
         title: "Adopt event sourcing",
         body: "replaces the snapshot approach",
         kind: "decision",
-        id: "c3",
+        ref: "c3",
         links: [{ to: "a1", relation: "supersedes" }]
       }
     ]);
@@ -739,7 +739,7 @@ describe("ideaIdentityKey — title-anchored identity (#38)", () => {
   });
 
   it("ignores the idea's own id (identity is what it's about, not the minted ref)", () => {
-    expect(ideaIdentityKey({ title: "X", body: "y", id: "a9" })).toBe(ideaIdentityKey({ title: "X", body: "y" }));
+    expect(ideaIdentityKey({ title: "X", body: "y", ref: "a9" })).toBe(ideaIdentityKey({ title: "X", body: "y" }));
   });
 });
 
@@ -954,7 +954,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     expect(launch).toContain(`mcp_servers.ai-storm.url=${JSON.stringify(url)}`);
     expect(launch).toContain("mcp_servers.ai-storm.enabled=true");
     expect(launch).toContain(
-      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","link_idea","get_board_ideas"]'
+      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","link_idea","get_board_ideas","get_projects"]'
     );
     expect(launch).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
 
@@ -1091,7 +1091,7 @@ describe("TmuxSessionBackend — resize settle window", () => {
       const backend = new TmuxSessionBackend({ tmux, sleep: async () => {} });
       await backend.create({ projectId: "wsR", command: "claude", prime: PRIME });
 
-      const ideas: Idea[] = [];
+      const ideas: CreateIdeaInput[] = [];
       await backend.attach(
         "wsR",
         () => {},
@@ -1153,7 +1153,7 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
       mcpServers: { "ai-storm": { type: "http", url: ctx.url } }
     });
     expect(args[args.indexOf("--allowedTools") + 1]).toBe(
-      "mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score,mcp__ai-storm__mark_idea_done,mcp__ai-storm__link_idea,mcp__ai-storm__get_board_ideas"
+      "mcp__ai-storm__capture_idea,mcp__ai-storm__capture_score,mcp__ai-storm__mark_idea_done,mcp__ai-storm__link_idea,mcp__ai-storm__get_board_ideas,mcp__ai-storm__get_projects"
     );
     expect(args.filter((a) => a === "--mcp-config")).toHaveLength(1);
     expect(args.filter((a) => a === "--allowedTools")).toHaveLength(1);
@@ -1172,7 +1172,7 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
     expect(args).toContain('mcp_servers.ai-storm.url="http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef"');
     expect(args).toContain("mcp_servers.ai-storm.enabled=true");
     expect(args).toContain(
-      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","link_idea","get_board_ideas"]'
+      'mcp_servers.ai-storm.enabled_tools=["capture_idea","capture_score","mark_idea_done","link_idea","get_board_ideas","get_projects"]'
     );
     expect(args).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
     expect(args.filter((a) => a === "-c")).toHaveLength(6);

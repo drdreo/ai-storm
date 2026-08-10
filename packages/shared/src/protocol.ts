@@ -27,17 +27,73 @@
 
 export * from "./modes.js";
 export * from "./project.js";
+export * from "./idea.js";
+
+import type { CreateIdeaInput } from "./idea.js";
 
 /** Messages sent from the web client to the backend daemon. */
 export type ClientMessage =
   | AttachMessage
   | InputMessage
+  | SubmitMessage
   | ResizeMessage
   | DetachMessage
   | KillMessage
   | ContextMessage
-  | BoardSnapshotMessage
-  | AgentMessage;
+  | AgentMessage
+  | StateRequestMessage;
+
+/** Backend-owned durable state operations. Mutations are intentionally granular;
+ * board-save is the sole whole-document write. `requestId` correlates an ack. */
+export type StateOperation =
+  | "registry-load"
+  | "session-probe"
+  | "registry-create-project"
+  | "registry-patch-project"
+  | "registry-delete-project"
+  | "registry-create-folder"
+  | "registry-patch-folder"
+  | "registry-delete-folder"
+  | "board-load"
+  | "board-save"
+  | "reserve-idea-refs"
+  | "history-load"
+  | "history-append"
+  | "history-update"
+  | "history-delete"
+  | "history-clear"
+  | "state-export"
+  | "state-import";
+
+const STATE_OPERATIONS: ReadonlySet<string> = new Set<StateOperation>([
+  "registry-load",
+  "session-probe",
+  "registry-create-project",
+  "registry-patch-project",
+  "registry-delete-project",
+  "registry-create-folder",
+  "registry-patch-folder",
+  "registry-delete-folder",
+  "board-load",
+  "board-save",
+  "reserve-idea-refs",
+  "history-load",
+  "history-append",
+  "history-update",
+  "history-delete",
+  "history-clear",
+  "state-export",
+  "state-import"
+]);
+
+export interface StateRequestMessage {
+  type: "state-request";
+  requestId: string;
+  operation: StateOperation;
+  projectId?: string;
+  /** Operation-specific payload. The backend validates required fields. */
+  payload?: Record<string, unknown>;
+}
 
 /**
  * Ensure the durable session for a project exists and start streaming its
@@ -84,6 +140,20 @@ export interface InputMessage {
   data: string;
 }
 
+/**
+ * Deliver one complete prompt atomically to the interactive harness. Unlike raw
+ * {@link InputMessage} keystrokes, multiline text goes through the backend's
+ * paste-safe path, so embedded newlines never act as Enter. With `submit`
+ * absent/true the prompt is then submitted exactly once; with `submit: false`
+ * it is left editable in the input line for the user to review and send.
+ */
+export interface SubmitMessage {
+  type: "submit";
+  projectId: string;
+  data: string;
+  submit?: boolean;
+}
+
 /** Inform the session of a new viewport size; re-anchors extraction width. */
 export interface ResizeMessage {
   type: "resize";
@@ -116,50 +186,6 @@ export interface ContextMessage {
   type: "context";
   projectId: string;
   document: string;
-}
-
-export interface BoardIdeaCard {
-  ref: string | null;
-  id: string;
-  kind: string;
-  title: string;
-  body: string;
-  origin: "ai" | "user";
-  createdAt?: number;
-  starred: boolean;
-  done: boolean;
-  superseded: boolean;
-  score?: { impact: number; effort: number; confidence?: number };
-  position: { x: number; y: number };
-}
-
-export interface BoardIdeaEdge {
-  from: string | null;
-  to: string | null;
-  fromId: string;
-  toId: string;
-  relation: IdeaRelation;
-}
-
-export interface BoardIdeasSnapshot {
-  version: 1;
-  pageId: string;
-  updatedAt: number;
-  cards: BoardIdeaCard[];
-  edges: BoardIdeaEdge[];
-  selection: { refs: string[]; ids: string[] };
-  filter?: Record<string, unknown>;
-}
-
-/**
- * Browser-published active-board read model for MCP read tools (#196). The
- * backend cannot inspect tldraw directly, so the mounted canvas sends the
- * normalized current-page idea state for its own project/session route.
- */
-export interface BoardSnapshotMessage {
-  type: "board-snapshot";
-  projectId: string;
-  snapshot: BoardIdeasSnapshot;
 }
 
 /**
@@ -212,7 +238,20 @@ export type ServerMessage =
   | ExitMessage
   | AgentStatusMessage
   | AgentArtifactsMessage
+  | StateResponseMessage
   | ErrorMessage;
+
+/** Acknowledgment for one backend state request. Storage failures include the
+ * affected path when available; board conflicts return the latest revision and document. */
+export interface StateResponseMessage {
+  type: "state-response";
+  requestId: string;
+  operation: StateOperation;
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+  path?: string;
+}
 
 /** Lifecycle of a durable session, decoupled from a specific connection. */
 export interface SessionStatusMessage {
@@ -222,48 +261,7 @@ export interface SessionStatusMessage {
 }
 
 /**
- * The relationship an {@link IdeaLink} edge carries (idea-graph design §2.3).
- * `'about'` is the generic default — "this card is about that card"; the source
- * card's `kind` carries the flavour (a risk-of edge is just a `kind: 'risk'`
- * card with an `about` link). `'supersedes'` is the one structural relation that
- * isn't derivable from the source's kind — the card replaces its target
- * (decision capture / lifecycle, #22/#20). Extensible, but deliberately tiny.
- */
-export type IdeaRelation = "about" | "supersedes";
-
-/** A typed edge from one idea to another card (idea-graph design §3.1). */
-export interface IdeaLink {
-  /** Short ref of the target card this idea links to (see idea-graph §4). */
-  to: string;
-  /** Defaults to `'about'`; `'supersedes'` means this card replaces the target. */
-  relation?: IdeaRelation;
-}
-
-/**
- * A single extracted brainstorming idea destined for the canvas.
- *
- * `id`/`links` are additive (idea-graph design §3.1) and OPTIONAL — nothing that
- * produces today's `{title, body, kind}` breaks. They are dormant until the
- * idea-graph consumers (#40/#19/#22/#16) turn them on; until then the frontend
- * ignores `links` and mints its own card identity.
- */
-export interface Idea {
-  /** Short title — the card heading. */
-  title: string;
-  /** One-line (or, for fenced ideas, multi-line) description — the card body. */
-  body: string;
-  /** Optional kind/tag, e.g. "risk" | "feature" | "question" | "decision" | "heuristic". */
-  kind?: string;
-  /** This idea's own short ref, when the agent stamped one (fenced `id:`). Usually
-   *  minted by the canvas at card creation instead (idea-graph §4). */
-  id?: string;
-  /** 0..n edges to other cards (idea-graph §3.1). A verb-spawned idea usually
-   *  carries one (its originating edge) or none. */
-  links?: IdeaLink[];
-}
-
-/**
- * Canonical identity key for an {@link Idea} — the key the backend scanner uses
+ * Canonical identity key for a {@link CreateIdeaInput} — the key the backend scanner uses
  * to track which ideas it has already emitted this session, so a marker the
  * terminal re-renders every frame is sent to the canvas exactly once (#38).
  *
@@ -278,10 +276,10 @@ export interface Idea {
  * `kind` + `links` stay in the key so a same-titled risk vs. feature, or an idea
  * pointed at a different card, stay distinct (idea-graph design §5.1; links are
  * order-independent). The title's whitespace is normalized for safety; the
- * idea's own `id` is excluded (identity is what the idea is about, not the ref a
+ * idea's own `ref` is excluded (identity is what the idea is about, not the ref a
  * producer minted).
  */
-export function ideaIdentityKey(idea: Idea): string {
+export function ideaIdentityKey(idea: CreateIdeaInput): string {
   const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
   const links = (idea.links ?? [])
     .map((l) => `${l.to}:${l.relation ?? "about"}`)
@@ -292,7 +290,7 @@ export function ideaIdentityKey(idea: Idea): string {
 }
 
 /**
- * An AI triage score for one EXISTING card (#60). Unlike an {@link Idea} (which
+ * An AI triage score for one EXISTING card (#60). Unlike a {@link CreateIdeaInput} (which
  * creates a card), a score *updates* a card already on the board: it targets the
  * card's short ref (idea-graph §4) and carries the agent's impact / effort /
  * confidence rating on a 1..5 scale. Extracted from the `«SCORE@ref»` marker the
@@ -403,7 +401,7 @@ export interface DataMessage {
 export interface IdeaMessage {
   type: "idea";
   projectId: string;
-  idea: Idea;
+  idea: CreateIdeaInput;
 }
 
 /** The durable session ended unexpectedly (e.g. killed externally). */
@@ -497,7 +495,7 @@ export function parseClientMessage(raw: string): ClientMessage {
   if (typeof msg !== "object" || msg === null || !("type" in msg)) {
     throw new Error("Malformed message: missing `type`");
   }
-  if (msg.type !== "attach" && !("projectId" in msg)) {
+  if (msg.type !== "attach" && msg.type !== "state-request" && !("projectId" in msg)) {
     throw new Error("Malformed message: missing `projectId`");
   }
 
@@ -516,6 +514,11 @@ export function parseClientMessage(raw: string): ClientMessage {
     case "input":
       requireString(m, "data", "input");
       break;
+    case "submit":
+      requireString(m, "data", "submit");
+      if (m.submit !== undefined && typeof m.submit !== "boolean")
+        throw new Error("Malformed `submit` message: `submit` must be a boolean when present");
+      break;
     case "resize":
       requireNumber(m, "cols", "resize");
       requireNumber(m, "rows", "resize");
@@ -527,9 +530,17 @@ export function parseClientMessage(raw: string): ClientMessage {
     case "context":
       requireString(m, "document", "context");
       break;
-    case "board-snapshot":
-      if (typeof m.snapshot !== "object" || m.snapshot === null) {
-        throw new Error("Malformed `board-snapshot` message: `snapshot` must be an object");
+    case "state-request":
+      requireString(m, "requestId", "state-request");
+      requireString(m, "operation", "state-request");
+      if (!STATE_OPERATIONS.has(m.operation as string))
+        throw new Error("Malformed `state-request` message: unknown operation");
+      if (m.projectId !== undefined) requireString(m, "projectId", "state-request");
+      if (
+        m.payload !== undefined &&
+        (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload))
+      ) {
+        throw new Error("Malformed `state-request` message: `payload` must be an object");
       }
       break;
     case "agent":

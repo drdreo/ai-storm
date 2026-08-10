@@ -72,11 +72,15 @@ describe("looksLikeAiStorm", () => {
 describe("state paths", () => {
   const home = "/home/tester";
 
-  it("uses XDG state on Linux, honoring the override", () => {
+  it("uses an absolute explicit state root, then XDG state on Linux", () => {
     const linux: PlatformEnv = { platform: "linux", env: {}, home };
     expect(stateDir(linux)).toBe("/home/tester/.local/state/ai-storm");
     const xdg: PlatformEnv = { platform: "linux", env: { XDG_STATE_HOME: "/xdg" }, home };
     expect(stateDir(xdg)).toBe("/xdg/ai-storm");
+    expect(stateDir({ ...linux, env: { AI_STORM_STATE_DIR: "/custom/state" } })).toBe("/custom/state");
+    expect(stateDir({ ...linux, env: { AI_STORM_STATE_DIR: "relative", XDG_STATE_HOME: "/xdg" } })).toBe(
+      "/xdg/ai-storm"
+    );
   });
 
   it("uses Application Support on macOS and LOCALAPPDATA on Windows", () => {

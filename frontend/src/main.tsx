@@ -15,8 +15,8 @@ if (import.meta.env.VITE_OTEL_EXPORTER_OTLP_ENDPOINT) {
 theme.init();
 
 // NOTE: intentionally no <StrictMode>. The app is built around imperative
-// singletons (one multiplexing WebSocket, live xterm.js instances, the tldraw
-// Editor, per-project IndexedDB stores). StrictMode's deliberate double
+// singletons (one multiplexing WebSocket, live xterm.js instances, backend-loaded
+// tldraw stores). StrictMode's deliberate double
 // mount/unmount in dev would double-open the socket, re-spawn terminals and
 // re-mount tldraw, which these effects are not written to tolerate.
 createRoot(document.getElementById("root")!).render(

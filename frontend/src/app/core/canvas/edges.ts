@@ -34,7 +34,7 @@ export function ideaEdges(
     if (!from || !to || !cardIds.has(from) || !cardIds.has(to)) continue;
     const relation: LayoutRelation =
       (shape.meta as { relation?: string }).relation === "supersedes" ? "supersedes" : "about";
-    edges.push({ from, to, relation });
+    edges.push({ id: shape.id, from, to, relation });
   }
   return edges;
 }

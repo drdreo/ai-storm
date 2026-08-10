@@ -1,43 +1,21 @@
 /**
  * Reading the live board out to text/data — the canvas's read-side ports: normalized
- * markdown (PRD §3.2), the selection hand-off (PRD §3.6), the {@link BoardSnapshot}
+ * markdown (PRD §3.2), the selection hand-off (PRD §3.6), the board snapshot
  * for synthesis/triage (#28/#60), and the ref-annotated triage serialization (#60).
- * No mutation here (except `cardRef`'s lazy ref mint); these just read the editor.
+ * No mutation here; these projections only read the editor.
  */
-import type { Editor } from "tldraw";
-import type { BoardIdeaCard, BoardIdeaEdge, BoardIdeasSnapshot } from "@ai-storm/shared";
+import type { IdeaCard, IdeaEdge } from "@ai-storm/shared";
+import type { Editor, TLShapeId } from "tldraw";
 import { handoffCardsToText, serializeCards } from "../canvas-text";
 import { isTriageableKind, normalizeKind } from "../idea-descriptors";
 import type { BoardCard, BoardEdge, BoardSnapshot } from "../summarize.ts";
 import { ideaEdges } from "./edges";
 import { cardRef, cardsInOrder, content, type IdeaCardMeta, type IdeaCardShape } from "./idea-card";
 
-export interface SerializedSelectedIdeaCard {
-  ref: string | null;
-  id: string;
-  kind: string;
-  title: string;
-  body: string;
-  origin: IdeaCardShape["props"]["origin"];
-  createdAt?: number;
-  starred: boolean;
-  done: boolean;
-  superseded: boolean;
-  score?: IdeaCardMeta["score"];
-}
-
-export interface SerializedSelectedIdeaEdge {
-  from: string | null;
-  to: string | null;
-  fromId: string;
-  toId: string;
-  relation: string;
-}
-
 export interface SerializedSelectedIdeas {
-  version: 1;
-  cards: SerializedSelectedIdeaCard[];
-  edges: SerializedSelectedIdeaEdge[];
+  version: 2;
+  cards: IdeaCard[];
+  edges: IdeaEdge[];
 }
 
 /** Serialize every idea card to a normalized markdown document (PRD §3.2). */
@@ -91,109 +69,61 @@ export function selectedText(editor: Editor): string {
 /**
  * Canonical selected-card payload (#192): compact ai-storm data for copy/reference
  * workflows. Mixed selections are explicit: non-idea shapes are ignored, and a
- * selection with no idea cards returns `null`. Selected cards are ref-minted before
- * serialization; `null` is only used if a ref could not be minted at this layer.
+ * selection with no idea cards returns `null`. Malformed cards without the required
+ * backend-allocated ref or page identity are omitted from the canonical payload.
  */
 export function serializeSelectedIdeas(editor: Editor): SerializedSelectedIdeas | null {
   const selectedIds = new Set(editor.getSelectedShapes().map((s) => s.id));
   const selectedCards = cardsInOrder(editor).filter((card) => selectedIds.has(card.id));
   if (selectedCards.length === 0) return null;
 
-  const refs = new Map<string, string | null>();
-  const cards: SerializedSelectedIdeaCard[] = selectedCards.map((card) => {
+  const refs = new Map<string, string>();
+  const cards: IdeaCard[] = selectedCards.flatMap((card) => {
     const meta = card.meta as IdeaCardMeta;
-    const ref = cardRef(editor, card.id) ?? null;
+    const ref = cardRef(editor, card.id);
+    const pageId = editor.getAncestorPageId(card.id);
+    if (!ref || !pageId) return [];
     refs.set(card.id, ref);
-    return {
-      ref,
-      id: card.id as string,
-      kind: card.props.kind,
-      title: card.props.title,
-      body: card.props.body,
-      origin: card.props.origin,
-      createdAt: meta.createdAt,
-      starred: !!meta.starred,
-      done: !!meta.done,
-      superseded: card.props.superseded,
-      score: meta.score
-    };
+    return [
+      {
+        ref,
+        id: card.id as string,
+        pageId: pageId as string,
+        kind: card.props.kind,
+        color: card.props.color,
+        title: card.props.title,
+        body: card.props.body,
+        origin: card.props.origin === "ai" ? "agent" : "user",
+        createdAt: meta.createdAt,
+        editedByUser: !!meta.editedByUser,
+        issue: meta.issue,
+        links: meta.links,
+        starred: !!meta.starred,
+        done: !!meta.done,
+        superseded: card.props.superseded,
+        score: meta.score,
+        position: { x: card.x, y: card.y }
+      }
+    ];
   });
 
   const selectedCardIds = new Set(selectedCards.map((card) => card.id));
-  const edges: SerializedSelectedIdeaEdge[] = ideaEdges(editor, selectedCardIds).map((edge) => ({
-    from: refs.get(edge.from as string) ?? null,
-    to: refs.get(edge.to as string) ?? null,
-    fromId: edge.from as string,
-    toId: edge.to as string,
-    relation: edge.relation
-  }));
+  const edges: IdeaEdge[] = ideaEdges(editor, selectedCardIds).flatMap((edge) => {
+    const from = refs.get(edge.from as string);
+    const to = refs.get(edge.to as string);
+    const pageId = edge.id ? editor.getAncestorPageId(edge.id as TLShapeId) : undefined;
+    return from && to && pageId && edge.id
+      ? [{ id: edge.id, pageId: pageId as string, from, to, relation: edge.relation }]
+      : [];
+  });
 
-  return { version: 1, cards, edges };
+  return { version: 2, cards, edges };
 }
 
 /** JSON form of {@link serializeSelectedIdeas}, for downstream clipboard/tooling callers. */
 export function serializeSelectedIdeasJson(editor: Editor): string | null {
   const payload = serializeSelectedIdeas(editor);
   return payload ? JSON.stringify(payload) : null;
-}
-
-/**
- * Current-page idea state for MCP read tools (#196). This deliberately mirrors
- * the compact #192 selected-idea payload, but reads every idea card on the active
- * page and includes light spatial/filter/selection context so the terminal AI
- * can reason about the board it is attached to without seeing other projects.
- */
-export function serializeBoardIdeasSnapshot(
-  editor: Editor,
-  filter?: Record<string, unknown>,
-  now = Date.now()
-): BoardIdeasSnapshot {
-  const cards = cardsInOrder(editor);
-  const refs = new Map<string, string | null>();
-  const payloadCards: BoardIdeaCard[] = cards.map((card) => {
-    const meta = card.meta as IdeaCardMeta;
-    const ref = cardRef(editor, card.id) ?? null;
-    refs.set(card.id, ref);
-    return {
-      ref,
-      id: card.id as string,
-      kind: card.props.kind,
-      title: card.props.title,
-      body: card.props.body,
-      origin: card.props.origin,
-      createdAt: meta.createdAt,
-      starred: !!meta.starred,
-      done: !!meta.done,
-      superseded: card.props.superseded,
-      score: meta.score,
-      position: { x: card.x, y: card.y }
-    };
-  });
-
-  const cardIds = new Set(cards.map((card) => card.id));
-  const edges: BoardIdeaEdge[] = ideaEdges(editor, cardIds).map((edge) => ({
-    from: refs.get(edge.from as string) ?? null,
-    to: refs.get(edge.to as string) ?? null,
-    fromId: edge.from as string,
-    toId: edge.to as string,
-    relation: edge.relation
-  }));
-
-  const selectedCards = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
-  return {
-    version: 1,
-    pageId: editor.getCurrentPageId() as string,
-    updatedAt: now,
-    cards: payloadCards,
-    edges,
-    selection: {
-      refs: selectedCards
-        .map((card) => refs.get(card.id) ?? cardRef(editor, card.id) ?? null)
-        .filter((r): r is string => !!r),
-      ids: selectedCards.map((card) => card.id as string)
-    },
-    ...(filter ? { filter } : {})
-  };
 }
 
 /**

@@ -7,7 +7,7 @@
  * the render scheduler.
  */
 
-import type { Idea } from "@ai-storm/shared";
+import type { CreateIdeaInput } from "@ai-storm/shared";
 import { MarkdownBlockParser, type BlockDescriptor } from "./markdown-block-parser";
 
 /**
@@ -147,14 +147,14 @@ export function decorateProvenance(title: string, origin: NoteOrigin): string {
 }
 
 /**
- * Map an extracted {@link Idea} to a deterministic block sequence — a `heading`
+ * Map an extracted {@link CreateIdeaInput} to a deterministic block sequence — a `heading`
  * (the title decorated by `kind`) followed by the body. This is NOT structure
- * inference: the shape is dictated by the Idea, not guessed from text. A
+ * inference: the shape is dictated by the CreateIdeaInput, not guessed from text. A
  * multi-line (fenced) body is routed through {@link MarkdownBlockParser} so
  * markdown inside it becomes child blocks (§8.3 — the parser's only remaining
  * role: formatting a known idea body, never parsing the raw stream).
  */
-export function ideaToDescriptors(idea: Idea): BlockDescriptor[] {
+export function ideaToDescriptors(idea: CreateIdeaInput): BlockDescriptor[] {
   const out: BlockDescriptor[] = [{ type: "heading", level: 3, text: decorateTitle(idea.title, idea.kind) }];
   const body = idea.body?.trim();
   if (body) {

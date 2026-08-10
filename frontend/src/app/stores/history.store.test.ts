@@ -3,24 +3,16 @@
  * counting, synthesis dedupe, the retention cap, and boot-time reconciliation
  * of runs orphaned by a reload.
  *
- * The store is a module singleton (Y.Doc created at import time), so each test
- * gets a fresh module via `vi.resetModules()` + dynamic import. Everything but
- * `boot()` works on the in-memory doc; the boot test pairs it with a fresh
- * fake-indexeddb factory (same pattern as the project registry spec).
+ * The store is a module singleton, so each test gets a fresh module via
+ * `vi.resetModules()` + dynamic import.
  */
 
-import "fake-indexeddb/auto";
-import { IDBFactory } from "fake-indexeddb";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 async function freshStore() {
   vi.resetModules();
   return import("./history.store");
 }
-
-beforeEach(() => {
-  (globalThis as { indexedDB: IDBFactory }).indexedDB = new IDBFactory();
-});
 
 describe("history.record / finish (#104)", () => {
   it("records a running spec entry and finishes it into a done artifact", async () => {

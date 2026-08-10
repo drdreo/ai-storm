@@ -9,8 +9,10 @@ import { defineConfig, devices } from "@playwright/test";
  * on CI's ubuntu boxes):
  *
  *   • `ui`      — backend-free specs (`e2e/ui/**`): boot, shell structure,
- *                 project CRUD, IndexedDB naming, theming, dialogs, empty
- *                 state, tooltips. The app renders fine with the backend closed.
+ *                 project CRUD, theming, dialogs, empty state, tooltips. The
+ *                 backend owns durable state (#233), so these run against the
+ *                 fixtures' in-memory fake of the `/pty` state protocol
+ *                 (`fixtures/state-backend.ts`); no Node backend is needed.
  *   • `backend` — backend-dependent specs (`e2e/backend/**`): the real PTY
  *                 round-trip and hot-switch scrollback. Requires the Node
  *                 backend on :8787; run locally, skipped on CI.

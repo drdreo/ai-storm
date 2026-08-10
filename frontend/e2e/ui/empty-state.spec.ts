@@ -22,11 +22,13 @@ test.describe("empty states", () => {
     await expect(shell.startSessionButton).toBeVisible();
   });
 
-  test("control hub surfaces the offline backend and disables Start", async ({ shell, page }) => {
+  test("control hub surfaces a lost backend and disables Start", async ({ shell, page, stateBackend }) => {
     await shell.goto();
 
-    // The ui project runs without the PTY backend, so the single session
-    // indicator must read offline and Start must be gated on it.
+    // Since #233 the app cannot boot without the backend, so "offline" is now
+    // a post-boot condition: drop the socket after boot and the session
+    // indicator must read offline, with Start gated on the connection.
+    stateBackend.setOffline(true);
     await expect(page.getByText("backend offline")).toBeVisible();
     await expect(shell.startSessionButton).toBeDisabled();
 

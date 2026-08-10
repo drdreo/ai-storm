@@ -72,7 +72,7 @@ export function framePrompt(
 
 /**
  * The card facts {@link frameReference} folds into a reference block (#194) — a
- * structural subset of `SerializedSelectedIdeaCard` (the #192 normalized
+ * structural subset of canonical `IdeaCard` (the #192 normalized
  * serializer), declared here so this module stays tldraw-import-free.
  */
 export interface ReferencedIdea {

@@ -12,20 +12,14 @@
  * Everything here is pure path math (no I/O) so it stays unit-testable.
  */
 
-import { homedir } from "node:os";
 import { dirname, join, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
+import { currentStatePlatformEnv, resolveStateDir, type StatePlatformEnv } from "@ai-storm/state";
 
-/** Minimal view of the process environment the path logic depends on. */
-export interface PlatformEnv {
-  platform: NodeJS.Platform;
-  env: Record<string, string | undefined>;
-  home: string;
-}
+/** Backwards-compatible name for launcher callers and tests. */
+export type PlatformEnv = StatePlatformEnv;
 
-export function currentPlatformEnv(): PlatformEnv {
-  return { platform: process.platform, env: process.env, home: homedir() };
-}
+export const currentPlatformEnv = currentStatePlatformEnv;
 
 /**
  * Join with the TARGET platform's separator (not the host's), so these
@@ -37,13 +31,7 @@ function joinFor(p: PlatformEnv, ...parts: string[]): string {
 
 /** Root directory for CLI state (pidfile, logs). Created lazily by callers. */
 export function stateDir(p: PlatformEnv = currentPlatformEnv()): string {
-  if (p.platform === "win32") {
-    return joinFor(p, p.env.LOCALAPPDATA ?? joinFor(p, p.home, "AppData", "Local"), "ai-storm");
-  }
-  if (p.platform === "darwin") {
-    return joinFor(p, p.home, "Library", "Application Support", "ai-storm");
-  }
-  return joinFor(p, p.env.XDG_STATE_HOME ?? joinFor(p, p.home, ".local", "state"), "ai-storm");
+  return resolveStateDir(p);
 }
 
 export function logsDir(p: PlatformEnv = currentPlatformEnv()): string {

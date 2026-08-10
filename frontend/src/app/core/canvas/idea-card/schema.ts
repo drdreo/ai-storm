@@ -38,11 +38,11 @@ export type IdeaCardShape = TLBaseShape<
 
 /**
  * The metadata we hang on a card's `meta` (outside the styled props): its stable
- * SHORT REF (`a1`, `a2`, … — idea-graph §4). A tldraw shape id is a generated
+ * SHORT REF (`i1`, `i2`, … — idea-graph §4). A tldraw shape id is a generated
  * token an LLM can't reproduce; the short ref is the identity an agent names in
- * its reply (`«IDEA@a1»`) and an edge points at. Persisted with the shape, so it
- * survives reload. Minted in `applyIdeas` for AI cards and lazily by
- * {@link cardRef} the first time a user card is referenced.
+ * its reply (`«IDEA@i1»`) and an edge points at. Persisted with the shape, so it
+ * survives reload. Reserved by the backend before both agent and user cards are
+ * created.
  */
 export interface IdeaCardMeta {
   ref?: string;

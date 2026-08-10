@@ -8,7 +8,8 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { Hono } from "hono";
-import type { BoardIdeasSnapshot, Completion, Idea, Reference, Score } from "@ai-storm/shared";
+import type { Completion, CreateIdeaInput, Reference, Score } from "@ai-storm/shared";
+import type { BoardDocument, RegistryDocument, StateStore } from "../state/store.ts";
 import { mcpRoutes } from "./endpoint.ts";
 import { McpSessionRegistry } from "./registry.ts";
 import { IdeaScanner, IdeaSink, ScoreSink, scanIdeas } from "../session/extraction/index.ts";
@@ -23,8 +24,25 @@ const BASE = "http://127.0.0.1:8787";
 function setup() {
   const registry = new McpSessionRegistry();
   registry.configure(BASE);
-  const app = new Hono().route("/mcp", mcpRoutes(registry));
-  return { registry, app };
+  let registryDocument: RegistryDocument = { version: 1, revision: 0, projects: [], folders: [] };
+  const boards = new Map<string, BoardDocument>();
+  const stateStore = {
+    readRegistry: vi.fn(async () => registryDocument),
+    readBoard: vi.fn(async (projectId: string) => {
+      const board = boards.get(projectId);
+      if (!board) throw new Error("missing board");
+      return board;
+    })
+  } as unknown as StateStore;
+  const app = new Hono().route("/mcp", mcpRoutes(registry, stateStore));
+  return {
+    registry,
+    app,
+    boards,
+    setRegistry(document: RegistryDocument) {
+      registryDocument = document;
+    }
+  };
 }
 
 /** Register + attach a project, collecting everything its callbacks emit. */
@@ -32,7 +50,7 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   const target = registry.registerSession(projectId)!;
   const ideaSink = new IdeaSink();
   const scoreSink = new ScoreSink();
-  const ideas: Idea[] = [];
+  const ideas: CreateIdeaInput[] = [];
   const scores: Score[] = [];
   const completions: Completion[] = [];
   const references: Reference[] = [];
@@ -47,31 +65,25 @@ function wire(registry: McpSessionRegistry, projectId: string) {
   return { ...target, ideaSink, scoreSink, ideas, scores, completions, references };
 }
 
-function snapshot(title: string, ref = "a1"): BoardIdeasSnapshot {
+function storedBoard(...records: Record<string, unknown>[]): BoardDocument {
   return {
     version: 1,
-    pageId: "page:current",
-    updatedAt: 1720000000000,
-    cards: [
-      {
-        ref,
-        id: "shape:one",
-        kind: "feature",
-        title,
-        body: "Body",
-        origin: "user",
-        starred: false,
-        done: false,
-        superseded: false,
-        position: { x: 10, y: 20 }
-      }
-    ],
-    edges: [],
-    selection: { refs: [ref], ids: ["shape:one"] },
-    filter: { kind: "feature" }
+    revision: 3,
+    nextIdeaRef: 4,
+    document: { store: Object.fromEntries(records.map((record) => [record.id, record])) }
   };
 }
 
+function storedProject(id: string, title: string, folderId?: string) {
+  return {
+    id,
+    title,
+    folderId,
+    terminal: { cwd: `C:/secret/${id}`, args: ["--secret"] },
+    createdAt: 100,
+    updatedAt: 200
+  };
+}
 let rpcId = 0;
 
 async function rpc(app: Hono, ws: string, token: string, method: string, params?: unknown) {
@@ -152,7 +164,8 @@ describe("MCP endpoint — protocol surface", () => {
       "capture_score",
       "mark_idea_done",
       "link_idea",
-      "get_board_ideas"
+      "get_board_ideas",
+      "get_projects"
     ]);
     expect(tools[0].inputSchema.required).toEqual(["title"]);
     expect(tools[1].inputSchema.required).toEqual(["ref", "impact", "effort"]);
@@ -160,7 +173,8 @@ describe("MCP endpoint — protocol surface", () => {
     expect(tools[2].inputSchema.required).toEqual(["ref"]);
     // link_idea needs a target ref and a url; label is optional.
     expect(tools[3].inputSchema.required).toEqual(["ref", "url"]);
-    expect(tools[4].inputSchema.properties).toEqual({});
+    expect(tools[4].inputSchema.required).toEqual(["projectId"]);
+    expect(tools[5].inputSchema.properties).toEqual({});
   });
 
   it("answers ping and rejects unknown methods / tools / batches / GET", async () => {
@@ -194,7 +208,7 @@ describe("capture_idea — schema validation (§9.1)", () => {
     const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Edge cache" });
     expect(textOf(body)).toBe('Captured as @i1. Link follow-up ideas to it with links:[{to:"i1"}].');
     expect(body.result!.isError).toBeUndefined();
-    expect(w.ideas).toEqual([{ title: "Edge cache", body: "", id: "i1" }]);
+    expect(w.ideas).toEqual([{ title: "Edge cache", body: "", ref: "i1" }]);
   });
 
   it("captures a maximal idea (kind, multi-line body, 8 links, both relations)", async () => {
@@ -388,88 +402,154 @@ describe("link_idea — external-link reference (#227)", () => {
   });
 });
 
-describe("get_board_ideas — active board read tool (#196)", () => {
-  it("returns the latest board snapshot for the authenticated project route", async () => {
-    const { registry, app } = setup();
-    const w = wire(registry, "ws1");
-    registry.updateBoardSnapshot("ws1", snapshot("Scoped board"));
-
-    const body = await callTool(app, "ws1", w.token, "get_board_ideas", {});
-    const payload = JSON.parse(textOf(body)) as BoardIdeasSnapshot;
-
-    expect(payload.cards.map((card) => card.title)).toEqual(["Scoped board"]);
-    expect(payload.selection.refs).toEqual(["a1"]);
-    expect(payload.filter).toEqual({ kind: "feature" });
+describe("durable MCP read tools (#234)", () => {
+  const page = (id: string, name: string, index: string) => ({ id, typeName: "page", name, index });
+  const card = (id: string, parentId: string, ref: string, title: string) => ({
+    id,
+    typeName: "shape",
+    type: "idea-card",
+    parentId,
+    x: 10,
+    y: 20,
+    props: { kind: "feature", color: "blue", title, body: "Body", origin: "ai", superseded: false },
+    meta: {
+      ref,
+      editedByUser: true,
+      issue: { provider: "github", key: "drdreo/ai-storm#234", url: "https://github.com/drdreo/ai-storm/issues/234" },
+      links: [{ url: "https://example.com/spec", label: "Spec" }]
+    }
   });
 
-  it("does not expose another project's board snapshot", async () => {
-    const { registry, app } = setup();
-    const w1 = wire(registry, "ws1");
-    const w2 = wire(registry, "ws2");
-    registry.updateBoardSnapshot("ws1", snapshot("For ws1"));
-    registry.updateBoardSnapshot("ws2", snapshot("For ws2"));
+  it("reads every page directly from the store without a browser attachment", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    setRegistry({ version: 1, revision: 4, projects: [storedProject("project-a", "Alpha")], folders: [] });
+    boards.set(
+      "project-a",
+      storedBoard(
+        page("page:1", "First", "a"),
+        page("page:2", "Empty", "b"),
+        card("shape:1", "page:1", "i1", "Stored idea")
+      )
+    );
 
-    const body = await callTool(app, "ws1", w1.token, "get_board_ideas", {});
-    expect(JSON.parse(textOf(body)).cards[0].title).toBe("For ws1");
+    const body = await callTool(app, "route", target.token, "get_board_ideas", { projectId: "project-a" });
+    const payload = JSON.parse(textOf(body));
 
-    const wrongRoute = await rpc(app, "ws1", w2.token, "tools/call", {
-      name: "get_board_ideas",
-      arguments: {}
+    expect(payload).toMatchObject({ version: 1, revision: 3 });
+    expect(payload.pages.map((item: { id: string; name: string }) => [item.id, item.name])).toEqual([
+      ["page:1", "First"],
+      ["page:2", "Empty"]
+    ]);
+    expect(payload.pages[1]).toMatchObject({ cards: [], edges: [] });
+    expect(payload.pages[0].cards[0]).toMatchObject({
+      id: "shape:1",
+      ref: "i1",
+      color: "blue",
+      editedByUser: true,
+      issue: { key: "drdreo/ai-storm#234" },
+      links: [{ url: "https://example.com/spec", label: "Spec" }]
     });
-    expect(wrongRoute.status).toBe(404);
   });
 
-  it("returns tool errors when detached or before the browser publishes a snapshot", async () => {
-    const { registry, app } = setup();
-    const w = wire(registry, "ws1");
+  it("keeps every registry project discoverable when one board is unreadable", async () => {
+    const { registry, app, boards, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    setRegistry({
+      version: 1,
+      revision: 2,
+      projects: [storedProject("healthy", "Healthy"), storedProject("broken", "Broken")],
+      folders: []
+    });
+    boards.set("healthy", storedBoard(page("page:healthy", "Ideas", "a")));
 
-    const missing = await callTool(app, "ws1", w.token, "get_board_ideas", {});
-    expect(missing.result!.isError).toBe(true);
-    expect(missing.result!.content[0].text).toContain("No active board snapshot");
+    const body = await callTool(app, "route", target.token, "get_projects", {});
+    const payload = JSON.parse(textOf(body));
 
-    registry.updateBoardSnapshot("ws1", snapshot("Detached board"));
-    registry.detachSession("ws1");
-    const detached = await callTool(app, "ws1", w.token, "get_board_ideas", {});
-    expect(detached.result!.isError).toBe(true);
-    expect(detached.result!.content[0].text).toContain("not attached");
-  });
-});
-
-describe("ref minting — board-state collision guard (#210)", () => {
-  it("fast-forwards a reset counter past i<n> refs already on the board", async () => {
-    const { registry, app } = setup();
-    const w = wire(registry, "ws1");
-    // A pre-restart capture left i3 on the board; the fresh counter starts at 1.
-    registry.updateBoardSnapshot("ws1", snapshot("Pre-restart card", "i3"));
-
-    const body = await callTool(app, "ws1", w.token, "capture_idea", { title: "Post-restart idea" });
-    expect(textOf(body)).toContain("@i4");
-    expect(w.ideas[0].id).toBe("i4");
+    expect(payload.projects).toEqual([
+      expect.objectContaining({ id: "healthy", pages: ["Ideas"], ideaCount: 0 }),
+      expect.objectContaining({ id: "broken", status: "error", pages: [], ideaCount: 0 })
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "mcp.read_failed",
+      expect.objectContaining({ tool: "get_projects", project: "broken", message: "missing board" })
+    );
   });
 
-  it("ignores canvas-minted a<n> refs and mints from i1 without a snapshot", async () => {
-    const { registry, app } = setup();
-    const w = wire(registry, "ws1");
+  it("logs board read failures while returning a path-free tool error", async () => {
+    const { registry, app, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    setRegistry({ version: 1, revision: 1, projects: [storedProject("broken", "Broken")], folders: [] });
 
-    const first = await callTool(app, "ws1", w.token, "capture_idea", { title: "No snapshot yet" });
-    expect(textOf(first)).toContain("@i1");
+    const body = await callTool(app, "route", target.token, "get_board_ideas", { projectId: "broken" });
 
-    // An a<n> ref lives in the canvas namespace and must not perturb the counter.
-    registry.updateBoardSnapshot("ws1", snapshot("Canvas card", "a9"));
-    const second = await callTool(app, "ws1", w.token, "capture_idea", { title: "Still sequential" });
-    expect(textOf(second)).toContain("@i2");
+    expect(body.result!.isError).toBe(true);
+    expect(textOf(body)).toBe("Unable to read the requested project board.");
+    expect(warn).toHaveBeenCalledWith(
+      "mcp.read_failed",
+      expect.objectContaining({ tool: "get_board_ideas", project: "broken", message: "missing board" })
+    );
   });
 
-  it("never moves the counter backwards when the snapshot lags behind it", async () => {
-    const { registry, app } = setup();
-    const w = wire(registry, "ws1");
-    registry.updateBoardSnapshot("ws1", snapshot("Stale snapshot", "i1"));
+  it("returns Project not found for unknown/deleted ids without leaking filesystem paths", async () => {
+    const { registry, app, setRegistry } = setup();
+    const target = registry.registerSession("route")!;
+    setRegistry({ version: 1, revision: 1, projects: [], folders: [] });
 
-    const first = await callTool(app, "ws1", w.token, "capture_idea", { title: "One" });
-    expect(textOf(first)).toContain("@i2");
-    // Snapshot still says i1 (the browser hasn't re-published), but nextRef is 3.
-    const second = await callTool(app, "ws1", w.token, "capture_idea", { title: "Two" });
-    expect(textOf(second)).toContain("@i3");
+    const body = await callTool(app, "route", target.token, "get_board_ideas", { projectId: "deleted" });
+    expect(body.result!.isError).toBe(true);
+    expect(textOf(body)).toBe("Project not found");
+  });
+
+  it("lists discovery metadata only and derives runtime status", async () => {
+    vi.useFakeTimers();
+    const { registry, app, boards, setRegistry } = setup();
+    const auth = registry.registerSession("route")!;
+    registry.registerSession("active");
+    registry.registerSession("streaming");
+    registry.setRuntimeState("streaming", "responding");
+    registry.registerSession("broken");
+    registry.setRuntimeState("broken", "error");
+    setRegistry({
+      version: 1,
+      revision: 7,
+      projects: [
+        storedProject("idle", "Idle", "folder:1"),
+        storedProject("active", "Active"),
+        storedProject("streaming", "Streaming"),
+        storedProject("broken", "Broken")
+      ],
+      folders: [{ id: "folder:1", title: "Archive", createdAt: 1 }]
+    });
+    for (const id of ["idle", "active", "streaming", "broken"]) {
+      boards.set(id, storedBoard(page(`page:${id}`, `${id} page`, "a")));
+    }
+
+    const body = await callTool(app, "route", auth.token, "get_projects", {});
+    const payload = JSON.parse(textOf(body));
+    expect(payload).toMatchObject({ version: 1, revision: 7 });
+    expect(payload.projects.map((project: { status: string }) => project.status)).toEqual([
+      "idle",
+      "active",
+      "streaming",
+      "error"
+    ]);
+    expect(payload.projects[0]).toMatchObject({
+      id: "idle",
+      title: "Idle",
+      folder: "Archive",
+      createdAt: 100,
+      updatedAt: 200,
+      pages: ["idle page"],
+      ideaCount: 0
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/terminal|cwd|--secret/);
+    expect(JSON.stringify(payload)).not.toContain("C:/secret");
+
+    vi.advanceTimersByTime(751);
+    expect(registry.runtimeStatus("streaming")).toBe("active");
   });
 });
 
@@ -538,10 +618,10 @@ describe("capture_idea — marker parity (§9.2)", () => {
     const w = wire(registry, "ws1");
     await callTool(app, "ws1", w.token, "capture_idea", toolArgs);
     expect(w.ideas).toHaveLength(1);
-    // The tool path stamps the minted ref into Idea.id (§3.3) — the one
-    // deliberate difference from the marker path; strip it before comparing.
-    const { id, ...toolIdea } = w.ideas[0];
-    expect(id).toBe("i1");
+    // The tool path stamps the allocated ref — the one deliberate
+    // difference from the marker path; strip it before comparing.
+    const { ref, ...toolIdea } = w.ideas[0];
+    expect(ref).toBe("i1");
     expect([toolIdea]).toEqual(ideasOf(...markerLines));
   });
 });
@@ -597,7 +677,7 @@ describe("ref round-trip (§9.4)", () => {
     const w = wire(registry, "ws1");
 
     textOf(await callTool(app, "ws1", w.token, "capture_idea", { title: "Seed idea" }));
-    expect(w.ideas[0].id).toBe("i1");
+    expect(w.ideas[0].ref).toBe("i1");
 
     // Link a follow-up to the just-returned ref…
     await callTool(app, "ws1", w.token, "capture_idea", {
@@ -607,7 +687,7 @@ describe("ref round-trip (§9.4)", () => {
     expect(w.ideas[1]).toEqual({
       title: "Follow-up",
       body: "",
-      id: "i2",
+      ref: "i2",
       links: [{ to: "i1", relation: "about" }]
     });
 
@@ -624,8 +704,8 @@ describe("ref round-trip (§9.4)", () => {
     const w2 = wire(registry, "ws2");
     await callTool(app, "ws1", w1.token, "capture_idea", { title: "First in ws1" });
     await callTool(app, "ws2", w2.token, "capture_idea", { title: "First in ws2" });
-    expect(w1.ideas[0].id).toBe("i1");
-    expect(w2.ideas[0].id).toBe("i1");
+    expect(w1.ideas[0].ref).toBe("i1");
+    expect(w2.ideas[0].ref).toBe("i1");
   });
 });
 
@@ -741,8 +821,8 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     expect(await b2.reconcile()).toEqual(["ws1"]);
 
     // The old token routes again; after attach, a tool call lands on the canvas.
-    const app = new Hono().route("/mcp", mcpRoutes(registry2));
-    const ideas: Idea[] = [];
+    const app = new Hono().route("/mcp", mcpRoutes(registry2, {} as StateStore));
+    const ideas: CreateIdeaInput[] = [];
     await b2.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     const body = await callTool(app, "ws1", token, "capture_idea", {
       title: "Survived the restart"
@@ -764,7 +844,7 @@ describe("TmuxSessionBackend — MCP token durability (§9.6)", () => {
     const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
     await backend.create({ projectId: "ws1", command: "claude", prime: "p" });
 
-    const ideas: Idea[] = [];
+    const ideas: CreateIdeaInput[] = [];
     await backend.attach("ws1", noop, (i) => ideas.push(i), noop, noop, noop);
     // The primed agent lapses back to a marker line after the attach-time seed.
     fake.setPane("  «IDEA» Lapsed marker :: the agent ignored the tool\n❯");

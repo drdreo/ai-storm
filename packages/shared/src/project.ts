@@ -52,6 +52,52 @@ export interface Folder {
   order?: string;
 }
 
+/** Versioned, directly-copyable durable state subset used by export/import. */
+export interface PortableStateProject {
+  id: string;
+  title: string;
+  color?: string;
+  folderId?: string;
+  order?: string;
+  terminal: TerminalConfig;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PortableStateFolder {
+  id: string;
+  title: string;
+  createdAt: number;
+  order?: string;
+}
+
+export interface PortableBoardState {
+  version: 1;
+  revision: number;
+  nextIdeaRef: number;
+  /** Null means the project has not mounted an editor yet. */
+  document: unknown;
+}
+
+export interface PortableHistoryState {
+  version: 1;
+  revision: number;
+  runs: Record<string, unknown>[];
+}
+
+export interface PortableStateBundle {
+  version: 2;
+  exportedAt: number;
+  registry: {
+    version: 1;
+    revision: number;
+    projects: PortableStateProject[];
+    folders: PortableStateFolder[];
+  };
+  boards: Record<string, PortableBoardState>;
+  histories: Record<string, PortableHistoryState>;
+}
+
 export interface TerminalConfig {
   /** Binary/shell to spawn; undefined → platform default shell. */
   shell?: string;

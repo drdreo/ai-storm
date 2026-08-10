@@ -70,9 +70,9 @@ function emptyReason(entry: RunHistoryEntry): string {
 }
 
 /**
- * Run history panel (#104) — per-project, local-first history of convergence
+ * Run history panel (#104) — per-project durable history of convergence
  * runs: spec/PRD hand-offs, synthesis snapshots, and triage metadata. Entries
- * persist across reloads (a CRDT store in IndexedDB, `history.store`), so a
+ * persist across reloads (backend `history.json` via `history.store`), so a
  * completed hand-off can be reopened long after the SpecPanel closed. The list
  * shows timestamp, action type, status, and an output preview; selecting an
  * entry opens the stored artifact with Copy / Download — same affordances as

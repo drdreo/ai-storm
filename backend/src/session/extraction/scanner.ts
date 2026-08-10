@@ -7,7 +7,7 @@
  * and near-miss diagnostics.
  */
 
-import { ideaIdentityKey, type Idea, type Score } from "@ai-storm/shared";
+import { ideaIdentityKey, type CreateIdeaInput, type Score } from "@ai-storm/shared";
 import { IDEA_MARKER, MARKER_NEAR_MISS, scanIdeas, scanScores, toTrimmedLines } from "./markers.ts";
 
 // Per-idea identity for session-scoped dedupe (§7.1) is the shared
@@ -36,7 +36,7 @@ export class IdeaSink {
   readonly #seen = new Set<string>();
 
   /** Mark the idea seen; true when it was NEW this session (caller emits it). */
-  offer(idea: Idea): boolean {
+  offer(idea: CreateIdeaInput): boolean {
     const key = ideaIdentityKey(idea);
     if (this.#seen.has(key)) return false;
     this.#seen.add(key);
@@ -167,7 +167,7 @@ export class IdeaScanner {
    * defaults to false so a still-rendering idea at the very bottom is held back
    * until the next capture pushes more text below it.
    */
-  scan(capture: string, final = false): Idea[] {
+  scan(capture: string, final = false): CreateIdeaInput[] {
     const lines = toTrimmedLines(capture);
     const parsed = scanIdeas(lines, final);
     // Two-frame confirmation gates what reaches the sink; the sink is fed ONLY
@@ -202,8 +202,8 @@ export class IdeaScanner {
    * preceding scan, then replace the candidate set with THIS frame's keys
    * (stale candidates are dropped, never lingering to match a later rerun).
    */
-  #confirmAgainstPreviousFrame(parsed: Idea[]): Idea[] {
-    const confirmed: Idea[] = [];
+  #confirmAgainstPreviousFrame(parsed: CreateIdeaInput[]): CreateIdeaInput[] {
+    const confirmed: CreateIdeaInput[] = [];
     const frameKeys = new Set<string>();
     for (const idea of parsed) {
       const key = ideaIdentityKey(idea);
@@ -220,7 +220,7 @@ export class IdeaScanner {
    * diagnostic fires only when there is something new (a fresh idea or a fresh
    * near-miss — a line that looked like a marker but did not parse).
    */
-  #emitDiagnostics(lines: string[], fresh: Idea[]): void {
+  #emitDiagnostics(lines: string[], fresh: CreateIdeaInput[]): void {
     if (!this.#onDebug) return;
     const freshNearMiss = lines.filter(
       (l) => MARKER_NEAR_MISS.test(l) && !IDEA_MARKER.test(l) && !this.#seenNearMiss.has(l.trim())
