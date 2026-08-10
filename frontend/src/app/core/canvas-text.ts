@@ -59,12 +59,13 @@ export interface HandoffCard extends CardContent {
  * to the downstream agent so it can generate a spec. Like {@link serializeCards}
  * but lifecycle-aware: superseded ghosts are dropped (they lost an argument and
  * should not shape the spec — issue #89), and keep-marked cards (#59) are flagged
- * with a leading ★ so the agent foregrounds the user's priorities. Empty input —
- * or input that is all ghosts — yields `''`.
+ * with a leading ★ so the agent foregrounds the user's priorities. Explicitly
+ * selected ghosts can opt back in via `includeSuperseded` (#225). Empty input —
+ * or default-filtered input that is all ghosts — yields `''`.
  */
-export function handoffCardsToText(cards: readonly HandoffCard[]): string {
+export function handoffCardsToText(cards: readonly HandoffCard[], opts: { includeSuperseded?: boolean } = {}): string {
   return cards
-    .filter((card) => !card.superseded)
+    .filter((card) => opts.includeSuperseded || !card.superseded)
     .map((card) => {
       let text = card.starred ? cardToText(card).replace(/^### /, "### ★ ") : cardToText(card);
       if (card.ref) {

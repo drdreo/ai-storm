@@ -43,7 +43,8 @@ export function SpecPanel({
   onOpenChange,
   projectId,
   projectName,
-  boardEmpty,
+  scope,
+  scopeEmpty,
   onGenerate,
   preset
 }: {
@@ -51,8 +52,10 @@ export function SpecPanel({
   onOpenChange: (open: boolean) => void;
   projectId?: string;
   projectName?: string;
-  /** The board has no cards to hand off — Generate is gated with why-copy. */
-  boardEmpty: boolean;
+  /** Current live hand-off scope (#225), read again when Generate is pressed. */
+  scope: { source: "selection" | "board"; cardCount: number };
+  /** The current scope has no serializable cards — Generate is gated with why-copy. */
+  scopeEmpty: boolean;
   onGenerate: (format: SpecFormat, opts: SpecOptions) => void;
   /**
    * Picker preset applied when the panel is opened by an intent-carrying action
@@ -67,6 +70,8 @@ export function SpecPanel({
   const markdown = spec?.output ?? "";
   const done = spec?.status === "exit" || spec?.status === "error";
   const running = spec != null && !done;
+  const ideaLabel = `${scope.cardCount} ${scope.cardCount === 1 ? "idea" : "ideas"}`;
+  const scopeLabel = scope.source === "selection" ? `${ideaLabel} selected` : `Entire board · ${ideaLabel}`;
 
   const [format, setFormat] = useState<SpecFormat>(initialFormat);
   const [createIssues, setCreateIssues] = useState(false);
@@ -125,8 +130,8 @@ export function SpecPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            Hand off board
+          <SheetTitle className="flex flex-wrap items-center gap-2">
+            Hand off {scope.source === "selection" ? "selection" : "board"}
             {spec && (
               <Badge
                 variant={spec.status === "error" ? "destructive" : spec.status === "exit" ? "secondary" : "default"}
@@ -138,9 +143,14 @@ export function SpecPanel({
               </Badge>
             )}
           </SheetTitle>
-          <SheetDescription>
-            Hand the board off to an agent as a PRD, plan, issue list, or task prompts. This is a snapshot for the agent
-            to read — it won't change your board; keep refining on the canvas.
+          <SheetDescription className="flex flex-col items-start gap-2">
+            <Badge variant="outline">{scopeLabel}</Badge>
+            <span>
+              {scope.source === "selection"
+                ? `Generate a PRD, plan, issue list, or task prompts from only ${ideaLabel}.`
+                : "No ideas are selected, so Generate will use the entire board."}{" "}
+              This is a read-only snapshot for the agent; it won't change your board.
+            </span>
           </SheetDescription>
         </SheetHeader>
 
@@ -181,12 +191,10 @@ export function SpecPanel({
             </Field>
           )}
 
-          <Button size="sm" onClick={() => onGenerate(format, { createIssues })} disabled={boardEmpty || running}>
+          <Button size="sm" onClick={() => onGenerate(format, { createIssues })} disabled={scopeEmpty || running}>
             <Sparkles aria-hidden /> {spec ? "Regenerate" : "Generate"}
           </Button>
-          {boardEmpty && (
-            <p className="text-xs text-muted-foreground">The board is empty — add cards before handing off.</p>
-          )}
+          {scopeEmpty && <p className="text-xs text-muted-foreground">The current scope has no ideas to hand off.</p>}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4">

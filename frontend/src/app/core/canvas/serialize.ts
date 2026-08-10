@@ -18,6 +18,13 @@ export interface SerializedSelectedIdeas {
   edges: IdeaEdge[];
 }
 
+/** The current input scope for a generated hand-off (#225). */
+export interface HandoffScope {
+  source: "selection" | "board";
+  cardCount: number;
+  text: string;
+}
+
 /** Serialize every idea card to a normalized markdown document (PRD §3.2). */
 export function serializeEditor(editor: Editor): string {
   return serializeCards(cardsInOrder(editor).map(content));
@@ -127,28 +134,41 @@ export function serializeSelectedIdeasJson(editor: Editor): string | null {
 }
 
 /**
- * Serialize the board for the spec/PRD hand-off (#89, PD-015): the selected idea
- * cards, or the whole board when nothing is selected (mirrors {@link selectedText}
- * — "hand off this multi-select, or the whole board"). Lifecycle-aware via
- * {@link handoffCardsToText}: superseded ghosts are excluded by default and
- * keep-marked cards (#59) are flagged with ★. Empty / all-ghost board → `''`.
+ * Read the current spec/PRD hand-off scope (#89/#225): selected idea cards take
+ * precedence; without an idea-card selection, the whole board is used. An
+ * explicit selection is authoritative, so even selected superseded cards are
+ * included. Whole-board hand-offs retain the lifecycle default and omit ghosts.
+ * Non-card shapes in a mixed selection are ignored. Keep-marks (#59) are flagged
+ * with ★. Empty / all-ghost whole board → an empty scope.
  */
+export function collectHandoffScope(editor: Editor, opts: { withRefs?: boolean } = {}): HandoffScope {
+  const selectedIds = new Set(editor.getSelectedShapes().map((shape) => shape.id));
+  const boardCards = cardsInOrder(editor);
+  const selectedCards = boardCards.filter((card) => selectedIds.has(card.id));
+  const selectionAware = selectedCards.length > 0;
+  const source = selectionAware ? selectedCards : boardCards;
+  const cards = source.map((card) => ({
+    kind: card.props.kind,
+    title: card.props.title,
+    body: card.props.body,
+    starred: !!(card.meta as IdeaCardMeta).starred,
+    superseded: card.props.superseded,
+    // Ref-annotate (minting where needed) only when asked (#125): the
+    // create-issues hand-off needs the agent to name source cards back, but
+    // a PRD/plan payload shouldn't leak ref tags into the generated doc.
+    ...(opts.withRefs ? { ref: cardRef(editor, card.id) } : {})
+  }));
+
+  return {
+    source: selectionAware ? "selection" : "board",
+    cardCount: selectionAware ? cards.length : cards.filter((card) => !card.superseded).length,
+    text: handoffCardsToText(cards, { includeSuperseded: selectionAware })
+  };
+}
+
+/** Text-only compatibility projection of {@link collectHandoffScope}. */
 export function serializeForHandoff(editor: Editor, opts: { withRefs?: boolean } = {}): string {
-  const selected = editor.getSelectedShapes().filter((s): s is IdeaCardShape => s.type === "idea-card");
-  const source = selected.length > 0 ? selected : cardsInOrder(editor);
-  return handoffCardsToText(
-    source.map((c) => ({
-      kind: c.props.kind,
-      title: c.props.title,
-      body: c.props.body,
-      starred: !!(c.meta as IdeaCardMeta).starred,
-      superseded: c.props.superseded,
-      // Ref-annotate (minting where needed) only when asked (#125): the
-      // create-issues hand-off needs the agent to name source cards back, but
-      // a PRD/plan payload shouldn't leak ref tags into the generated doc.
-      ...(opts.withRefs ? { ref: cardRef(editor, c.id) } : {})
-    }))
-  );
+  return collectHandoffScope(editor, opts).text;
 }
 
 /**

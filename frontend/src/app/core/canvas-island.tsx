@@ -46,8 +46,10 @@ export {
   serializeEditor,
   serializeForTriage,
   serializeForHandoff,
+  collectHandoffScope,
   collectBoard,
-  selectedText
+  selectedText,
+  type HandoffScope
 } from "./canvas/serialize";
 export { applyScore, applyCompletion, applyIssueLinks, applyReference } from "./canvas/layout";
 

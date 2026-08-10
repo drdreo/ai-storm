@@ -19,10 +19,12 @@ import {
   applyReference as islandApplyReference,
   type CanvasBridge,
   collectBoard,
+  collectHandoffScope,
   selectedText,
   serializeEditor,
   serializeForHandoff,
-  serializeForTriage
+  serializeForTriage,
+  type HandoffScope
 } from "../core/canvas-island";
 import { boardFacets, type BoardFacets, type BoardFilter, EMPTY_FILTER } from "../core/canvas/filter";
 import { allIdeaCards, type IdeaCardMeta, ideaCards } from "../core/canvas/idea-card";
@@ -619,10 +621,21 @@ export const canvas = {
   },
 
   /**
+   * Selection-aware scope metadata for the hand-off panel (#225), or an empty
+   * board scope if this project isn't mounted. Explicit selections include
+   * selected superseded cards; whole-board scope excludes them.
+   */
+  handoffScope(projectId: string): HandoffScope {
+    if (!editor || projectId !== activeId) return { source: "board", cardCount: 0, text: "" };
+    return collectHandoffScope(editor);
+  },
+
+  /**
    * Lifecycle-aware serialization of the selection — or the whole board — for the
    * spec/PRD hand-off (#89, PD-015), or `''` if this project isn't the mounted
-   * one. Superseded ghosts are excluded and keep-marks (#59) flagged with ★; the
-   * agent turns this into a generated spec artifact via {@link agent.generateSpec}.
+   * one. Explicitly selected ghosts are included, while whole-board ghosts are
+   * excluded; keep-marks (#59) are flagged with ★. The agent turns this into a
+   * generated spec artifact via {@link agent.generateSpec}.
    */
   serializeForHandoff(projectId: string, opts: { withRefs?: boolean } = {}): string {
     if (!editor || projectId !== activeId) return "";
