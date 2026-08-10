@@ -15,8 +15,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "docs:check": "node scripts/check-doc-drift.mjs"
+    "lint:fix": "oxlint --fix"
   },
   "devDependencies": {
     "oxfmt": "^0.57.0",

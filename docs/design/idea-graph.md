@@ -12,26 +12,22 @@ issues #40 (source-linked responses), #19 (parent refs + connectors), #20 (lifec
 
 ## 1. Why this exists
 
-Today a brainstorm board is a _pile_ of cards, not a _graph_. The card verbs (#13
-Discuss, #15 Expand/Challenge/Find-risks, #14 reply-to-card) feed an editable prompt
-into the live terminal; the agent's reply streams back as terminal text, and the
-backend independently extracts `«IDEA»` markers into `CreateIdeaInput {title, body, kind?}` →
-`frontend/src/app/stores/canvas.store.ts` → one card per idea (colored by `kind`, #21).
+Before this model shipped, a brainstorm board was a _pile_ of cards rather than a
+_graph_. Card verbs (#13 Discuss, #15 Expand/Challenge/Find-risks, #14 reply-to-card)
+fed an editable prompt into the live terminal; the backend extracted `«IDEA»` markers
+into cards, but those cards were free-floating and had no durable link back to the
+source card. A "Find risks" response could therefore land elsewhere in the layout,
+visually disconnected from the idea it qualified.
 
-So responses already become cards — but **free-floating, with no link back to the card
-the verb fired from**. Click "Find risks" on a card and the risk cards land wherever
-the 4-column tiler drops them, visually disconnected from their source. That throws
-away the spatial story an edgeless canvas is supposed to tell.
+The graph work unified the primitives needed by #40 (source-linked responses), #19
+(connector edges), #22 (supersede), #20 (lifecycle), and #16/#17 (layout): **stable
+idea identity** and **typed relationships between ideas**. Without that shared model,
+each feature would have needed its own position-based identity and edge maps.
 
-Several filed issues (#40 source-linked responses, #19 connector edges, #22 supersede,
-#20 lifecycle, #16/#17 layout) all want the same two primitives underneath them:
-**stable idea identity** and **typed relationships between ideas**. Building those
-issues on position-only data means each reinvents identity + edges, or gets reworked
-once edges exist. This document defines the primitive once, so they become cheap.
-
-This is a **data-model refactor** that now ships through the existing pipeline. Cards,
-refs, typed edges, supersede ghosts, and manual graph-driven arrangement all consume
-the same model; new graph consumers should extend these primitives rather than create
+The resulting **data-model refactor is shipped** through the existing pipeline:
+`CreateIdeaInput` flows through `frontend/src/app/stores/canvas.store.ts` into cards
+with canonical refs, typed edges, supersede ghosts, and manual graph-driven
+arrangement. New graph consumers should extend these primitives rather than create
 parallel identity or persistence maps.
 
 ## 2. The model: three orthogonal axes

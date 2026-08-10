@@ -1,0 +1,55 @@
+---
+title: AI-STORM ARCHITECTURE
+config:
+  theme: base
+  themeVariables:
+    fontFamily: Arial, sans-serif
+    primaryTextColor: "#132238"
+    lineColor: "#6670d8"
+    clusterBkg: "#eef4fb"
+    clusterBorder: "#9aaabd"
+    edgeLabelBackground: "#f4f8fc"
+  flowchart:
+    htmlLabels: true
+    curve: basis
+    nodeSpacing: 38
+    rankSpacing: 58
+    padding: 18
+---
+%% Rendered with @mermaid-js/mermaid-cli 11.16.0:
+%% mmdc -i docs/media/architecture.mmd -o docs/media/architecture.png -b '#f4f8fc' -w 1600 -H 1000
+flowchart TB
+  subgraph browser["BROWSER APPLICATION · React 19 · Vite · Zustand · tldraw · xterm.js · Tailwind v4"]
+    direction LR
+    sidebar["<b>Sidebar / projects</b><br/>registry projection<br/>folders + ordering<br/>live session status"]:::browserNode
+    canvas["<b>Canvas pane · tldraw</b><br/>backend-loaded board snapshots<br/>idea cards + typed arrows<br/>arrange, filter, search, export"]:::browserNode
+    hub["<b>Control hub · xterm.js</b><br/>raw PTY bytes rendered faithfully<br/>prompts, resize, session controls<br/>MCP / marker results appear as cards"]:::browserNode
+    sidebar ~~~ canvas ~~~ hub
+  end
+
+  transport(["<b>/pty WebSocket</b><br/>project-keyed JSON · state requests/responses"]):::transport
+
+  subgraph daemon["LOCAL NODE DAEMON · Hono · 127.0.0.1 · local-only execution"]
+    direction LR
+    state["<b>BACKEND-OWNED DURABLE STATE</b><br/>StateStore · atomic JSON files<br/>registry.json<br/>projects/&lt;id&gt;/board.json<br/>projects/&lt;id&gt;/history.json<br/>revisioned saves · ref allocation"]:::daemonNode
+    runtime["<b>SESSION RUNTIME</b><br/>POSIX: named tmux + pipe-pane<br/>Windows: node-pty / ConPTY<br/>reconcile + idempotent attach<br/>IdeaScanner / ScoreScanner<br/>raw data → xterm · markers → cards"]:::daemonNode
+    mcp["<b>MCP CAPTURE</b><br/>POST /mcp/:projectId/:token<br/>capture_idea · capture_score<br/>mark / link · board discovery<br/>StateStore reads · ref allocation<br/>session sinks → /pty WS callbacks"]:::daemonNode
+    state ~~~ runtime ~~~ mcp
+  end
+
+  canvas --> transport
+  transport --> |state API| state
+  transport --> |PTY data + input| runtime
+  transport --> |idea / score / refs| mcp
+  runtime --> |tool calls + sinks| mcp
+  state --> |board reads · ref allocation| mcp
+
+  classDef browserNode fill:#ffffff,stroke:#c2cedb,color:#132238,stroke-width:1px;
+  classDef transport fill:#e7edf6,stroke:#b3c1d1,color:#315069,stroke-width:1px;
+  classDef daemonNode fill:#22334c,stroke:#526985,color:#ffffff,stroke-width:1.5px;
+  style browser fill:#eef4fb,stroke:#9aaabd,stroke-width:1.5px,color:#162940
+  style daemon fill:#0e1728,stroke:#536781,stroke-width:1.5px,color:#ffffff
+
+  linkStyle 4,6 stroke:#6670d8,stroke-width:2.5px
+  linkStyle 5,9 stroke:#f28b4b,stroke-width:2.5px
+  linkStyle 7,8 stroke:#18a7a0,stroke-width:2.5px

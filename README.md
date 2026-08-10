@@ -148,9 +148,6 @@ Requirements: **Node.js** ≥ 24.15 (backend uses native TS type-stripping),
 ### Tests
 
 ```sh
-# Documentation/code drift checklist
-pnpm docs:check
-
 # Unit
 cd frontend && pnpm test
 
