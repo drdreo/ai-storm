@@ -1,0 +1,404 @@
+/* Canonical Signal rendering for every idea-card shape. */
+.as-idea-card {
+  --as-card-signal: color-mix(in srgb, var(--as-card-accent) 48%, var(--as-card-ink));
+  --as-card-rule: color-mix(in srgb, var(--as-card-accent) 26%, transparent);
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--as-card-accent) 38%, transparent);
+  border-radius: 12px;
+  color: var(--as-card-ink);
+  background: color-mix(in srgb, var(--as-card-tint) 14%, var(--tl-color-panel, #fff));
+  font-family: var(--tl-font-sans, system-ui, sans-serif);
+  pointer-events: all;
+  transition:
+    border-color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.as-idea-card:hover,
+.as-idea-card:focus-within {
+  border-color: color-mix(in srgb, var(--as-card-accent) 60%, var(--as-card-ink));
+}
+
+.as-idea-card.is-editing {
+  overflow: visible;
+}
+
+.as-idea-card.is-superseded {
+  border-style: dashed;
+  opacity: 0.78;
+}
+
+.as-idea-card ::selection {
+  color: var(--as-card-ink);
+  background: color-mix(in srgb, var(--as-card-accent) 34%, transparent);
+}
+
+.as-card-header,
+.as-card-labels,
+.as-card-provenance,
+.as-card-kind,
+.as-card-state,
+.as-card-footer,
+.as-card-metrics,
+.as-card-chip,
+.as-card-link,
+.as-card-link-actions {
+  display: flex;
+  align-items: center;
+}
+
+.as-card-header {
+  min-height: 33px;
+  flex: none;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -13px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--as-card-rule);
+  border-radius: 11px 11px 0 0;
+  background: color-mix(in srgb, var(--as-card-tint) 56%, var(--tl-color-panel, #fff));
+}
+
+.as-card-labels {
+  min-width: 0;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--as-card-signal);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.as-card-provenance {
+  height: 19px;
+  flex: none;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--as-card-accent) 16%, transparent);
+  letter-spacing: 0.035em;
+}
+
+.as-card-kind {
+  min-width: 0;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.as-card-kind.is-note {
+  letter-spacing: 0.015em;
+  text-transform: none;
+}
+
+.as-card-state {
+  flex: none;
+  gap: 3px;
+  color: color-mix(in srgb, var(--as-card-ink) 78%, var(--as-card-accent));
+  font-weight: 570;
+}
+
+.as-card-state.is-done {
+  color: color-mix(in srgb, #2f9e58 68%, var(--as-card-ink));
+}
+
+.as-card-star,
+.as-card-link-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 0;
+  color: var(--as-card-signal);
+  background: transparent;
+  cursor: pointer;
+}
+
+.as-card-star {
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  opacity: 0.58;
+}
+
+.as-card-star:hover {
+  background: color-mix(in srgb, var(--as-card-accent) 15%, transparent);
+  opacity: 1;
+}
+
+.as-card-star.is-starred {
+  color: color-mix(in srgb, #e6a916 74%, var(--as-card-ink));
+  opacity: 1;
+}
+
+.as-card-star:focus-visible,
+.as-card-link:focus-visible,
+.as-card-link-remove:focus-visible,
+.as-card-add-link:focus-visible,
+.as-card-link-actions button:focus-visible,
+.as-card-link-field:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--as-card-accent) 62%, var(--as-card-ink));
+  outline-offset: 1px;
+}
+
+.as-card-star:disabled,
+.as-card-link-remove:disabled,
+.as-card-add-link:disabled,
+.as-card-link-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.as-card-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  overflow: hidden;
+  padding: 10px 0 11px;
+}
+
+.as-idea-card.is-editing .as-card-content {
+  overflow: visible;
+}
+
+.as-card-title,
+.as-card-title-edit {
+  min-width: 0;
+  color: var(--as-card-ink);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.32;
+  letter-spacing: -0.012em;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  unicode-bidi: plaintext;
+}
+
+.as-idea-card.is-done .as-card-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.as-idea-card.is-done .as-card-content {
+  opacity: 0.7;
+}
+
+.as-card-body,
+.as-card-body-edit {
+  min-width: 0;
+  color: color-mix(in srgb, var(--as-card-ink) 86%, var(--as-card-accent));
+  font-size: 12px;
+  font-weight: 430;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+
+.as-card-edit {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: transparent;
+  caret-color: var(--as-card-signal);
+  font-family: inherit;
+  resize: none;
+}
+
+.as-card-title-edit {
+  flex: none;
+  overflow: hidden;
+}
+
+.as-card-body-edit {
+  flex: 1;
+  overflow: auto;
+  scrollbar-color: var(--as-card-signal) transparent;
+  scrollbar-width: thin;
+}
+
+.as-card-footer {
+  min-height: 32px;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: auto -13px 0;
+  padding: 6px 12px 7px;
+  border-top: 1px solid var(--as-card-rule);
+  color: var(--as-card-signal);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.as-card-metrics {
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.as-card-chip {
+  --as-chip-color: var(--as-chip-accent, var(--as-card-accent));
+  --as-chip-signal: color-mix(in srgb, var(--as-chip-color) 48%, var(--as-card-ink));
+  min-width: 0;
+  min-height: 20px;
+  box-sizing: border-box;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--as-chip-signal);
+  background: color-mix(in srgb, var(--as-chip-color) 13%, transparent);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.as-card-metric > span {
+  font-size: 9.5px;
+  font-weight: 580;
+}
+
+.as-card-metric strong {
+  font-size: 10.5px;
+  font-weight: 780;
+}
+
+.as-card-metric.is-low-confidence {
+  background: color-mix(in srgb, var(--as-chip-color) 17%, transparent);
+}
+
+.as-card-link {
+  max-width: 100%;
+  gap: 4px;
+  color: var(--as-chip-signal);
+  text-decoration: none;
+}
+
+.as-card-link:hover {
+  background: color-mix(in srgb, var(--as-chip-color) 22%, transparent);
+}
+
+.as-card-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.as-card-link-remove {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--as-chip-signal);
+}
+
+.as-card-link-remove:hover {
+  background: color-mix(in srgb, var(--as-chip-color) 22%, transparent);
+}
+
+.as-card-issue-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.as-card-add-link {
+  border: 1px dashed color-mix(in srgb, var(--as-chip-color) 48%, transparent);
+  cursor: pointer;
+}
+
+.as-card-link-editor {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.as-card-link-field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--as-card-accent) 38%, transparent);
+  border-radius: 6px;
+  outline: 0;
+  color: var(--as-card-ink);
+  background: color-mix(in srgb, var(--as-card-tint) 22%, var(--tl-color-panel, #fff));
+  caret-color: var(--as-card-signal);
+  font: inherit;
+  font-size: 11px;
+}
+
+.as-card-link-field::placeholder {
+  color: color-mix(in srgb, var(--as-card-ink) 62%, var(--as-card-accent));
+}
+
+.as-card-link-field.is-invalid {
+  border-color: color-mix(in srgb, #d33d43 72%, var(--as-card-ink));
+}
+
+.as-card-link-error {
+  color: color-mix(in srgb, #d33d43 62%, var(--as-card-ink));
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.as-card-link-actions {
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.as-card-link-actions button {
+  cursor: pointer;
+}
+
+.as-card-link-submit {
+  color: var(--as-card-ink);
+  background: color-mix(in srgb, var(--as-card-accent) 24%, transparent);
+  font-weight: 760;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .as-idea-card {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .as-idea-card,
+  .as-card-header,
+  .as-card-footer,
+  .as-card-link-field {
+    border-color: CanvasText;
+  }
+
+  .as-card-provenance,
+  .as-card-chip {
+    border: 1px solid CanvasText;
+  }
+
+  .as-card-star:focus-visible,
+  .as-card-link:focus-visible,
+  .as-card-link-remove:focus-visible,
+  .as-card-add-link:focus-visible,
+  .as-card-link-actions button:focus-visible,
+  .as-card-link-field:focus-visible {
+    outline-color: Highlight;
+  }
+}
