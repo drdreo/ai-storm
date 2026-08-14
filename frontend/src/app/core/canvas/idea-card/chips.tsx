@@ -1,70 +1,59 @@
-/**
- * The card's bottom-strip link chips — the clickable pills rendered beside the
- * triage-score chips: {@link IssueLinkChip} for first-class tracker issues (#125,
- * with a status dot), {@link CardLinkChip} for any generic external URL (#227),
- * and {@link CardLinkEditor}, the inline "add link" affordance shown while a card
- * is being edited. Split out of the card body so the renderer stays about layout,
- * not chip internals.
- */
+import { ExternalLink, Link, X } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 import { stopEventPropagation, useEditor } from "tldraw";
-import { useEffect, useState } from "react";
-import type { IssueLink } from "../../issue-links";
 import { type CardLink, linkLabel, normalizeLinkUrl, upsertLink } from "../../card-links";
+import type { IssueLink } from "../../issue-links";
 import { issueStatus, useIssueStatusStore } from "../../../stores/issue-status.store";
-import { ISSUE_CLOSED_PURPLE, ISSUE_OPEN_GREEN, scoreChip } from "./styles";
 import type { IdeaCardMeta, IdeaCardShape } from "./schema";
+import { ISSUE_CLOSED_PURPLE, ISSUE_OPEN_GREEN } from "./styles";
 
-/**
- * One linked-issue chip (#125) — a clickable pill in the card's bottom stat
- * strip beside the triage score chips. GitHub issues get a status dot in
- * GitHub's own open/closed hues (fetched lazily through the status store);
- * Linear chips render without one (no API key to ask with). `stopEventPropagation`
- * on pointerdown keeps tldraw from starting a drag/selection, while the click
- * itself stays default so the anchor opens the tracker in a new tab.
- */
-export function IssueLinkChip({ link, accent }: { link: IssueLink; accent: string }): React.JSX.Element {
-  const status = useIssueStatusStore((s) => s.statuses[link.url]);
-  useEffect(() => {
-    issueStatus.request(link.url);
-  }, [link.url]);
-  // The chip shows the short number (`#125` / `ENG-12`); the repo lives in the
-  // tooltip — card space is scarce and the key column already reads as "issue".
-  const label = link.provider === "github" ? `#${link.key.split("#")[1] ?? link.key}` : link.key;
-  const state = status && status.state !== "unknown" ? status.state : null;
-  const dot = state === "open" ? ISSUE_OPEN_GREEN : state === "closed" ? ISSUE_CLOSED_PURPLE : null;
-  const title = `${link.title ? `${link.title} — ` : ""}${link.key}${state ? ` (${state})` : ""}`;
+interface ExternalAnchorChipProps {
+  href: string;
+  title: string;
+  ariaLabel: string;
+  accent: string;
+  children: React.ReactNode;
+}
+
+function ExternalAnchorChip({ href, title, ariaLabel, accent, children }: ExternalAnchorChipProps): React.JSX.Element {
   return (
     <a
-      href={link.url}
+      className="as-card-chip as-card-link"
+      href={href}
       target="_blank"
       rel="noreferrer"
       title={title}
+      aria-label={ariaLabel}
       onPointerDown={stopEventPropagation}
-      style={{
-        ...scoreChip(accent),
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        textDecoration: "none"
-      }}
+      style={{ "--as-chip-accent": accent } as React.CSSProperties}
     >
-      {dot ? (
-        <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: dot, flexShrink: 0 }} />
-      ) : null}
-      {label}
+      {children}
+      <ExternalLink aria-hidden size={10} strokeWidth={2} />
     </a>
   );
 }
 
-/**
- * One generic external-link chip (#227) — a clickable pill in the card's bottom
- * stat strip, the general case of {@link IssueLinkChip} (no tracker status dot,
- * since a plain link has no API to ask). Shows the link's label (or its host)
- * with a ↗ external-link cue; the full URL lives in the tooltip. While the card
- * is being edited, a × appears to detach the link. `stopEventPropagation` on
- * pointerdown keeps tldraw from starting a drag; the anchor click stays default
- * so it opens the URL in a new tab.
- */
+/** A compact first-class tracker reference with live GitHub state. */
+export function IssueLinkChip({ link, accent }: { link: IssueLink; accent: string }): React.JSX.Element {
+  const status = useIssueStatusStore((state) => state.statuses[link.url]);
+  useEffect(() => {
+    issueStatus.request(link.url);
+  }, [link.url]);
+
+  const label = link.provider === "github" ? `#${link.key.split("#")[1] ?? link.key}` : link.key;
+  const state = status && status.state !== "unknown" ? status.state : null;
+  const dot = state === "open" ? ISSUE_OPEN_GREEN : state === "closed" ? ISSUE_CLOSED_PURPLE : null;
+  const title = `${link.title ? `${link.title} — ` : ""}${link.key}${state ? ` (${state})` : ""}`;
+
+  return (
+    <ExternalAnchorChip href={link.url} title={title} ariaLabel={`Open ${title}`} accent={accent}>
+      {dot ? <span aria-hidden className="as-card-issue-dot" style={{ background: dot }} /> : null}
+      <span className="as-card-link-label">{label}</span>
+    </ExternalAnchorChip>
+  );
+}
+
+/** A generic external reference; removal is available while the card is editing. */
 export function CardLinkChip({
   link,
   accent,
@@ -76,64 +65,46 @@ export function CardLinkChip({
   editing: boolean;
   onRemove: () => void;
 }): React.JSX.Element {
+  const label = linkLabel(link);
+
   return (
-    <span style={{ ...scoreChip(accent), display: "inline-flex", alignItems: "center", gap: 4 }}>
-      <a
-        href={link.url}
-        target="_blank"
-        rel="noreferrer"
-        title={link.url}
-        onPointerDown={stopEventPropagation}
-        style={{ display: "inline-flex", alignItems: "center", gap: 3, color: accent, textDecoration: "none" }}
-      >
-        {linkLabel(link)}
-        <span aria-hidden style={{ opacity: 0.7 }}>
-          ↗
-        </span>
-      </a>
+    <>
+      <ExternalAnchorChip href={link.url} title={link.url} ariaLabel={`Open ${label}`} accent={accent}>
+        <span className="as-card-link-label">{label}</span>
+      </ExternalAnchorChip>
       {editing ? (
         <button
           type="button"
-          title="Remove link"
-          aria-label={`Remove link ${linkLabel(link)}`}
+          className="as-card-chip as-card-link-remove"
+          title={`Remove ${label}`}
+          aria-label={`Remove link ${label}`}
           onPointerDown={stopEventPropagation}
-          onClick={(e) => {
-            stopEventPropagation(e);
+          onClick={(event) => {
+            stopEventPropagation(event);
             onRemove();
           }}
-          style={{
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            padding: 0,
-            margin: 0,
-            lineHeight: 1,
-            color: accent,
-            opacity: 0.7,
-            fontSize: 11
-          }}
+          style={{ "--as-chip-accent": accent } as React.CSSProperties}
         >
-          ✕
+          <X aria-hidden size={11} strokeWidth={2.3} />
         </button>
       ) : null}
-    </span>
+    </>
   );
 }
 
-/**
- * The inline "add link" affordance shown while a card is being edited (#227):
- * an expandable row with a URL field and an optional label field (the
- * Confluence-style "text → url"), pinned below the card's edit fields. Pasting a
- * URL and pressing Enter (or Add) normalizes it (a bare host gains `https://`;
- * non-http schemes are rejected) and appends it to `meta.links` via
- * {@link upsertLink}. Kept local so the read view stays a plain set of chips.
- */
+/** Inline URL and optional-label editor shown while the parent card is editing. */
 export function CardLinkEditor({ shape, accent }: { shape: IdeaCardShape; accent: string }): React.JSX.Element {
   const editor = useEditor();
+  const errorId = useId();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [error, setError] = useState(false);
+
+  const close = () => {
+    setOpen(false);
+    setError(false);
+  };
 
   const add = () => {
     const normalized = normalizeLinkUrl(url);
@@ -141,9 +112,10 @@ export function CardLinkEditor({ shape, accent }: { shape: IdeaCardShape; accent
       setError(true);
       return;
     }
+
     const trimmedLabel = label.trim();
     const link: CardLink = trimmedLabel ? { url: normalized, label: trimmedLabel } : { url: normalized };
-    const links = upsertLink(((shape.meta as IdeaCardMeta).links ?? []) as CardLink[], link);
+    const links = upsertLink((shape.meta as IdeaCardMeta).links ?? [], link);
     editor.updateShape({ id: shape.id, type: "idea-card", meta: { ...shape.meta, links } });
     setUrl("");
     setLabel("");
@@ -151,96 +123,81 @@ export function CardLinkEditor({ shape, accent }: { shape: IdeaCardShape; accent
     setOpen(false);
   };
 
-  const field: React.CSSProperties = {
-    width: "100%",
-    boxSizing: "border-box",
-    border: `1px solid color-mix(in srgb, ${accent} 40%, transparent)`,
-    borderRadius: 6,
-    background: "transparent",
-    color: "inherit",
-    padding: "3px 6px",
-    fontSize: 11,
-    outline: "none"
-  };
-
   if (!open) {
     return (
       <button
         type="button"
+        className="as-card-chip as-card-add-link"
+        aria-expanded={false}
         onPointerDown={stopEventPropagation}
-        onClick={(e) => {
-          stopEventPropagation(e);
+        onClick={(event) => {
+          stopEventPropagation(event);
           setOpen(true);
         }}
-        style={{
-          ...scoreChip(accent),
-          cursor: "pointer",
-          border: `1px dashed color-mix(in srgb, ${accent} 45%, transparent)`
-        }}
+        style={{ "--as-chip-accent": accent } as React.CSSProperties}
       >
-        🔗 Add link
+        <Link aria-hidden size={11} strokeWidth={2.1} />
+        Add link
       </button>
     );
   }
 
   return (
     <div
-      style={{ display: "flex", flexDirection: "column", gap: 4, width: "100%" }}
+      className="as-card-link-editor"
+      style={{ "--as-chip-accent": accent } as React.CSSProperties}
       onPointerDown={stopEventPropagation}
     >
       <input
         autoFocus
+        className={`as-card-link-field${error ? " is-invalid" : ""}`}
+        type="text"
+        inputMode="url"
         value={url}
-        placeholder="Paste URL…"
-        onChange={(e) => {
-          setUrl(e.target.value);
+        placeholder="Paste a web URL…"
+        aria-label="Link URL"
+        aria-invalid={error}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(event) => {
+          setUrl(event.target.value);
           setError(false);
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             add();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            setOpen(false);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            close();
           }
         }}
-        style={{ ...field, borderColor: error ? "#e5484d" : field.borderColor }}
       />
+      {error ? (
+        <span id={errorId} className="as-card-link-error" role="alert">
+          Enter a valid http(s) URL.
+        </span>
+      ) : null}
       <input
+        className="as-card-link-field"
         value={label}
         placeholder="Label (optional)"
-        onChange={(e) => setLabel(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
+        aria-label="Link label"
+        onChange={(event) => setLabel(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
             add();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            setOpen(false);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            close();
           }
         }}
-        style={field}
       />
-      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-        <button
-          type="button"
-          onClick={(e) => {
-            stopEventPropagation(e);
-            setOpen(false);
-          }}
-          style={{ ...scoreChip(accent), cursor: "pointer" }}
-        >
+      <div className="as-card-link-actions">
+        <button type="button" className="as-card-chip" onClick={close}>
           Cancel
         </button>
-        <button
-          type="button"
-          onClick={(e) => {
-            stopEventPropagation(e);
-            add();
-          }}
-          style={{ ...scoreChip(accent), cursor: "pointer", fontWeight: 700 }}
-        >
+        <button type="button" className="as-card-chip as-card-link-submit" onClick={add}>
           Add
         </button>
       </div>

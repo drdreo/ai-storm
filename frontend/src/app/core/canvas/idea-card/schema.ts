@@ -21,7 +21,7 @@ export type IdeaCardShape = TLBaseShape<
     kind: string;
     title: string;
     body: string;
-    /** Who made it (#31, PD-009) — AI cards get the 🤖 badge. */
+    /** Who made it (#31, PD-009) — AI cards get an explicit provenance marker. */
     origin: Origin;
     /** Lifecycle (#20, PD-012): a supersede target becomes a grey/dashed ghost. */
     superseded: boolean;
@@ -46,13 +46,13 @@ export type IdeaCardShape = TLBaseShape<
  */
 export interface IdeaCardMeta {
   ref?: string;
-  /** User mark — "good, keep for later processing" (#29). Toggled via the ★. */
+  /** User mark — "good, keep for later processing" (#29). Toggled via the star action. */
   starred?: boolean;
   /**
    * Completion state (#167): the idea has been acted on / finished. Set by the
    * MCP `mark_idea_done` tool (an agent reflecting workflow progress) and by the
-   * manual context-menu toggle. A done card reads as visibly completed (✓ mark,
-   * struck title, dimmed) but stays on the board. `meta` (like `starred`/`score`)
+   * manual context-menu toggle. A done card reads as visibly completed (state
+   * label, struck title, dimmed) but stays on the board. `meta` (like `starred`/`score`)
    * so no schema migration; absent means open.
    */
   done?: boolean;
@@ -65,8 +65,8 @@ export interface IdeaCardMeta {
   score?: { impact: number; effort: number; confidence?: number };
   /**
    * Set the first time the user edits an AI card's text (#72). The card keeps its
-   * `origin: 'ai'` provenance (and the 🤖 badge) but gains a `· edited` mark, so a
-   * human take-over of an AI idea stays honest about both halves of its history.
+   * `origin: 'ai'` provenance and gains an Edited state, so a human take-over of
+   * an AI idea stays honest about both halves of its history.
    * `meta` (like `starred`/`score`) so no schema migration.
    */
   editedByUser?: boolean;

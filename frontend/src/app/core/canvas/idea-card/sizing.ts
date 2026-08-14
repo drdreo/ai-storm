@@ -5,15 +5,17 @@
  * an existing card. Canvas-measurement based when a DOM is present, with a
  * char-width fallback for the headless (vitest) env.
  */
-import { normalizeKind } from "../../idea-descriptors";
 import { CARD_MAX_W, CARD_W, type Origin } from "./schema";
 
-const CARD_HORIZONTAL_PADDING = 24;
-const CARD_VERTICAL_PADDING = 20;
-const CARD_META_ROW_H = 17;
-const CARD_GAP = 5;
-const CARD_TITLE_LINE_H = 18;
-const CARD_BODY_LINE_H = 17;
+// Mirrors the canonical Signal structure in idea-card.css. Every card has a
+// deliberate header; the footer is absent on newly created cards until metadata
+// or editing actions exist.
+const CARD_HORIZONTAL_PADDING = 26;
+const CARD_CONTENT_VERTICAL_PADDING = 21;
+const CARD_HEADER_H = 33;
+const CARD_TEXT_GAP = 5;
+const CARD_TITLE_LINE_H = 19;
+const CARD_BODY_LINE_H = 18;
 const CARD_TITLE_CHAR_W = 7.5;
 const CARD_BODY_CHAR_W = 6.2;
 
@@ -85,13 +87,10 @@ function estimatedLineCount(text: string, usableWidth: number, charWidth: number
 export function ideaCardSizeForContent(input: IdeaCardSizeInput): { w: number; h: number } {
   const title = input.title?.trim() || "Untitled idea";
   const body = input.body?.trim() ?? "";
-  const normalizedKind = normalizeKind(input.kind);
-  const hasMetaRow = input.origin === "ai" || !!normalizedKind;
-
   const titleFont = "600 14px tldraw_sans, sans-serif";
   const bodyFont = "12px tldraw_sans, sans-serif";
   const titleTextWidth = measuredTextWidth(title, titleFont) ?? title.length * CARD_TITLE_CHAR_W;
-  const titleWidth = Math.ceil(titleTextWidth + CARD_HORIZONTAL_PADDING + 34 + 2);
+  const titleWidth = Math.ceil(titleTextWidth + CARD_HORIZONTAL_PADDING + 2);
   const bodyWidth = body
     ? Math.ceil(
         body
@@ -108,14 +107,14 @@ export function ideaCardSizeForContent(input: IdeaCardSizeInput): { w: number; h
   const w = clamp(Math.max(CARD_W, titleWidth, bodyWidth), CARD_W, CARD_MAX_W);
 
   const usableWidth = w - CARD_HORIZONTAL_PADDING - 2;
-  const titleLines = estimatedLineCount(title, usableWidth - 22, CARD_TITLE_CHAR_W, titleFont);
+  const titleLines = estimatedLineCount(title, usableWidth, CARD_TITLE_CHAR_W, titleFont);
   const bodyLines = body ? estimatedLineCount(body, usableWidth, CARD_BODY_CHAR_W, bodyFont) : 0;
   const contentH =
     2 +
-    CARD_VERTICAL_PADDING +
-    (hasMetaRow ? CARD_META_ROW_H + CARD_GAP : 0) +
+    CARD_HEADER_H +
+    CARD_CONTENT_VERTICAL_PADDING +
     titleLines * CARD_TITLE_LINE_H +
-    (bodyLines > 0 ? CARD_GAP + bodyLines * CARD_BODY_LINE_H : 0);
+    (bodyLines > 0 ? CARD_TEXT_GAP + bodyLines * CARD_BODY_LINE_H : 0);
 
   return { w, h: Math.ceil(contentH) };
 }
