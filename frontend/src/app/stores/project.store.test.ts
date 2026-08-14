@@ -136,7 +136,7 @@ async function bootStore() {
 describe("project store — registry lifecycle", () => {
   beforeEach(() => {
     // Fresh backend authority + active pointer for each test.
-    (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
+    (globalThis as unknown as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
     histories = new Map();
     liveSessions = new Set();
@@ -232,7 +232,7 @@ describe("project store — registry lifecycle", () => {
 
 describe("project store — folders (#128)", () => {
   beforeEach(() => {
-    (globalThis as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
+    (globalThis as unknown as { localStorage: LocalStorageStub }).localStorage = new LocalStorageStub();
     registry = { projects: [], folders: [], revision: 0 };
   });
 

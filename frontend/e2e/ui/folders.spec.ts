@@ -108,7 +108,7 @@ test.describe("folders", () => {
 
     // Verify all color indicators are visible in the sidebar
     const statusDotSpans = await page.locator('[data-testid="status-dot"]').all();
-    for (const item of await statusDotSpans) {
+    for (const item of statusDotSpans) {
       await expect(item).toBeVisible();
     }
     expect(statusDotSpans.length).toBe(2);

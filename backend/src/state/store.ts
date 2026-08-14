@@ -319,10 +319,12 @@ export class StateStore {
       // made auto-nameable again, even if an older client sends a stale flag.
       const titleChanged = patch.title !== undefined && patch.title !== current.title;
       const titlePlaceholder = titleIsPlaceholder(current) && patch.titlePlaceholder !== false && !titleChanged;
-      const project = { ...current, ...patch, titlePlaceholder, updatedAt: this.#now() } as StoredProject;
+      const { folderId, ...restPatch } = patch;
+      const project: StoredProject = { ...current, ...restPatch, titlePlaceholder, updatedAt: this.#now() };
       // JSON cannot carry `undefined`; clients use null to clear an optional
       // folder assignment, while registry files keep the canonical field absent.
-      if (patch.folderId === null) delete project.folderId;
+      if (folderId === null) delete project.folderId;
+      else if (folderId !== undefined) project.folderId = folderId;
       const projects = [...registry.projects];
       projects[index] = project;
       await this.#writeJson(this.registryPath, { ...registry, revision: registry.revision + 1, projects });

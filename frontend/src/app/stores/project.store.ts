@@ -88,18 +88,20 @@ function getFolder(id: string): Folder | undefined {
   return useProjectStore.getState().folders.find((item) => item.id === id);
 }
 function optimisticProject(meta: ProjectMeta): void {
-  const current = useProjectStore.getState().projects;
-  const projects = current.some((item) => item.id === meta.id)
-    ? current.map((item) => (item.id === meta.id ? meta : item))
-    : [...current, meta];
-  useProjectStore.setState({ projects: projects.sort(compareByOrder) });
+  const projects = [...useProjectStore.getState().projects];
+  const index = projects.findIndex((item) => item.id === meta.id);
+  if (index === -1) projects.push(meta);
+  else projects[index] = meta;
+  projects.sort(compareByOrder);
+  useProjectStore.setState({ projects });
 }
 function optimisticFolder(folder: Folder): void {
-  const current = useProjectStore.getState().folders;
-  const folders = current.some((item) => item.id === folder.id)
-    ? current.map((item) => (item.id === folder.id ? folder : item))
-    : [...current, folder];
-  useProjectStore.setState({ folders: folders.sort(compareByOrder) });
+  const folders = [...useProjectStore.getState().folders];
+  const index = folders.findIndex((item) => item.id === folder.id);
+  if (index === -1) folders.push(folder);
+  else folders[index] = folder;
+  folders.sort(compareByOrder);
+  useProjectStore.setState({ folders });
 }
 async function reloadRegistry(): Promise<void> {
   applyRegistry(await backend.request<RegistryWire>("registry-load"));
@@ -281,7 +283,7 @@ export const project = {
 
   setFolderCollapsed(id: string, collapsed: boolean): void {
     const folder = getFolder(id);
-    if (folder && !!folder.collapsed !== collapsed) {
+    if (folder && (folder.collapsed ?? false) !== collapsed) {
       folderCollapsed.set(id, collapsed);
       localStorage.setItem(collapsedKey(id), collapsed ? "1" : "0");
       optimisticFolder({ ...folder, collapsed });

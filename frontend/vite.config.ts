@@ -11,6 +11,27 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src")
     }
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Keep third-party code out of the app chunk and cap vendor chunks at a
+        // cache-friendly size. `entriesAware` preserves the existing lazy panel
+        // boundaries instead of making the initial entry download their vendors.
+        codeSplitting: {
+          minSize: 150_000,
+          maxSize: 1_300_000,
+          groups: [
+            {
+              name: "vendor",
+              test: /node_modules/,
+              entriesAware: true,
+              entriesAwareMergeThreshold: 150_000
+            }
+          ]
+        }
+      }
+    }
+  },
   server: {
     port: 4200,
     // The local backend loop (PRD §4.2). Mirrors the old Angular proxy.conf.json:
