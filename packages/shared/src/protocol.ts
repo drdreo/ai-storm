@@ -209,7 +209,7 @@ export type AgentCapability = "create-issues";
 export interface AgentMessage {
   type: "agent";
   projectId: string;
-  /** The orchestrator command to invoke, e.g. "claude" or "aider". */
+  /** The configured orchestrator command line, e.g. "claude --model=opus". */
   command: string;
   /** Static arguments preceding the payload. */
   args?: string[];

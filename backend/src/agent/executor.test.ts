@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import type { AgentStatusMessage } from "@ai-storm/shared";
-import { runAgent, type AgentRunOptions } from "./executor.ts";
+import { runAgent, type AgentRunOptions, type AgentSpec } from "./executor.ts";
 
 type Status = Omit<AgentStatusMessage, "type">;
 
-/** Run `node -e script` through the executor and collect emits until exit. */
-function collectRun(script: string, payload = "", opts?: AgentRunOptions): Promise<Status[]> {
+/** Run a spec through the executor and collect emits until exit. */
+function collectSpec(spec: AgentSpec, opts?: AgentRunOptions): Promise<Status[]> {
   return new Promise((resolve, reject) => {
     const emits: Status[] = [];
     const child = runAgent(
       "ws-test",
-      { command: "node", args: ["-e", script], payload },
+      spec,
       (msg) => {
         emits.push(msg);
         if (msg.status === "exit") resolve(emits);
@@ -23,6 +23,11 @@ function collectRun(script: string, payload = "", opts?: AgentRunOptions): Promi
     if (child === null) resolve(emits);
     setTimeout(() => reject(new Error("run did not finish in time")), 20_000).unref();
   });
+}
+
+/** Run `node -e script` through the executor and collect emits until exit. */
+function collectRun(script: string, payload = "", opts?: AgentRunOptions): Promise<Status[]> {
+  return collectSpec({ command: "node", args: ["-e", script], payload }, opts);
 }
 
 const stdout = (emits: Status[]) =>
@@ -42,6 +47,26 @@ describe("runAgent", () => {
     expect(emits.some((e) => e.status === "spawned")).toBe(true);
     expect(stdout(emits)).toContain("hello agent");
     expect(emits.at(-1)).toMatchObject({ status: "exit", code: 0 });
+  });
+
+  it("splits inline command args before spawning an export agent", async () => {
+    const emits = await collectSpec({
+      command: `node -e "process.stdout.write(process.argv.slice(1).join('|'))" inline`,
+      args: ["separate"],
+      payload: ""
+    });
+
+    expect(stdout(emits)).toBe("inline|separate");
+    expect(emits.some((e) => e.status === "spawned")).toBe(true);
+    expect(emits.at(-1)).toMatchObject({ status: "exit", code: 0 });
+  });
+
+  it("rejects control characters in the raw command before tokenization", async () => {
+    const emits = await collectSpec({ command: "node\n-e", payload: "" });
+
+    expect(emits).toHaveLength(1);
+    expect(emits[0]).toMatchObject({ status: "error" });
+    expect(emits[0].data).toMatch(/control characters/i);
   });
 
   it("refuses a payload over the size cap without spawning", async () => {

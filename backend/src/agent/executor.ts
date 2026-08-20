@@ -11,7 +11,10 @@
  * command line. On Windows `claude` is typically a `.cmd` shim wrapped via
  * `cmd.exe /c`, so placing the payload on argv would let cmd.exe re-parse it
  * (CVE-2024-27980-class injection) and could exceed the ~32 KB command-line
- * limit. Only the static, trusted `spec.args` reach argv.
+ * limit. The user-configured command may include static inline args (for
+ * example `claude --model=opus`); those are split quote-aware and combined
+ * with the separately configured `spec.args`. Neither source contains the
+ * untrusted payload.
  *
  * Bounds (#142, PD-022): a run is capped by a wall-clock timeout (server
  * config, tree-killed on expiry) and an output circuit-breaker, and its whole
@@ -24,7 +27,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import type { AgentArtifact, AgentCapability, AgentStatusMessage, SpecFormat } from "@ai-storm/shared";
-import { resolveLaunch } from "../pty/resolve.ts";
+import { assertNoControlCharacters, resolveLaunch, tokenizeCommand } from "../pty/resolve.ts";
 import { resolveCapabilities } from "./capabilities.ts";
 import { parseIssueArtifacts } from "./artifacts.ts";
 import { log } from "../log.ts";
@@ -33,6 +36,7 @@ export type AgentEmitter = (msg: Omit<AgentStatusMessage, "type">) => void;
 export type ArtifactEmitter = (artifacts: AgentArtifact[]) => void;
 
 export interface AgentSpec {
+  /** Configured harness command line, e.g. `claude --model=opus`. */
   command: string;
   args?: string[];
   payload: string;
@@ -121,11 +125,32 @@ export function runAgent(
     return null;
   }
 
-  // Only the static, trusted args reach the command line; the untrusted payload
-  // is piped to stdin below (see module header). Requested capabilities append
-  // backend-owned flags from the vetted table (#120) — never client strings.
-  const caps = resolveCapabilities(spec.command, spec.capabilities);
-  const requestedArgs = [...(spec.args ?? []), ...caps.args];
+  let launch;
+  let caps: ReturnType<typeof resolveCapabilities>;
+  try {
+    // Strict validation is right for THIS path only: agent-run args are short
+    // static flags, so control chars / cmd metachars are never legitimate.
+    // (PTY sessions resolve non-strict — their argv carries the multi-line
+    // prime and quoted MCP JSON.)
+    assertNoControlCharacters(spec.command, []);
+    // Match both interactive PTY launchers: the configured command field is a
+    // complete, quote-aware command line. Its inline args precede separately
+    // configured args, while the untrusted payload remains on stdin. The raw
+    // string is validated above before tokenization can consume separators.
+    const [command = "", ...inlineArgs] = tokenizeCommand(spec.command);
+    caps = resolveCapabilities(command, spec.capabilities);
+    const requestedArgs = [...inlineArgs, ...(spec.args ?? []), ...caps.args];
+    launch = resolveLaunch(command, requestedArgs, { strict: true });
+  } catch (err) {
+    log.error("agent.resolve_failed", {
+      project: projectId,
+      command: spec.command,
+      error: err instanceof Error ? err.message : String(err)
+    });
+    emit({ projectId, status: "error", data: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+
   for (const cap of caps.rejected) {
     log.warn("agent.capability_rejected", {
       project: projectId,
@@ -139,23 +164,6 @@ export function runAgent(
     });
   }
   const grantedCreateIssues = spec.capabilities?.includes("create-issues") === true && caps.rejected.length === 0;
-
-  let launch;
-  try {
-    // Strict validation is right for THIS path only: agent-run args are short
-    // static flags, so control chars / cmd metachars are never legitimate.
-    // (PTY sessions resolve non-strict — their argv carries the multi-line
-    // prime and quoted MCP JSON.)
-    launch = resolveLaunch(spec.command, requestedArgs, { strict: true });
-  } catch (err) {
-    log.error("agent.resolve_failed", {
-      project: projectId,
-      command: spec.command,
-      error: err instanceof Error ? err.message : String(err)
-    });
-    emit({ projectId, status: "error", data: err instanceof Error ? err.message : String(err) });
-    return null;
-  }
 
   const child = spawn(launch.cmd, launch.args, {
     cwd: spec.cwd,

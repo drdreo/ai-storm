@@ -19,6 +19,10 @@ not hosted (see [PD-022](../decisions/product-decisions.md)).
 
 - **Payload never reaches argv** — delivered on stdin (avoids CVE-2024-27980
   re-parsing and the ~32 KB Windows command-line limit).
+- **Configured inline arguments are tokenized once** — `claude --model=opus`
+  resolves to executable `claude` plus a literal argument. The original raw
+  command is control-character validated before tokenization, and the resulting
+  tokens still pass strict platform-specific validation.
 - **Capabilities are named, not raw argv** — client requests `create-issues`;
   backend maps it to a hardcoded flag (`capabilities.ts`), unknown rejected.
 - **Origin gate** — cross-site pages cannot open `/pty`.
