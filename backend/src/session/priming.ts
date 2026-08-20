@@ -6,6 +6,7 @@
  */
 
 import { getFacilitationMode } from "@ai-storm/shared";
+import { tokenizeCommand } from "../pty/resolve.ts";
 import { commandProfileName, getProfile, profileUsesMcp } from "./extraction/index.ts";
 
 /**
@@ -128,7 +129,12 @@ export function harnessSetup(
   mode?: string,
   background?: string
 ): { harnessProfile?: string; prime?: string } {
-  const harnessProfile = commandProfileName(command);
+  // The project harness field is a complete command line, not just a binary.
+  // Resolve the profile from the same quote-aware executable token both PTY
+  // backends launch; otherwise `claude --model=opus` gets MCP argv wiring but
+  // no MCP prime because the whole string is mistaken for an unknown binary.
+  const executable = tokenizeCommand(command)[0] ?? "";
+  const harnessProfile = commandProfileName(executable);
   const profile = getProfile(harnessProfile);
   if (!profile.supportsIdeaContract) return { harnessProfile, prime: undefined };
   const base = profileUsesMcp(profile)

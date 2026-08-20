@@ -232,7 +232,9 @@ export const PI_PROFILE: HarnessProfile = {
  * The Codex CLI profile. Codex has no `--append-system-prompt` flag; the
  * supported launch seam is a one-off config override, so we inject the same
  * idea contract as `developer_instructions` via `-c`. Codex MCP uses that
- * same config override seam for the session-scoped Streamable HTTP server.
+ * same config override seam for the session-scoped Streamable HTTP server and
+ * explicitly enables Codex's modern-only MCP 2026-07-28 client. Without that
+ * feature override, Codex 0.148.0 still initializes servers as 2025-06-18.
  * `--no-alt-screen` keeps the conversation in tmux's normal scrollback so
  * `capture-pane` can still see marker fallback lines.
  */
@@ -251,6 +253,8 @@ export const CODEX_PROFILE: HarnessProfile = {
   defaultConfig: { model_reasoning_effort: JSON.stringify("medium") },
   mcpConfigKey: ({ serverName }) => `mcp_servers.${serverName}.url`,
   mcpArgs: ({ url, serverName }) => [
+    "-c",
+    "features.mcp_2026_07_28=true",
     "-c",
     `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
     "-c",

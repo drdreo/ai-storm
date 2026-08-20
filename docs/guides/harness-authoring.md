@@ -74,7 +74,10 @@ support off) and **logging** on an unknown name — never silently guessing
 command's basename (`/usr/local/bin/claude` → `"claude"`) to a profile name; a
 harness that isn't recognised there falls back to `DEFAULT_PROFILE` too.
 
-`launchArgsForProfile(profile, baseArgs, prime, mcp)` turns a profile + prime
+`harnessSetup` and both PTY backends first pass the complete harness field
+through the same quote-aware command tokenizer, so inline forms such as
+`claude --model=opus` and `"/opt/AI tools/claude" --model=opus` still select the
+Claude profile and its MCP prime. `launchArgsForProfile(profile, baseArgs, prime, mcp)` turns a profile + prime
 text + optional MCP context into the final argv, and is the single place both
 the tmux and node-pty launch paths call — so a new profile automatically works
 on both backends. It is **idempotent against caller-supplied flags**: if
@@ -260,6 +263,8 @@ export const CODEX_PROFILE: HarnessProfile = {
   mcpConfigKey: ({ serverName }) => `mcp_servers.${serverName}.url`,
   mcpArgs: ({ url, serverName }) => [
     "-c",
+    "features.mcp_2026_07_28=true",
+    "-c",
     `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
     "-c",
     `mcp_servers.${serverName}.enabled=true`,
@@ -275,6 +280,9 @@ Codex has no `--append-system-prompt` equivalent, so priming rides its `-c
 key=value` config-override flag instead — `systemPromptValue` does the
 key-wrapping. Codex MCP uses the same config-override seam with
 `mcp_servers.ai-storm.*` keys for the session-scoped Streamable HTTP endpoint.
+The MCP block also enables `features.mcp_2026_07_28`; Codex 0.148.0 contains
+the modern client but defaults to the legacy 2025-06-18 initialization path
+unless that under-development feature is enabled.
 `--no-alt-screen` remains load-bearing as the marker fallback: without it Codex
 renders on the terminal's alternate screen, which `tmux capture-pane` cannot
 see.

@@ -104,6 +104,7 @@ harness (default `claude`) inside a real pseudo-terminal via
 [node-pty](https://github.com/microsoft/node-pty). Contract-aware harnesses
 (`claude`, `pi`, `codex`, `opencode`) are primed at launch.
 They will try to use the ai-storm MCP / tools / extension, otherwise fallback to a marker based contract via emitted `«IDEA»` / `«SCORE»`. MCP-capable clients must support `2026-07-28`; ai-storm does not negotiate older revisions or expose an SSE fallback endpoint.
+For Codex sessions, ai-storm enables Codex's `mcp_2026_07_28` feature alongside the session-scoped MCP server configuration.
 
 ### Persistence
 

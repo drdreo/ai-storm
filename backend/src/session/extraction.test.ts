@@ -37,6 +37,7 @@ import { TOOLS } from "../mcp/endpoint.ts";
 import { McpSessionRegistry } from "../mcp/registry.ts";
 import { TmuxSessionBackend } from "./tmux-backend.ts";
 import { NodePtySessionBackend } from "./nodepty-backend.ts";
+import { harnessSetup } from "./priming.ts";
 import { fakeTmux } from "./test-support/fake-tmux.ts";
 import { ideaIdentityKey } from "@ai-storm/shared";
 
@@ -960,6 +961,29 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     return viaScript ? readFileSync(viaScript[1], "utf-8") : launch;
   };
 
+  it("keeps Claude MCP wiring and priming with an inline --model command", async () => {
+    const projectId = "wsClaudeInline";
+    const command = "claude --model=opus";
+    const registry = new McpSessionRegistry();
+    registry.configure("http://127.0.0.1:8787");
+    const fake = fakeTmux();
+    const backend = new TmuxSessionBackend({ tmux: fake.tmux, sleep: async () => {}, registry });
+    const setup = harnessSetup(command, projectId);
+
+    await backend.create({ projectId, command, ...setup });
+
+    const launch = launchText(fake.sessions.get(`ai-storm-${projectId}`)?.launch ?? "");
+    expect(setup.harnessProfile).toBe("claude");
+    expect(launch).toContain("--model=opus");
+    expect(launch).not.toContain("haiku");
+    expect(launch).toContain("--mcp-config");
+    expect(launch).toContain("--allowedTools");
+    expect(launch).toContain("--append-system-prompt");
+    expect(launch).toContain("call the capture_idea tool");
+
+    await backend.kill(projectId);
+  });
+
   it("wires Codex to the session MCP endpoint when the registry is configured", async () => {
     const registry = new McpSessionRegistry();
     registry.configure("http://127.0.0.1:8787");
@@ -970,6 +994,7 @@ describe("TmuxSessionBackend — system-prompt priming at launch", () => {
     const launch = launchText(fake.sessions.get("ai-storm-wsCodexMcp")?.launch ?? "");
     const url = registry.registerSession("wsCodexMcp")!.url;
     expect(registry.isRegistered("wsCodexMcp")).toBe(true);
+    expect(launch).toContain("features.mcp_2026_07_28=true");
     expect(launch).toContain(`mcp_servers.ai-storm.url=${JSON.stringify(url)}`);
     expect(launch).toContain("mcp_servers.ai-storm.enabled=true");
     expect(launch).toContain(
@@ -1189,13 +1214,14 @@ describe("launchArgsForProfile — MCP launch context (mcp-idea-capture §4.3)",
   });
   it("wires Codex MCP through config overrides", () => {
     const args = launchArgsForProfile(CODEX_PROFILE, [], PRIME, ctx);
+    expect(args).toContain("features.mcp_2026_07_28=true");
     expect(args).toContain('mcp_servers.ai-storm.url="http://127.0.0.1:8787/mcp/ws1/0123456789abcdef0123456789abcdef"');
     expect(args).toContain("mcp_servers.ai-storm.enabled=true");
     expect(args).toContain(
       'mcp_servers.ai-storm.enabled_tools=["capture_idea","set_project_title","capture_score","mark_idea_done","link_idea","get_board_ideas","get_projects"]'
     );
     expect(args).toContain('mcp_servers.ai-storm.default_tools_approval_mode="approve"');
-    expect(args.filter((a) => a === "-c")).toHaveLength(6);
+    expect(args.filter((a) => a === "-c")).toHaveLength(7);
   });
 
   it("does not inject Codex MCP config when caller supplies the server URL", () => {

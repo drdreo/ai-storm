@@ -261,6 +261,7 @@ mcpArgs: ({ url, serverName }) => [
 
 ```ts
 mcpArgs: ({ url, serverName }) => [
+  "-c", `features.mcp_2026_07_28=true`,
   "-c", `mcp_servers.${serverName}.url=${JSON.stringify(url)}`,
   "-c", `mcp_servers.${serverName}.enabled=true`,
   "-c", `mcp_servers.${serverName}.enabled_tools=${JSON.stringify(["capture_idea", "set_project_title", "capture_score", "mark_idea_done", "link_idea", "get_board_ideas", "get_projects"])}`,
@@ -269,8 +270,10 @@ mcpArgs: ({ url, serverName }) => [
 ```
 
 > Codex MCP is wired through launch-time config overrides for the session-scoped Streamable HTTP
-> endpoint. The marker scanner remains active as the fallback floor and to surface `idea.fallback_scan`
-> telemetry if the model emits markers instead of using tools.
+> endpoint. The protocol feature override is intentionally part of that MCP block: Codex 0.148.0
+> contains the 2026-07-28 client but otherwise starts remote servers through its legacy 2025-06-18
+> initialization path. The marker scanner remains active as the fallback floor and to surface
+> `idea.fallback_scan` telemetry if the model emits markers instead of using tools.
 
 **pi** — has **no MCP support by design** (pi's guidance: build a CLI tool or an extension
 instead). Resolved by #177 through pi's native extension seam instead of MCP config: `fileLaunch`
